@@ -25,6 +25,20 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Not authorised" }, { status: 401 });
   }
 
+  try {
+    return await collectAnalytics();
+  } catch (err) {
+    // e.g. createAdminClient throwing when env vars are missing. Return a
+    // clean 500 rather than letting the handler crash.
+    console.error("[admin/analytics] failed:", err);
+    return NextResponse.json(
+      { error: "Failed to load analytics" },
+      { status: 500 },
+    );
+  }
+}
+
+async function collectAnalytics() {
   const supabase = createAdminClient() as unknown as SupabaseClient;
   let schemaReady = true;
 
