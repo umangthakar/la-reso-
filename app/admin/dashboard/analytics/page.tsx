@@ -25,6 +25,7 @@ import {
   Tooltip,
 } from "recharts";
 import { adminGet } from "@/lib/admin-api";
+import { useIsMobile } from "@/lib/use-is-mobile";
 
 const WINE = "#873853";
 const BERRY = "#5C2A41";
@@ -98,6 +99,7 @@ function bucketLabel(key: string, g: Granularity): string {
 }
 
 export default function AnalyticsPage() {
+  const isMobile = useIsMobile();
   const [data, setData] = useState<Payload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -228,6 +230,8 @@ export default function AnalyticsPage() {
             fontWeight: 700,
             cursor: orders.length === 0 ? "not-allowed" : "pointer",
             whiteSpace: "nowrap",
+            minHeight: isMobile ? 44 : undefined,
+            width: isMobile ? "100%" : undefined,
           }}
         >
           Export CSV
@@ -249,7 +253,7 @@ export default function AnalyticsPage() {
           <button
             key={r.key}
             onClick={() => setRange(r.key)}
-            style={pill(range === r.key)}
+            style={{ ...pill(range === r.key), ...(isMobile ? { minHeight: 44 } : {}) }}
           >
             {r.label}
           </button>
@@ -269,7 +273,7 @@ export default function AnalyticsPage() {
           <h2 style={{ color: WINE, fontSize: "1.1rem", fontWeight: 800, margin: 0 }}>Revenue</h2>
           <div style={{ display: "flex", gap: 6 }}>
             {(["daily", "weekly", "monthly"] as Granularity[]).map((g) => (
-              <button key={g} onClick={() => setGranularity(g)} style={pill(granularity === g)}>
+              <button key={g} onClick={() => setGranularity(g)} style={{ ...pill(granularity === g), ...(isMobile ? { minHeight: 44 } : {}) }}>
                 {g[0].toUpperCase() + g.slice(1)}
               </button>
             ))}
@@ -299,24 +303,26 @@ export default function AnalyticsPage() {
           {topProducts.length === 0 ? (
             <div style={{ height: 220 }}><Empty label={loading ? "Loading…" : "No product sales in this period."} /></div>
           ) : (
-            <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 12 }}>
-              <thead>
-                <tr style={{ textAlign: "left", color: BERRY, opacity: 0.7, fontSize: "0.8rem" }}>
-                  <th style={th}>Product</th>
-                  <th style={{ ...th, textAlign: "right" }}>Units</th>
-                  <th style={{ ...th, textAlign: "right" }}>Revenue</th>
-                </tr>
-              </thead>
-              <tbody>
-                {topProducts.map((p) => (
-                  <tr key={p.name} style={{ borderTop: "1px solid #f0e6ea" }}>
-                    <td style={{ ...td, color: BERRY, fontWeight: 600 }}>{p.name}</td>
-                    <td style={{ ...td, textAlign: "right" }}>{p.units}</td>
-                    <td style={{ ...td, textAlign: "right", fontWeight: 700, color: WINE }}>{gbp.format(p.revenue)}</td>
+            <div style={{ overflowX: "auto", marginTop: 12 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr style={{ textAlign: "left", color: BERRY, opacity: 0.7, fontSize: "0.8rem" }}>
+                    <th style={th}>Product</th>
+                    <th style={{ ...th, textAlign: "right" }}>Units</th>
+                    <th style={{ ...th, textAlign: "right" }}>Revenue</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {topProducts.map((p) => (
+                    <tr key={p.name} style={{ borderTop: "1px solid #f0e6ea" }}>
+                      <td style={{ ...td, color: BERRY, fontWeight: 600 }}>{p.name}</td>
+                      <td style={{ ...td, textAlign: "right" }}>{p.units}</td>
+                      <td style={{ ...td, textAlign: "right", fontWeight: 700, color: WINE }}>{gbp.format(p.revenue)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
 

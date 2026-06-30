@@ -26,6 +26,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { adminGet, adminSend, adminUpload } from "@/lib/admin-api";
+import { useIsMobile } from "@/lib/use-is-mobile";
 
 const WINE = "#873853";
 const BERRY = "#5C2A41";
@@ -81,6 +82,7 @@ const EMPTY_FORM: FormState = {
 };
 
 export default function ProductsAdminPage() {
+  const isMobile = useIsMobile();
   const [products, setProducts] = useState<Product[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -241,7 +243,7 @@ export default function ProductsAdminPage() {
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
         <h1 style={{ color: WINE, fontSize: "1.8rem", fontWeight: 800, margin: 0 }}>Products</h1>
-        <button onClick={openAdd} style={primaryBtn}>+ Add product</button>
+        <button onClick={openAdd} style={{ ...primaryBtn, ...(isMobile ? { minHeight: 44, width: "100%" } : {}) }}>+ Add product</button>
       </div>
       <p style={{ color: BERRY, opacity: 0.7, marginTop: 4, fontSize: "0.9rem" }}>
         Drag the ⠿ handle to reorder. Toggle Visible to show/hide on the menu.
@@ -257,38 +259,57 @@ export default function ProductsAdminPage() {
         </p>
       ) : (
         <>
-          <div style={{ background: "white", borderRadius: 16, overflow: "auto", marginTop: 16, boxShadow: "0 10px 30px rgba(135,56,83,0.08)" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 820 }}>
-              <thead>
-                <tr style={{ background: "rgba(135,56,83,0.06)", textAlign: "left" }}>
-                  <th style={th}></th>
-                  <th style={th}>Image</th>
-                  <th style={th}>Name</th>
-                  <th style={th}>Category</th>
-                  <th style={th}>Price</th>
-                  <th style={th}>Badge</th>
-                  <th style={th}>Visible</th>
-                  <th style={th}>In Stock</th>
-                  <th style={{ ...th, textAlign: "right" }}>Actions</th>
-                </tr>
-              </thead>
-              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-                <SortableContext items={products.map((p) => p.id)} strategy={verticalListSortingStrategy}>
-                  <tbody>
-                    {products.map((p) => (
-                      <SortableRow
-                        key={p.id}
-                        product={p}
-                        onEdit={() => openEdit(p)}
-                        onDelete={() => handleDelete(p)}
-                        onToggle={(f) => toggleField(p, f)}
-                      />
-                    ))}
-                  </tbody>
-                </SortableContext>
-              </DndContext>
-            </table>
-          </div>
+          {isMobile ? (
+            /* Stacked card view — drag the ⠿ handle to reorder */
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+              <SortableContext items={products.map((p) => p.id)} strategy={verticalListSortingStrategy}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 16 }}>
+                  {products.map((p) => (
+                    <SortableCard
+                      key={p.id}
+                      product={p}
+                      onEdit={() => openEdit(p)}
+                      onDelete={() => handleDelete(p)}
+                      onToggle={(f) => toggleField(p, f)}
+                    />
+                  ))}
+                </div>
+              </SortableContext>
+            </DndContext>
+          ) : (
+            <div style={{ background: "white", borderRadius: 16, overflow: "auto", marginTop: 16, boxShadow: "0 10px 30px rgba(135,56,83,0.08)" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 820 }}>
+                <thead>
+                  <tr style={{ background: "rgba(135,56,83,0.06)", textAlign: "left" }}>
+                    <th style={th}></th>
+                    <th style={th}>Image</th>
+                    <th style={th}>Name</th>
+                    <th style={th}>Category</th>
+                    <th style={th}>Price</th>
+                    <th style={th}>Badge</th>
+                    <th style={th}>Visible</th>
+                    <th style={th}>In Stock</th>
+                    <th style={{ ...th, textAlign: "right" }}>Actions</th>
+                  </tr>
+                </thead>
+                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                  <SortableContext items={products.map((p) => p.id)} strategy={verticalListSortingStrategy}>
+                    <tbody>
+                      {products.map((p) => (
+                        <SortableRow
+                          key={p.id}
+                          product={p}
+                          onEdit={() => openEdit(p)}
+                          onDelete={() => handleDelete(p)}
+                          onToggle={(f) => toggleField(p, f)}
+                        />
+                      ))}
+                    </tbody>
+                  </SortableContext>
+                </DndContext>
+              </table>
+            </div>
+          )}
 
           {/* Pagination */}
           {totalPages > 1 && (
@@ -313,8 +334,8 @@ export default function ProductsAdminPage() {
       <CategoriesSection onRenamed={load} />
 
       {showForm && (
-        <div style={overlay} onClick={closeForm}>
-          <form onClick={(e) => e.stopPropagation()} onSubmit={handleSave} style={modal}>
+        <div style={{ ...overlay, ...(isMobile ? { padding: 0 } : {}) }} onClick={closeForm}>
+          <form onClick={(e) => e.stopPropagation()} onSubmit={handleSave} style={{ ...modal, ...(isMobile ? { maxWidth: "100%", width: "100%", height: "100vh", maxHeight: "100vh", borderRadius: 0 } : {}) }}>
             <h2 style={{ color: WINE, marginTop: 0, fontSize: "1.3rem" }}>
               {form.id ? "Edit product" : "Add product"}
             </h2>
@@ -381,8 +402,8 @@ export default function ProductsAdminPage() {
             </div>
 
             <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
-              <button type="button" onClick={closeForm} style={secondaryBtn}>Cancel</button>
-              <button type="submit" disabled={saving || uploading} style={{ ...primaryBtn, opacity: saving || uploading ? 0.6 : 1 }}>
+              <button type="button" onClick={closeForm} style={{ ...secondaryBtn, ...(isMobile ? { minHeight: 44, flex: 1 } : {}) }}>Cancel</button>
+              <button type="submit" disabled={saving || uploading} style={{ ...primaryBtn, opacity: saving || uploading ? 0.6 : 1, ...(isMobile ? { minHeight: 44, flex: 1 } : {}) }}>
                 {saving ? "Saving…" : "Save product"}
               </button>
             </div>
@@ -441,6 +462,81 @@ function SortableRow({
         <button onClick={onDelete} style={{ ...linkBtn, color: "#d9534f" }}>Delete</button>
       </td>
     </tr>
+  );
+}
+
+// ------------------------------------------------------------
+// Sortable card — mobile equivalent of SortableRow (label:value pairs)
+// ------------------------------------------------------------
+function SortableCard({
+  product: p,
+  onEdit,
+  onDelete,
+  onToggle,
+}: {
+  product: Product;
+  onEdit: () => void;
+  onDelete: () => void;
+  onToggle: (field: "visible" | "in_stock") => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: p.id,
+  });
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    background: isDragging ? "rgba(135,56,83,0.04)" : "white",
+    borderRadius: 14,
+    padding: "14px 16px",
+    boxShadow: "0 8px 24px rgba(135,56,83,0.08)",
+  };
+
+  return (
+    <div ref={setNodeRef} style={style}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <span
+          {...attributes}
+          {...listeners}
+          style={{ cursor: "grab", touchAction: "none", color: "rgba(135,56,83,0.5)", fontSize: "1.4rem", lineHeight: 1 }}
+        >
+          ⠿
+        </span>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        {p.image_url ? (
+          <img src={p.image_url} alt={p.name} style={{ width: 48, height: 48, objectFit: "cover", borderRadius: 8 }} />
+        ) : (
+          <div style={{ width: 48, height: 48, borderRadius: 8, background: "rgba(135,56,83,0.08)" }} />
+        )}
+        <span style={{ fontWeight: 700, color: BERRY, flex: 1 }}>{p.name}</span>
+      </div>
+
+      <CardField label="Category" value={p.category || "—"} />
+      <CardField label="Price" value={`£${Number(p.price).toFixed(2)}`} />
+      <CardField label="Badge" value={p.badge || "—"} />
+
+      <div style={{ display: "flex", gap: 20, marginTop: 12 }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, color: BERRY, fontWeight: 600, fontSize: "0.85rem" }}>
+          <Toggle on={p.visible} onClick={() => onToggle("visible")} /> Visible
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, color: BERRY, fontWeight: 600, fontSize: "0.85rem" }}>
+          <Toggle on={p.in_stock} onClick={() => onToggle("in_stock")} /> In stock
+        </label>
+      </div>
+
+      <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
+        <button onClick={onEdit} style={{ ...secondaryBtn, minHeight: 44, flex: 1 }}>Edit</button>
+        <button onClick={onDelete} style={{ ...secondaryBtn, minHeight: 44, flex: 1, borderColor: "#d9534f", color: "#d9534f" }}>Delete</button>
+      </div>
+    </div>
+  );
+}
+
+function CardField({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, marginTop: 8 }}>
+      <span style={{ fontSize: "0.78rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.03em", color: BERRY, opacity: 0.6 }}>{label}</span>
+      <span style={{ color: BERRY, fontWeight: 600, textAlign: "right" }}>{value}</span>
+    </div>
   );
 }
 
@@ -550,6 +646,7 @@ function CategoriesSection({ onRenamed }: { onRenamed: () => void }) {
               style={{
                 display: "flex",
                 alignItems: "center",
+                flexWrap: "wrap",
                 gap: 12,
                 padding: "12px 16px",
                 borderTop: i === 0 ? "none" : "1px solid rgba(135,56,83,0.08)",

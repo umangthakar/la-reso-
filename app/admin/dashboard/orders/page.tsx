@@ -15,6 +15,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { adminGet, adminSend } from "@/lib/admin-api";
+import { useIsMobile } from "@/lib/use-is-mobile";
 
 const WINE = "#873853";
 const BERRY = "#5C2A41";
@@ -77,6 +78,7 @@ function fmtDateTime(iso?: string | null) {
 }
 
 export default function OrdersAdminPage() {
+  const isMobile = useIsMobile();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -210,33 +212,42 @@ export default function OrdersAdminPage() {
 
       {error && <p style={errorBox}>{error}</p>}
 
-      {/* Filter bar */}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 16, alignItems: "flex-end" }}>
-        <div>
+      {/* Filter bar — side by side on desktop, stacked on mobile */}
+      <div
+        style={{
+          display: "flex",
+          flexDirection: isMobile ? "column" : "row",
+          flexWrap: isMobile ? "nowrap" : "wrap",
+          gap: 12,
+          marginTop: 16,
+          alignItems: isMobile ? "stretch" : "flex-end",
+        }}
+      >
+        <div style={{ width: isMobile ? "100%" : undefined }}>
           <label style={filterLabel}>Status</label>
-          <select style={filterInput} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+          <select style={{ ...filterInput, ...(isMobile ? mobileField : {}) }} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
             <option value="all">All statuses</option>
             {STATUS_ORDER.map((s) => (
               <option key={s} value={s}>{meta(s).label}</option>
             ))}
           </select>
         </div>
-        <div>
+        <div style={{ width: isMobile ? "100%" : undefined }}>
           <label style={filterLabel}>From</label>
-          <input type="date" style={filterInput} value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+          <input type="date" style={{ ...filterInput, ...(isMobile ? mobileField : {}) }} value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
         </div>
-        <div>
+        <div style={{ width: isMobile ? "100%" : undefined }}>
           <label style={filterLabel}>To</label>
-          <input type="date" style={filterInput} value={toDate} onChange={(e) => setToDate(e.target.value)} />
+          <input type="date" style={{ ...filterInput, ...(isMobile ? mobileField : {}) }} value={toDate} onChange={(e) => setToDate(e.target.value)} />
         </div>
-        <div style={{ flex: 1, minWidth: 180 }}>
+        <div style={{ flex: 1, minWidth: isMobile ? undefined : 180, width: isMobile ? "100%" : undefined }}>
           <label style={filterLabel}>Search customer</label>
-          <input style={{ ...filterInput, width: "100%" }} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Customer name…" />
+          <input style={{ ...filterInput, width: "100%", ...(isMobile ? mobileField : {}) }} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Customer name…" />
         </div>
         {(statusFilter !== "all" || fromDate || toDate || search) && (
           <button
             onClick={() => { setStatusFilter("all"); setFromDate(""); setToDate(""); setSearch(""); }}
-            style={secondaryBtn}
+            style={{ ...secondaryBtn, ...(isMobile ? { minHeight: 44, width: "100%" } : {}) }}
           >
             Clear
           </button>
@@ -251,40 +262,67 @@ export default function OrdersAdminPage() {
         </p>
       ) : (
         <>
-          <div style={{ background: "white", borderRadius: 16, overflow: "auto", marginTop: 16, boxShadow: "0 10px 30px rgba(135,56,83,0.08)" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 820 }}>
-              <thead>
-                <tr style={{ background: "rgba(135,56,83,0.06)", textAlign: "left" }}>
-                  <th style={th}>Order #</th>
-                  <th style={th}>Date</th>
-                  <th style={th}>Customer</th>
-                  <th style={th}>Delivery Date</th>
-                  <th style={th}>Status</th>
-                  <th style={{ ...th, textAlign: "right" }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pageItems.map((o) => (
-                  <tr
-                    key={o.id}
-                    onClick={() => setSelected(o)}
-                    style={{ borderTop: "1px solid rgba(135,56,83,0.08)", cursor: "pointer" }}
+          {isMobile ? (
+            /* Stacked card view — one card per order, label:value pairs */
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 16 }}>
+              {pageItems.map((o) => (
+                <div
+                  key={o.id}
+                  onClick={() => setSelected(o)}
+                  style={{ background: "white", borderRadius: 14, padding: "14px 16px", boxShadow: "0 8px 24px rgba(135,56,83,0.08)", cursor: "pointer" }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                    <span style={{ fontWeight: 700, fontFamily: "monospace", color: BERRY }}>{orderNumber(o)}</span>
+                    <StatusPill status={o.status} />
+                  </div>
+                  <CardRow label="Customer" value={o.customer_name} />
+                  <CardRow label="Order date" value={fmtDate(o.created_at)} />
+                  <CardRow label="Delivery date" value={fmtDate(o.delivery_date)} />
+                  <button
+                    onClick={(e) => { e.stopPropagation(); downloadInvoice(o); }}
+                    style={{ ...secondaryBtn, minHeight: 44, width: "100%", marginTop: 12 }}
                   >
-                    <td style={{ ...td, fontWeight: 700, fontFamily: "monospace" }}>{orderNumber(o)}</td>
-                    <td style={td}>{fmtDate(o.created_at)}</td>
-                    <td style={{ ...td, fontWeight: 600 }}>{o.customer_name}</td>
-                    <td style={td}>{fmtDate(o.delivery_date)}</td>
-                    <td style={td}><StatusPill status={o.status} /></td>
-                    <td style={{ ...td, textAlign: "right", whiteSpace: "nowrap" }}>
-                      <button onClick={(e) => { e.stopPropagation(); downloadInvoice(o); }} style={linkBtn}>
-                        Download Invoice
-                      </button>
-                    </td>
+                    Download Invoice
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ background: "white", borderRadius: 16, overflow: "auto", marginTop: 16, boxShadow: "0 10px 30px rgba(135,56,83,0.08)" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 820 }}>
+                <thead>
+                  <tr style={{ background: "rgba(135,56,83,0.06)", textAlign: "left" }}>
+                    <th style={th}>Order #</th>
+                    <th style={th}>Date</th>
+                    <th style={th}>Customer</th>
+                    <th style={th}>Delivery Date</th>
+                    <th style={th}>Status</th>
+                    <th style={{ ...th, textAlign: "right" }}>Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {pageItems.map((o) => (
+                    <tr
+                      key={o.id}
+                      onClick={() => setSelected(o)}
+                      style={{ borderTop: "1px solid rgba(135,56,83,0.08)", cursor: "pointer" }}
+                    >
+                      <td style={{ ...td, fontWeight: 700, fontFamily: "monospace" }}>{orderNumber(o)}</td>
+                      <td style={td}>{fmtDate(o.created_at)}</td>
+                      <td style={{ ...td, fontWeight: 600 }}>{o.customer_name}</td>
+                      <td style={td}>{fmtDate(o.delivery_date)}</td>
+                      <td style={td}><StatusPill status={o.status} /></td>
+                      <td style={{ ...td, textAlign: "right", whiteSpace: "nowrap" }}>
+                        <button onClick={(e) => { e.stopPropagation(); downloadInvoice(o); }} style={linkBtn}>
+                          Download Invoice
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
 
           {/* Pagination */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 16, color: BERRY }}>
@@ -307,7 +345,7 @@ export default function OrdersAdminPage() {
       {/* Detail drawer */}
       {selected && (
         <div style={drawerOverlay} onClick={() => setSelected(null)}>
-          <aside style={drawer} onClick={(e) => e.stopPropagation()}>
+          <aside style={{ ...drawer, ...(isMobile ? { maxWidth: "100%", padding: "1.25rem" } : {}) }} onClick={(e) => e.stopPropagation()}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <h2 style={{ color: WINE, margin: 0, fontSize: "1.3rem", fontFamily: "monospace" }}>{orderNumber(selected)}</h2>
               <button onClick={() => setSelected(null)} style={{ ...linkBtn, marginLeft: 0, fontSize: "1.4rem" }}>×</button>
@@ -334,7 +372,8 @@ export default function OrdersAdminPage() {
                     disabled={updating || active}
                     onClick={() => updateStatus(selected, s)}
                     style={{
-                      padding: "8px 14px",
+                      padding: isMobile ? "10px 16px" : "8px 14px",
+                      minHeight: isMobile ? 44 : undefined,
                       borderRadius: 999,
                       border: active ? `2px solid ${m.fg}` : "1px solid rgba(135,56,83,0.25)",
                       background: active ? m.bg : "white",
@@ -350,12 +389,21 @@ export default function OrdersAdminPage() {
               })}
             </div>
 
-            <button onClick={() => downloadInvoice(selected)} style={{ ...primaryBtn, marginTop: 24, width: "100%" }}>
+            <button onClick={() => downloadInvoice(selected)} style={{ ...primaryBtn, marginTop: 24, width: "100%", minHeight: isMobile ? 44 : undefined }}>
               Download Invoice (PDF)
             </button>
           </aside>
         </div>
       )}
+    </div>
+  );
+}
+
+function CardRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, marginTop: 8 }}>
+      <span style={{ fontSize: "0.78rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.03em", color: BERRY, opacity: 0.6 }}>{label}</span>
+      <span style={{ color: BERRY, fontWeight: 600, textAlign: "right" }}>{value}</span>
     </div>
   );
 }
@@ -373,6 +421,8 @@ const th: React.CSSProperties = { padding: "12px 14px", fontSize: "0.8rem", font
 const td: React.CSSProperties = { padding: "12px 14px", fontSize: "0.92rem", color: BERRY, verticalAlign: "middle" };
 const filterLabel: React.CSSProperties = { display: "block", fontSize: "0.78rem", fontWeight: 700, color: BERRY, opacity: 0.7, marginBottom: 4 };
 const filterInput: React.CSSProperties = { padding: "9px 11px", borderRadius: 10, border: "1px solid rgba(135,56,83,0.25)", color: BERRY, fontSize: "0.9rem", background: "white", outline: "none" };
+// Applied to filter fields on mobile: full width + 44px tap target.
+const mobileField: React.CSSProperties = { width: "100%", minHeight: 44, boxSizing: "border-box" };
 const primaryBtn: React.CSSProperties = { padding: "11px 18px", borderRadius: 10, border: "none", background: WINE, color: "white", fontWeight: 700, cursor: "pointer" };
 const secondaryBtn: React.CSSProperties = { padding: "9px 16px", borderRadius: 10, border: `1px solid ${WINE}`, background: "transparent", color: WINE, fontWeight: 700, cursor: "pointer" };
 const linkBtn: React.CSSProperties = { background: "none", border: "none", color: WINE, fontWeight: 700, cursor: "pointer", marginLeft: 12, fontSize: "0.9rem" };
