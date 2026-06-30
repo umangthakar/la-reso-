@@ -1,0 +1,90 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Soft Blush Cream base, Dark Berry foreground */
+    --background: 18 53% 95%;
+    --foreground: 338 46% 26%;
+    --radius: 1.25rem;
+  }
+
+  * {
+    @apply border-wine/10;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  /* Keep anchored sections clear of the sticky header */
+  section[id],
+  :target {
+    scroll-margin-top: 7rem;
+  }
+
+  body {
+    @apply bg-blush text-darkberry-light font-sans antialiased overflow-x-hidden;
+    background-image: radial-gradient(
+        circle at 12% 18%,
+        rgba(213, 164, 164, 0.4),
+        transparent 38%
+      ),
+      radial-gradient(
+        circle at 88% 12%,
+        rgba(179, 142, 145, 0.32),
+        transparent 40%
+      ),
+      radial-gradient(
+        circle at 75% 85%,
+        rgba(135, 56, 83, 0.16),
+        transparent 45%
+      );
+    background-attachment: fixed;
+  }
+
+  ::selection {
+    @apply bg-wine/25 text-darkberry;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .clay-surface {
+    @apply bg-blush-50 shadow-clay rounded-clay;
+  }
+
+  .glass {
+    background: rgba(249, 238, 234, 0.6);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+  }
+
+  .gradient-text {
+    @apply bg-gradient-to-br from-wine via-plum to-darkberry bg-clip-text text-transparent;
+  }
+
+  .section-padding {
+    @apply py-10 md:py-12;
+  }
+}
+
+/* Pretty pastel scrollbar */
+::-webkit-scrollbar {
+  width: 12px;
+}
+::-webkit-scrollbar-track {
+  background: #f9eeea;
+}
+::-webkit-scrollbar-thumb {
+  background: #d5a4a4;
+  border-radius: 999px;
+  border: 3px solid #f9eeea;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #873853;
+}

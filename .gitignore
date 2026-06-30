@@ -1,0 +1,15 @@
+/node_modules
+/.next/
+/out/
+/build
+*.pem
+.env
+.env*.local
+.DS_Store
+*.tsbuildinfo
+next-env.d.ts
+.vercel
+
+# Oversized, unused 3D asset — exceeds GitHub's 100 MB file limit.
+# Kept locally; not referenced anywhere in the app.
+/public/models/cake.glb
