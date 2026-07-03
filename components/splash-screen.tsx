@@ -147,23 +147,40 @@ export function SplashScreen({ onComplete }: { onComplete: () => void }) {
       if (!video) return;
       setClicked(true);
       setPlaying(true);
-      video.muted = false;
-      video.volume = 0.7;
-      setMuted(false);
+      // Keep the video muted: browsers only allow programmatic autoplay for
+      // muted videos. Unmuting here (without a user gesture) is what caused the
+      // splash to hang on Vercel first visits.
       video.currentTime = 0;
       void video.play().catch(() => {});
     }, 1000);
     return () => clearTimeout(timer);
   }, [isMobile]);
 
-  // Redirect to the menu the moment the video finishes playing.
+  // Redirect to the menu the moment the video finishes — or the moment it
+  // fails. `error`/`stalled` cover a broken or non-buffering video so the
+  // splash can never trap the visitor.
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-    const handleEnded = () => onComplete();
-    video.addEventListener("ended", handleEnded);
-    return () => video.removeEventListener("ended", handleEnded);
+    const finish = () => onComplete();
+    video.addEventListener("ended", finish);
+    video.addEventListener("error", finish);
+    video.addEventListener("stalled", finish);
+    return () => {
+      video.removeEventListener("ended", finish);
+      video.removeEventListener("error", finish);
+      video.removeEventListener("stalled", finish);
+    };
   }, [onComplete]);
+
+  // Hard safety net: once the video starts, never let the splash hang for more
+  // than 8 seconds. Covers browsers that block autoplay outright (video never
+  // fires `ended`) so the visitor always reaches the menu.
+  useEffect(() => {
+    if (isMobile || !playing) return;
+    const timer = setTimeout(() => onComplete(), 8000);
+    return () => clearTimeout(timer);
+  }, [isMobile, playing, onComplete]);
 
   // Double-click / double-tap anywhere skips straight to the menu.
   const handleDoubleClick = () => onComplete();
@@ -211,8 +228,10 @@ export function SplashScreen({ onComplete }: { onComplete: () => void }) {
         <video
           ref={videoRef}
           src={isMobile ? undefined : videoSrc}
-          playsInline
           preload={isMobile ? "none" : "auto"}
+          playsInline
+          muted={muted}
+          autoPlay
           className="absolute inset-0 z-0 h-full w-full object-cover"
           style={{ display: playing ? "block" : "none" }}
         />

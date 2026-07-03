@@ -47,6 +47,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${fraunces.variable} ${nunito.variable}`}>
+      <head>
+        <link rel="preload" as="video" type="video/mp4" href="/hero-animation.mp4" />
+      </head>
       <body>
         {/* The announcement bar fetches its own data (site_settings). Isolate it
             in a Suspense boundary so a slow or failing lookup can never block or
