@@ -30,7 +30,15 @@ type Order = {
   status: string;
   created_at: string;
   delivery_date?: string | null;
+  total?: number | null;
+  amount?: number | null;
 };
+
+// Order total (paid orders carry one; older enquiry orders don't).
+function fmtMoney(o: Order): string {
+  const v = o.total ?? o.amount;
+  return v == null ? "—" : `£${Number(v).toFixed(2)}`;
+}
 
 const STATUS_ORDER = ["received", "preparing", "out_for_delivery", "delivered", "cancelled"];
 
@@ -278,6 +286,7 @@ export default function OrdersAdminPage() {
                   <CardRow label="Customer" value={o.customer_name} />
                   <CardRow label="Order date" value={fmtDate(o.created_at)} />
                   <CardRow label="Delivery date" value={fmtDate(o.delivery_date)} />
+                  <CardRow label="Total" value={fmtMoney(o)} />
                   <button
                     onClick={(e) => { e.stopPropagation(); downloadInvoice(o); }}
                     style={{ ...secondaryBtn, minHeight: 44, width: "100%", marginTop: 12 }}
@@ -296,6 +305,7 @@ export default function OrdersAdminPage() {
                     <th style={th}>Date</th>
                     <th style={th}>Customer</th>
                     <th style={th}>Delivery Date</th>
+                    <th style={{ ...th, textAlign: "right" }}>Total</th>
                     <th style={th}>Status</th>
                     <th style={{ ...th, textAlign: "right" }}>Actions</th>
                   </tr>
@@ -311,6 +321,7 @@ export default function OrdersAdminPage() {
                       <td style={td}>{fmtDate(o.created_at)}</td>
                       <td style={{ ...td, fontWeight: 600 }}>{o.customer_name}</td>
                       <td style={td}>{fmtDate(o.delivery_date)}</td>
+                      <td style={{ ...td, textAlign: "right", fontWeight: 700 }}>{fmtMoney(o)}</td>
                       <td style={td}><StatusPill status={o.status} /></td>
                       <td style={{ ...td, textAlign: "right", whiteSpace: "nowrap" }}>
                         <button onClick={(e) => { e.stopPropagation(); downloadInvoice(o); }} style={linkBtn}>
@@ -354,6 +365,7 @@ export default function OrdersAdminPage() {
 
             <DetailRow label="Order date" value={fmtDateTime(selected.created_at)} />
             <DetailRow label="Delivery date" value={fmtDate(selected.delivery_date)} />
+            <DetailRow label="Total paid" value={fmtMoney(selected)} />
             <div style={divider} />
             <DetailRow label="Customer" value={selected.customer_name} />
             <DetailRow label="Email" value={selected.email} />

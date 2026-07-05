@@ -14,6 +14,19 @@ import { round2 } from "@/lib/pricing";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * True when an insert failed because a column doesn't exist on this DB
+ * (e.g. the setup SQL hasn't been re-run to add the newer order columns).
+ * Lets us retry with the guaranteed core columns instead of failing.
+ */
+function isMissingColumn(err: { code?: string; message?: string } | null): boolean {
+  if (!err) return false;
+  if (err.code === "PGRST204") return true; // column not in PostgREST schema cache
+  return /column .* does not exist|could not find the .* column/i.test(
+    err.message ?? "",
+  );
+}
+
 type Body = {
   paymentIntentId?: string;
   customer?: { name?: string; email?: string; phone?: string };
@@ -81,30 +94,56 @@ export async function POST(req: Request) {
 
   const addr = body.address ?? {};
   const deliveryAddress = [addr.line, addr.city].filter(Boolean).join(", ");
+  const postcode = String(addr.postcode ?? "").trim();
   const instructions = String(body.specialInstructions ?? "").trim() || null;
 
-  // 3) Insert the order. status/payment_method match the admin panel + schema.
-  const { data: order, error: orderErr } = await supabase
+  // Columns present on every version of the orders table.
+  const coreOrder = {
+    customer_name: String(body.customer?.name ?? "").trim(),
+    email: String(body.customer?.email ?? "").trim(),
+    phone: String(body.customer?.phone ?? "").trim(),
+    message: instructions, // surfaced by the admin Orders drawer
+    delivery_date: body.deliveryDate || null,
+    subtotal: metaSubtotal,
+    delivery_charge: metaDelivery,
+    total: paidTotal,
+    amount: paidTotal,
+    status: "received",
+    stripe_payment_intent: paymentIntentId,
+  };
+
+  // Extra columns added by the latest setup SQL (may not exist yet).
+  const fullOrder = {
+    ...coreOrder,
+    payment_method: "stripe",
+    delivery_address: deliveryAddress || null,
+    postcode: postcode || null,
+    special_instructions: instructions,
+  };
+
+  // 3) Insert the order. If the DB predates the newer columns, retry with
+  //    the core set — folding the address into `message` so the baker still
+  //    sees where to deliver — instead of failing the whole order.
+  let { data: order, error: orderErr } = await supabase
     .from("orders")
-    .insert({
-      customer_name: String(body.customer?.name ?? "").trim(),
-      email: String(body.customer?.email ?? "").trim(),
-      phone: String(body.customer?.phone ?? "").trim(),
-      delivery_address: deliveryAddress || null,
-      postcode: String(addr.postcode ?? "").trim() || null,
-      special_instructions: instructions,
-      message: instructions, // surfaced by the admin Orders drawer
-      delivery_date: body.deliveryDate || null,
-      subtotal: metaSubtotal,
-      delivery_charge: metaDelivery,
-      total: paidTotal,
-      amount: paidTotal,
-      status: "received",
-      payment_method: "stripe",
-      stripe_payment_intent: paymentIntentId,
-    })
+    .insert(fullOrder)
     .select("id")
     .single();
+
+  if (orderErr && isMissingColumn(orderErr)) {
+    const addressNote = deliveryAddress
+      ? `Deliver to: ${deliveryAddress}${postcode ? ` ${postcode}` : ""}`
+      : "";
+    const fallbackOrder = {
+      ...coreOrder,
+      message: [instructions, addressNote].filter(Boolean).join("\n\n") || null,
+    };
+    ({ data: order, error: orderErr } = await supabase
+      .from("orders")
+      .insert(fallbackOrder)
+      .select("id")
+      .single());
+  }
 
   if (orderErr || !order) {
     return NextResponse.json(

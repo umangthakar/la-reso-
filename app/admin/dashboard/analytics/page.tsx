@@ -243,7 +243,7 @@ export default function AnalyticsPage() {
       {data && !data.schemaReady && (
         <p style={{ background: "#fff4e5", color: "#92400e", padding: "10px 14px", borderRadius: 10, fontWeight: 600 }}>
           Revenue, product and zone data is empty until you run{" "}
-          <code>supabase/sql/08_analytics_schema.sql</code> in the Supabase SQL editor. Order volume still works.
+          <code>supabase/sql/00_full_setup.sql</code> in the Supabase SQL editor. Order volume still works.
         </p>
       )}
 

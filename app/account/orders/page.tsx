@@ -11,11 +11,9 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { Package, ChevronLeft, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/use-auth";
-import { createClient } from "@/utils/supabase/client";
 import { money } from "@/lib/pricing";
 
 type OrderRow = {
@@ -61,15 +59,18 @@ export default function OrdersPage() {
     if (!ready || !user) return;
     let cancelled = false;
     (async () => {
-      const supabase = createClient() as unknown as SupabaseClient;
-      const { data } = await supabase
-        .from("orders")
-        .select("id,status,created_at,delivery_date,total,amount")
-        .eq("email", user.email)
-        .order("created_at", { ascending: false });
-      if (cancelled) return;
-      setOrders((data ?? []) as OrderRow[]);
-      setLoading(false);
+      try {
+        // Server route authenticates via the session and reads with the
+        // service role, so it works even without the email RLS policy.
+        const res = await fetch("/api/account/orders");
+        const data = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        setOrders(Array.isArray(data.orders) ? (data.orders as OrderRow[]) : []);
+      } catch {
+        if (!cancelled) setOrders([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     })();
     return () => {
       cancelled = true;

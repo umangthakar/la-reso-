@@ -21,7 +21,7 @@ export async function GET(req: Request) {
   // old select(*) did) so the page still works before that migration runs.
   const full = await supabase
     .from("orders")
-    .select("id,customer_name,email,phone,message,status,created_at,delivery_date")
+    .select("id,customer_name,email,phone,message,status,created_at,delivery_date,total,amount")
     .order("created_at", { ascending: false });
 
   let orders: Record<string, unknown>[] = [];
