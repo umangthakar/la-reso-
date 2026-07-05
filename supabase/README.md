@@ -5,8 +5,8 @@ Backend wiring for the existing Next.js app. **No frontend components were touch
 ## Layout
 
 ```
-supabase/sql/01_schema.sql            tables, indexes, triggers
-supabase/sql/02_rls_and_realtime.sql  RLS policies + realtime publication
+supabase/sql/00_full_setup.sql        complete idempotent setup: tables, indexes, triggers,
+                                      RLS, realtime, storage buckets + seed data (run this)
 lib/supabase/database.types.ts        TS types (regenerate with `npm run gen:types`)
 lib/supabase/client.ts                public anon client + per-order tracking client
 lib/supabase/server.ts                service-role client — server-only, RLS-bypassing
@@ -17,8 +17,8 @@ scripts/test-rls.mjs                   RLS isolation test (`npm run test:rls`)
 
 ## Setup order (once keys are available)
 
-1. Run `supabase/sql/01_schema.sql` then `02_rls_and_realtime.sql` in the SQL Editor (in that order).
-2. Copy `.env.local.example` → `.env.local`, fill in URL + anon + service-role keys + project ref.
+1. Run `supabase/sql/00_full_setup.sql` in the SQL Editor (single idempotent script — safe to re-run).
+2. Copy `.env.local.example` → `.env.local`, fill in URL + publishable + service-role keys + project ref.
 3. `npm run gen:types` — regenerate types from the live DB (drop-in replacement; the hand-authored file already matches the CLI shape).
 4. `npm run test:rls` — must print **ALL RLS CHECKS PASSED** before considering this done.
 
