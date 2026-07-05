@@ -7,7 +7,7 @@
 // and the customer is sent to /order-confirmation/[orderId].
 // ============================================================
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -18,8 +18,11 @@ import {
   useStripe,
 } from "@stripe/react-stripe-js";
 import type { Appearance } from "@stripe/stripe-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { Check, ChevronLeft, Lock, Loader2, ShoppingBag } from "lucide-react";
 import { useCart } from "@/components/cart/cart-context";
+import { useAuth } from "@/lib/use-auth";
+import { createClient } from "@/utils/supabase/client";
 import { getStripePromise, stripeConfigured } from "@/lib/stripe-client";
 import { money } from "@/lib/pricing";
 
@@ -57,6 +60,7 @@ function toOrderNumber(id: string): string {
 export default function CheckoutPage() {
   const router = useRouter();
   const { items, subtotal, deliveryFee, total, count, clearCart } = useCart();
+  const { user, ready } = useAuth();
 
   const [step, setStep] = useState(1);
   const [form, setForm] = useState<Form>({
@@ -75,6 +79,43 @@ export default function CheckoutPage() {
   const [loadingIntent, setLoadingIntent] = useState(false);
 
   const set = (k: keyof Form, v: string) => setForm((f) => ({ ...f, [k]: v }));
+
+  // Pre-fill from the signed-in customer's saved profile (once), so returning
+  // customers don't retype their details. Only fills fields left blank.
+  const prefilled = useRef(false);
+  useEffect(() => {
+    if (!ready || !user || prefilled.current) return;
+    prefilled.current = true;
+    (async () => {
+      const supabase = createClient() as unknown as SupabaseClient;
+      const { data } = await supabase
+        .from("profiles")
+        .select("first_name,last_name,phone,default_address")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      const fullName =
+        [data?.first_name, data?.last_name].filter(Boolean).join(" ").trim() ||
+        user.name;
+      const a = (data?.default_address ?? {}) as {
+        line1?: string;
+        street?: string;
+        city?: string;
+        postcode?: string;
+      };
+      const line = [a.line1, a.street].filter(Boolean).join(", ");
+
+      setForm((f) => ({
+        ...f,
+        name: f.name || fullName,
+        email: f.email || user.email,
+        phone: f.phone || data?.phone || "",
+        address: f.address || line,
+        city: f.city || a.city || "",
+        postcode: f.postcode || (a.postcode ?? ""),
+      }));
+    })();
+  }, [ready, user]);
 
   const step1Valid =
     form.name.trim() !== "" && EMAIL_RE.test(form.email) && form.phone.trim() !== "";

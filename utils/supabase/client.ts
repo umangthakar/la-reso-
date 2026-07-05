@@ -12,6 +12,7 @@
 // ============================================================
 
 import { createBrowserClient } from "@supabase/ssr";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 
 /**
@@ -33,8 +34,16 @@ function publicEnv(): { url: string; key: string } {
   return { url, key };
 }
 
-/** Create a browser Supabase client bound to the publishable key. */
-export function createClient() {
-  const { url, key } = publicEnv();
-  return createBrowserClient<Database>(url, key);
+// Memoise a single browser client for the whole tab. Reusing one instance
+// avoids the "Multiple GoTrueClient instances" warning and keeps a single
+// auth session/subscription shared across the storefront.
+let browserClient: SupabaseClient<Database> | null = null;
+
+/** Get the shared browser Supabase client, bound to the publishable key. */
+export function createClient(): SupabaseClient<Database> {
+  if (!browserClient) {
+    const { url, key } = publicEnv();
+    browserClient = createBrowserClient<Database>(url, key);
+  }
+  return browserClient;
 }

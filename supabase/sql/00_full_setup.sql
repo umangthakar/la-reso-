@@ -232,6 +232,21 @@ alter table public.site_settings add column if not exists delivery_days    jsonb
 alter table public.site_settings add column if not exists daily_order_cap  integer;
 alter table public.site_settings add column if not exists stripe_config    jsonb;
 
+-- ------------------------------------------------------------
+-- PROFILES  (customer accounts — one row per authenticated user)
+-- Populated by the /account/complete-profile page after Google login.
+-- default_address jsonb: { line1, street, city, postcode }.
+-- ------------------------------------------------------------
+create table if not exists public.profiles (
+  id              uuid primary key references auth.users(id) on delete cascade,
+  first_name      text,
+  last_name       text,
+  phone           text,
+  default_address jsonb,
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now()
+);
+
 
 -- ============================================================
 -- 3. INDEXES  (fast lookups: category, status, created_at, email)
@@ -274,6 +289,10 @@ create trigger trg_orders_updated before update on public.orders
 
 drop trigger if exists trg_site_settings_updated on public.site_settings;
 create trigger trg_site_settings_updated before update on public.site_settings
+  for each row execute function public.set_updated_at();
+
+drop trigger if exists trg_profiles_updated on public.profiles;
+create trigger trg_profiles_updated before update on public.profiles
   for each row execute function public.set_updated_at();
 
 -- Auto-log a row into order_status_history whenever an order's status
@@ -375,6 +394,34 @@ create policy "Read own order status history"
       where tracking_token = current_setting('request.headers', true)::json->>'x-tracking-token'
     )
   );
+
+-- ORDERS — a signed-in customer can read the orders placed with their
+-- own (verified) email. Powers the "My Orders" account page.
+drop policy if exists "Users read own orders by email" on public.orders;
+create policy "Users read own orders by email"
+  on public.orders for select
+  using (auth.jwt() ->> 'email' = email);
+
+-- ------------------------------------------------------------
+-- PROFILES — each user manages ONLY their own row (id = auth.uid()).
+-- ------------------------------------------------------------
+alter table public.profiles enable row level security;
+
+drop policy if exists "Users read own profile" on public.profiles;
+create policy "Users read own profile"
+  on public.profiles for select
+  using (auth.uid() = id);
+
+drop policy if exists "Users insert own profile" on public.profiles;
+create policy "Users insert own profile"
+  on public.profiles for insert
+  with check (auth.uid() = id);
+
+drop policy if exists "Users update own profile" on public.profiles;
+create policy "Users update own profile"
+  on public.profiles for update
+  using (auth.uid() = id)
+  with check (auth.uid() = id);
 
 
 -- ============================================================

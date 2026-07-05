@@ -1,57 +1,85 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+// ============================================================
+// Le Rasa Bakery — authentication hook (Supabase Auth, Google OAuth)
+// ------------------------------------------------------------
+// Real auth backed by Supabase. Exposes the current user (derived
+// from the session), a Google sign-in trigger, and sign-out. Kept a
+// small, stable surface so the navbar and account pages can consume
+// it without knowing about Supabase.
+// ============================================================
 
-// Demo-only, client-side "auth". A fake user object is stashed in localStorage
-// so the account pages have something to render. No real authentication yet.
-export type DemoUser = {
+import { useCallback, useEffect, useState } from "react";
+import type { User } from "@supabase/supabase-js";
+import { createClient } from "@/utils/supabase/client";
+
+export type AuthUser = {
+  id: string;
   name: string;
   email: string;
+  avatar?: string;
 };
 
-const STORAGE_KEY = "lerasa_user";
-// Fired on the same tab whenever we change the stored user, so every hook
-// instance (navbar, account page, …) stays in sync without a full reload.
-const AUTH_EVENT = "lerasa-auth-change";
-
-function readUser(): DemoUser | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as DemoUser) : null;
-  } catch {
-    return null;
-  }
+/** Derive a friendly display user from a Supabase auth user. */
+function mapUser(u: User | null): AuthUser | null {
+  if (!u) return null;
+  const meta = u.user_metadata ?? {};
+  const name =
+    (meta.full_name as string) ||
+    (meta.name as string) ||
+    (u.email ? u.email.split("@")[0] : "") ||
+    "There";
+  return {
+    id: u.id,
+    name,
+    email: u.email ?? "",
+    avatar: (meta.avatar_url as string) || (meta.picture as string) || undefined,
+  };
 }
 
 export function useAuth() {
-  const [user, setUser] = useState<DemoUser | null>(null);
-  // Avoid a hydration mismatch: nothing is known until we've read localStorage.
+  const [user, setUser] = useState<AuthUser | null>(null);
+  // `ready` stays false until we've resolved the initial session, so the UI
+  // can avoid a flash of the signed-out state on first paint.
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    setUser(readUser());
-    setReady(true);
+    const supabase = createClient();
+    let mounted = true;
 
-    const sync = () => setUser(readUser());
-    window.addEventListener(AUTH_EVENT, sync);
-    // Keep other tabs in sync too.
-    window.addEventListener("storage", sync);
+    supabase.auth.getUser().then(({ data }) => {
+      if (!mounted) return;
+      setUser(mapUser(data.user));
+      setReady(true);
+    });
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(mapUser(session?.user ?? null));
+      setReady(true);
+    });
+
     return () => {
-      window.removeEventListener(AUTH_EVENT, sync);
-      window.removeEventListener("storage", sync);
+      mounted = false;
+      sub.subscription.unsubscribe();
     };
   }, []);
 
-  const login = useCallback((next: DemoUser) => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-    window.dispatchEvent(new Event(AUTH_EVENT));
+  /** Kick off Google OAuth. Returns to /auth/callback which decides where next. */
+  const signInWithGoogle = useCallback(async (next = "/account") => {
+    const supabase = createClient();
+    const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`;
+    await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo },
+    });
   }, []);
 
-  const logout = useCallback(() => {
-    window.localStorage.removeItem(STORAGE_KEY);
-    window.dispatchEvent(new Event(AUTH_EVENT));
+  const signOut = useCallback(async () => {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    setUser(null);
   }, []);
 
-  return { user, ready, login, logout };
+  // `logout` kept as an alias for existing callers.
+  return { user, ready, signInWithGoogle, signOut, logout: signOut };
 }

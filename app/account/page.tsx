@@ -80,7 +80,7 @@ export default function AccountPage() {
             </p>
           </div>
           <Button asChild variant="secondary" size="sm" className="shrink-0">
-            <Link href="/account/settings">
+            <Link href="/account/complete-profile">
               <Pencil className="h-4 w-4" />
               <span className="hidden sm:inline">Edit Profile</span>
             </Link>

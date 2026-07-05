@@ -1,55 +1,61 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
-import Link from "next/link";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { motion, AnimatePresence } from "framer-motion";
-import { Cake, Mail, Lock, User, ArrowRight } from "lucide-react";
+import { motion } from "framer-motion";
+import { Cake, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { useAuth } from "@/lib/use-auth";
 
-type Mode = "login" | "signup";
+/** Inline Google "G" mark (no external asset — CSP-safe). */
+function GoogleMark({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        fill="#4285F4"
+        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1Z"
+      />
+      <path
+        fill="#34A853"
+        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84A11 11 0 0 0 12 23Z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M5.84 14.1a6.6 6.6 0 0 1 0-4.2V7.06H2.18a11 11 0 0 0 0 9.88l3.66-2.84Z"
+      />
+      <path
+        fill="#EA4335"
+        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84C6.71 7.3 9.14 5.38 12 5.38Z"
+      />
+    </svg>
+  );
+}
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login } = useAuth();
-  const [mode, setMode] = useState<Mode>("login");
+  const { user, ready, signInWithGoogle } = useAuth();
+  const [signingIn, setSigningIn] = useState(false);
+  const [authError, setAuthError] = useState(false);
 
-  // Login fields
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  // Read a ?error= flag from the OAuth callback without useSearchParams
+  // (avoids the Suspense-boundary requirement during static generation).
+  useEffect(() => {
+    setAuthError(new URLSearchParams(window.location.search).has("error"));
+  }, []);
 
-  // Signup fields
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
-  const [signupEmail, setSignupEmail] = useState("");
-  const [signupPassword, setSignupPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [error, setError] = useState("");
+  // Already signed in? Skip the login screen.
+  useEffect(() => {
+    if (ready && user) router.replace("/account");
+  }, [ready, user, router]);
 
-  function handleLogin(e: FormEvent) {
-    e.preventDefault();
-    // Demo: accept anything, mint a fake user with a friendly default name.
-    login({ name: "Jane Smith", email: email.trim() });
-    router.push("/account");
-  }
-
-  function handleSignup(e: FormEvent) {
-    e.preventDefault();
-    if (signupPassword !== confirmPassword) {
-      setError("Passwords don't match.");
-      return;
+  async function handleGoogle() {
+    setSigningIn(true);
+    try {
+      await signInWithGoogle("/account");
+      // A full-page redirect to Google follows; keep the spinner meanwhile.
+    } catch {
+      setSigningIn(false);
     }
-    setError("");
-    const name = `${firstName.trim()} ${lastName.trim()}`.trim() || "Jane Smith";
-    login({ name, email: signupEmail.trim() });
-    router.push("/account");
-  }
-
-  function continueAsGuest() {
-    router.push("/menu");
   }
 
   return (
@@ -65,146 +71,37 @@ export default function LoginPage() {
           className="w-full max-w-md rounded-clay bg-blush-50 p-7 shadow-clay sm:p-9"
         >
           {/* Brand mark */}
-          <div className="mb-6 flex flex-col items-center text-center">
+          <div className="mb-7 flex flex-col items-center text-center">
             <span className="grid h-14 w-14 place-items-center rounded-2xl bg-wine text-blush-50 shadow-clay-sm">
               <Cake className="h-7 w-7" />
             </span>
             <h1 className="mt-4 font-display text-2xl font-semibold text-darkberry sm:text-3xl">
-              {mode === "login" ? "Welcome back" : "Create your account"}
+              Welcome to Le Rasa
             </h1>
             <p className="mt-1 text-sm text-darkberry-light">
-              {mode === "login"
-                ? "Sign in to track orders and save your favourites."
-                : "Join Le Rasa for a sweeter shopping experience."}
+              Sign in to track orders and save your details for next time.
             </p>
           </div>
 
-          <AnimatePresence mode="wait">
-            {mode === "login" ? (
-              <motion.form
-                key="login"
-                initial={{ opacity: 0, x: -12 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -12 }}
-                transition={{ duration: 0.25 }}
-                onSubmit={handleLogin}
-                className="space-y-4"
-              >
-                <Field
-                  id="email"
-                  label="Email"
-                  type="email"
-                  icon={Mail}
-                  value={email}
-                  onChange={setEmail}
-                  placeholder="you@example.com"
-                  autoComplete="email"
-                  required
-                />
-                <Field
-                  id="password"
-                  label="Password"
-                  type="password"
-                  icon={Lock}
-                  value={password}
-                  onChange={setPassword}
-                  placeholder="••••••••"
-                  autoComplete="current-password"
-                  required
-                />
-                <Button type="submit" className="w-full" size="lg">
-                  Sign In
-                  <ArrowRight className="h-4 w-4" />
-                </Button>
-              </motion.form>
-            ) : (
-              <motion.form
-                key="signup"
-                initial={{ opacity: 0, x: 12 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: 12 }}
-                transition={{ duration: 0.25 }}
-                onSubmit={handleSignup}
-                className="space-y-4"
-              >
-                <div className="grid grid-cols-2 gap-3">
-                  <Field
-                    id="firstName"
-                    label="First name"
-                    icon={User}
-                    value={firstName}
-                    onChange={setFirstName}
-                    placeholder="Jane"
-                    autoComplete="given-name"
-                    required
-                  />
-                  <Field
-                    id="lastName"
-                    label="Last name"
-                    icon={User}
-                    value={lastName}
-                    onChange={setLastName}
-                    placeholder="Smith"
-                    autoComplete="family-name"
-                    required
-                  />
-                </div>
-                <Field
-                  id="signupEmail"
-                  label="Email"
-                  type="email"
-                  icon={Mail}
-                  value={signupEmail}
-                  onChange={setSignupEmail}
-                  placeholder="you@example.com"
-                  autoComplete="email"
-                  required
-                />
-                <Field
-                  id="signupPassword"
-                  label="Password"
-                  type="password"
-                  icon={Lock}
-                  value={signupPassword}
-                  onChange={setSignupPassword}
-                  placeholder="••••••••"
-                  autoComplete="new-password"
-                  required
-                />
-                <Field
-                  id="confirmPassword"
-                  label="Confirm password"
-                  type="password"
-                  icon={Lock}
-                  value={confirmPassword}
-                  onChange={setConfirmPassword}
-                  placeholder="••••••••"
-                  autoComplete="new-password"
-                  required
-                />
-                {error && (
-                  <p className="text-sm font-semibold text-wine">{error}</p>
-                )}
-                <Button type="submit" className="w-full" size="lg">
-                  Create Account
-                  <ArrowRight className="h-4 w-4" />
-                </Button>
-              </motion.form>
-            )}
-          </AnimatePresence>
+          {authError && (
+            <p className="mb-4 rounded-2xl bg-wine/10 px-4 py-3 text-center text-sm font-semibold text-wine-dark">
+              We couldn&apos;t sign you in. Please try again.
+            </p>
+          )}
 
-          {/* Switch mode */}
+          {/* Google sign-in */}
           <button
             type="button"
-            onClick={() => {
-              setError("");
-              setMode((m) => (m === "login" ? "signup" : "login"));
-            }}
-            className="mt-5 w-full text-center text-sm font-semibold text-wine-dark transition-colors hover:text-plum"
+            onClick={handleGoogle}
+            disabled={signingIn || !ready}
+            className="inline-flex w-full items-center justify-center gap-3 rounded-full border-2 border-wine/20 bg-white px-6 py-3.5 text-sm font-bold text-darkberry shadow-clay-sm transition-all hover:-translate-y-0.5 hover:shadow-clay disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {mode === "login"
-              ? "New here? Create account"
-              : "Already have an account? Sign in"}
+            {signingIn ? (
+              <Loader2 className="h-5 w-5 animate-spin text-wine" />
+            ) : (
+              <GoogleMark className="h-5 w-5" />
+            )}
+            {signingIn ? "Redirecting to Google…" : "Continue with Google"}
           </button>
 
           {/* Divider */}
@@ -218,53 +115,17 @@ export default function LoginPage() {
             type="button"
             variant="secondary"
             className="w-full"
-            onClick={continueAsGuest}
+            onClick={() => router.push("/menu")}
           >
             Continue as Guest
           </Button>
+
+          <p className="mt-6 text-center text-xs text-darkberry-light">
+            By continuing you agree to our friendly terms — we only use your
+            details to bake and deliver your order.
+          </p>
         </motion.div>
       </div>
     </section>
-  );
-}
-
-function Field({
-  id,
-  label,
-  icon: Icon,
-  value,
-  onChange,
-  type = "text",
-  placeholder,
-  autoComplete,
-  required,
-}: {
-  id: string;
-  label: string;
-  icon: React.ComponentType<{ className?: string }>;
-  value: string;
-  onChange: (v: string) => void;
-  type?: string;
-  placeholder?: string;
-  autoComplete?: string;
-  required?: boolean;
-}) {
-  return (
-    <div className="space-y-1.5">
-      <Label htmlFor={id}>{label}</Label>
-      <div className="relative">
-        <Icon className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-darkberry-light/60" />
-        <Input
-          id={id}
-          type={type}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder}
-          autoComplete={autoComplete}
-          required={required}
-          className="pl-10"
-        />
-      </div>
-    </div>
   );
 }
