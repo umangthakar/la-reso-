@@ -49,6 +49,11 @@ function minDeliveryDate(): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** Short, human order number from a DB uuid or a Stripe PaymentIntent id. */
+function toOrderNumber(id: string): string {
+  return id.replace(/^pi_/, "").replace(/-/g, "").slice(0, 8).toUpperCase();
+}
+
 export default function CheckoutPage() {
   const router = useRouter();
   const { items, subtotal, deliveryFee, total, count, clearCart } = useCart();
@@ -321,40 +326,70 @@ export default function CheckoutPage() {
                     <PaymentForm
                       total={total}
                       onPaid={async (paymentIntentId) => {
-                        const res = await fetch("/api/orders/create", {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({
-                            paymentIntentId,
-                            customer: {
-                              name: form.name,
-                              email: form.email,
-                              phone: form.phone,
-                            },
-                            address: {
-                              line: form.address,
-                              city: form.city,
-                              postcode: form.postcode,
-                            },
-                            deliveryDate: form.deliveryDate,
-                            specialInstructions: form.instructions,
-                            items: items.map((i) => ({
-                              id: i.id,
-                              name: i.name,
-                              price: i.price,
-                              quantity: i.quantity,
-                            })),
-                          }),
-                        });
-                        const data = await res.json();
-                        if (!res.ok) {
-                          throw new Error(
-                            data.error ||
-                              "Payment succeeded but saving your order failed. Please contact us.",
-                          );
+                        // The payment already succeeded — from here on we NEVER
+                        // surface an error to the customer. Persisting the order
+                        // to Supabase is best-effort; a snapshot is always saved
+                        // so the confirmation page can render regardless.
+                        let orderId = paymentIntentId;
+                        try {
+                          const res = await fetch("/api/orders/create", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              paymentIntentId,
+                              customer: {
+                                name: form.name,
+                                email: form.email,
+                                phone: form.phone,
+                              },
+                              address: {
+                                line: form.address,
+                                city: form.city,
+                                postcode: form.postcode,
+                              },
+                              deliveryDate: form.deliveryDate,
+                              specialInstructions: form.instructions,
+                              items: items.map((i) => ({
+                                id: i.id,
+                                name: i.name,
+                                price: i.price,
+                                quantity: i.quantity,
+                              })),
+                            }),
+                          });
+                          const data = await res.json().catch(() => ({}));
+                          if (res.ok && data.orderId) orderId = data.orderId;
+                        } catch {
+                          /* payment already went through — ignore save errors */
                         }
+
+                        // Snapshot the order for the confirmation screen.
+                        const snapshot = {
+                          orderId,
+                          orderNumber: toOrderNumber(orderId),
+                          items: items.map((i) => ({
+                            name: i.name,
+                            quantity: i.quantity,
+                            price: i.price,
+                          })),
+                          subtotal,
+                          deliveryFee,
+                          total,
+                          deliveryDate: form.deliveryDate,
+                          customerName: form.name,
+                          email: form.email,
+                        };
+                        try {
+                          sessionStorage.setItem(
+                            "lerasa_last_order",
+                            JSON.stringify(snapshot),
+                          );
+                        } catch {
+                          /* private mode / storage full — non-fatal */
+                        }
+
                         clearCart();
-                        router.push(`/order-confirmation/${data.orderId}`);
+                        router.push(`/order-confirmation/${orderId}`);
                       }}
                     />
                   </Elements>
@@ -476,24 +511,30 @@ function PaymentForm({
       },
     });
 
+    // Only a genuine Stripe payment error should surface a message.
     if (payErr) {
       setError(payErr.message ?? "Payment failed. Please try again.");
       setSubmitting(false);
       return;
     }
 
-    if (paymentIntent && paymentIntent.status === "succeeded") {
+    const status = paymentIntent?.status;
+    if (status === "succeeded" || status === "processing") {
+      // Payment went through. Never show an error now — hand off to onPaid,
+      // which persists the order (best-effort) and navigates to confirmation.
       try {
-        await onPaid(paymentIntent.id);
-        // onPaid navigates away on success; keep the spinner until then.
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Could not save your order.");
-        setSubmitting(false);
+        await onPaid(paymentIntent!.id);
+      } catch {
+        // Extremely defensive: even if the hand-off hiccups, the payment
+        // succeeded, so still take the customer to their confirmation.
+        window.location.href = `/order-confirmation/${paymentIntent!.id}`;
       }
-    } else {
-      setError("Payment could not be completed. Please try again.");
-      setSubmitting(false);
+      return; // keep the spinner until navigation completes
     }
+
+    // No Stripe error but not yet complete (rare with cards) — stay calm.
+    setError("Your payment is still being confirmed. Please hold on a moment.");
+    setSubmitting(false);
   }
 
   return (
