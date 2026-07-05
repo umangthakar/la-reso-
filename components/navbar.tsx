@@ -4,9 +4,10 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Menu, X, ShoppingBag, Cake, Phone, Star } from "lucide-react";
+import { Menu, X, ShoppingBag, Cake, Phone, Star, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/lib/use-auth";
 
 const links = [
   { href: "/", label: "Home" },
@@ -19,6 +20,8 @@ export function Navbar() {
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const pathname = usePathname();
+  const { user, ready } = useAuth();
+  const initial = user?.name.trim().charAt(0).toUpperCase();
 
   // The home route ("/") is the full-screen splash entry animation, so the
   // navbar stays hidden there and slides into view on every other page.
@@ -115,6 +118,20 @@ export function Navbar() {
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Account: shows the signed-in initial, otherwise routes to login. */}
+            <Link
+              href={ready && user ? "/account" : "/account/login"}
+              aria-label={ready && user ? "My account" : "Sign in"}
+              className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-blush-50 text-darkberry shadow-clay-sm transition-shadow hover:shadow-clay"
+            >
+              {ready && user ? (
+                <span className="font-display text-sm font-semibold text-wine-dark">
+                  {initial}
+                </span>
+              ) : (
+                <User className="h-5 w-5" />
+              )}
+            </Link>
             <Button asChild size="sm" className="px-3 text-xs sm:px-5 sm:text-sm">
               <Link href="/contact">
                 <ShoppingBag className="h-4 w-4" />

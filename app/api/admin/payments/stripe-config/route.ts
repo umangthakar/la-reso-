@@ -29,15 +29,20 @@ function adminDb(): SupabaseClient {
 async function loadConfig(
   supabase: SupabaseClient,
 ): Promise<{ id: string | null; config: StoredConfig }> {
+  // Fetch the whole row rather than selecting `stripe_config` directly:
+  // PostgREST's schema cache can lag a freshly-added column and reject a
+  // targeted select with "column does not exist". Reading the full row and
+  // pulling the field out avoids that, and tolerates the column being absent.
   const { data, error } = await supabase
     .from("site_settings")
-    .select("id, stripe_config")
+    .select("*")
     .limit(1)
     .maybeSingle();
   if (error) throw new Error(error.message);
+  const row = data as { id?: string; stripe_config?: StoredConfig } | null;
   return {
-    id: data?.id ?? null,
-    config: (data?.stripe_config as StoredConfig) ?? {},
+    id: row?.id ?? null,
+    config: (row?.stripe_config as StoredConfig) ?? {},
   };
 }
 
