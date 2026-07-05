@@ -93,6 +93,11 @@ create table if not exists public.orders (
   phone                  text,
   message                text,
 
+  -- delivery address (from the customer checkout flow)
+  delivery_address       text,
+  postcode               text,
+  special_instructions   text,
+
   -- fulfilment
   status                 text not null default 'received'
     check (status in ('received','preparing','out_for_delivery','delivered','cancelled','refunded')),
@@ -106,6 +111,7 @@ create table if not exists public.orders (
   amount                 numeric(10,2),   -- amount charged, used by refunds tool
 
   -- payment
+  payment_method         text,            -- e.g. 'stripe'
   stripe_payment_intent  text,
   refunded_at            timestamptz,
 
@@ -116,6 +122,10 @@ create table if not exists public.orders (
 -- Additive guards so re-running on an existing orders table is safe.
 alter table public.orders add column if not exists tracking_token        text;
 alter table public.orders add column if not exists message               text;
+alter table public.orders add column if not exists delivery_address      text;
+alter table public.orders add column if not exists postcode              text;
+alter table public.orders add column if not exists special_instructions  text;
+alter table public.orders add column if not exists payment_method        text;
 alter table public.orders add column if not exists delivery_date         date;
 alter table public.orders add column if not exists zone_id               uuid references public.delivery_zones(id) on delete set null;
 alter table public.orders add column if not exists subtotal              numeric(10,2) not null default 0;

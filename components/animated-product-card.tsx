@@ -3,9 +3,12 @@
 import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { motion, type Variants } from "framer-motion";
 import { Star, ShoppingCart, Zap } from "lucide-react";
 import type { Product } from "@/lib/data";
+import { useCart } from "@/components/cart/cart-context";
+import { slugify } from "@/lib/slug";
 
 /* ------------------------------------------------------------------ *
  * Le Rasa — Animated Product Card
@@ -121,6 +124,35 @@ export function AnimatedProductCard({ product }: { product: Product }) {
   const open = hovered || pinned;
   const rating = ratingFor(product.id);
 
+  const router = useRouter();
+  const { addItem, openCart } = useCart();
+  const slug = slugify(product.name);
+  const detailHref = `/menu/${slug}`;
+
+  // Snapshot passed to the cart when adding this product.
+  const cartLine = {
+    id: product.id,
+    name: product.name,
+    price: product.price,
+    image: product.image,
+    category: product.category,
+    slug,
+  };
+
+  const handleAdd = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    addItem(cartLine);
+    openCart();
+  };
+
+  const handleBuyNow = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    addItem(cartLine);
+    router.push("/checkout");
+  };
+
   return (
     <motion.article
       variants={container}
@@ -189,19 +221,26 @@ export function AnimatedProductCard({ product }: { product: Product }) {
               {product.description}
             </motion.p>
             <motion.div variants={line} className="mt-3">
-              <Link
-                href="/contact"
+              <button
+                type="button"
+                onClick={handleAdd}
                 className="inline-flex items-center gap-1.5 rounded-full bg-[#873853] px-4 py-2 text-sm font-semibold text-white shadow-[0_6px_16px_-6px_rgba(135,56,83,0.7)] transition-transform hover:-translate-y-0.5"
               >
                 <ShoppingCart className="h-4 w-4" />
                 Add to Cart
-              </Link>
+              </button>
             </motion.div>
           </motion.div>
         </div>
 
         {/* ------------------------------- RIGHT ------------------------------ */}
         <div className="relative aspect-[3/4] h-full shrink-0 overflow-hidden rounded-[22px] shadow-[0_10px_30px_-12px_rgba(116,50,73,0.5)]">
+          {/* Tapping the image opens the product detail page */}
+          <Link
+            href={detailHref}
+            aria-label={`View ${product.name}`}
+            className="absolute inset-0 z-10"
+          />
           <motion.div variants={imageWrap} className="absolute inset-0">
             <Image
               src={product.image}
@@ -226,28 +265,34 @@ export function AnimatedProductCard({ product }: { product: Product }) {
             £{product.price.toFixed(2)}
           </motion.span>
 
-          {/* Rating + actions — bottom of the image */}
-          <div className="absolute inset-x-0 bottom-0 flex flex-col gap-2 p-3">
+          {/* Rating + actions — bottom of the image (above the nav overlay) */}
+          <div className="absolute inset-x-0 bottom-0 z-20 flex flex-col gap-2 p-3">
             <motion.div variants={overlayItem} className="flex items-center gap-1.5">
               <StarRow value={rating} />
               <span className="text-xs font-semibold text-white/95">{rating.toFixed(1)}</span>
             </motion.div>
-            <motion.div variants={overlayItem} className="flex gap-2">
-              <Link
-                href="/contact"
+            <motion.div
+              variants={overlayItem}
+              className="flex gap-2"
+              style={{ pointerEvents: open ? "auto" : "none" }}
+            >
+              <button
+                type="button"
+                onClick={handleAdd}
                 className="inline-flex flex-1 items-center justify-center gap-1 rounded-full bg-[#873853] px-2.5 py-2 text-[11px] font-bold uppercase tracking-wide text-white transition-transform hover:-translate-y-0.5"
               >
                 <ShoppingCart className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline">Add to Cart</span>
                 <span className="sm:hidden">Cart</span>
-              </Link>
-              <Link
-                href="/contact"
+              </button>
+              <button
+                type="button"
+                onClick={handleBuyNow}
                 className="inline-flex flex-1 items-center justify-center gap-1 rounded-full bg-white px-2.5 py-2 text-[11px] font-bold uppercase tracking-wide text-[#743249] transition-transform hover:-translate-y-0.5"
               >
                 <Zap className="h-3.5 w-3.5" />
                 Buy Now
-              </Link>
+              </button>
             </motion.div>
           </div>
 

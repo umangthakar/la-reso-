@@ -8,6 +8,7 @@ import { Menu, X, ShoppingBag, Cake, Phone, Star, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/use-auth";
+import { CartButton } from "@/components/cart/cart-button";
 
 const links = [
   { href: "/", label: "Home" },
@@ -118,6 +119,9 @@ export function Navbar() {
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Cart: opens the slide-in drawer; badge shows live item count. */}
+            <CartButton />
+
             {/* Account: shows the signed-in initial, otherwise routes to login. */}
             <Link
               href={ready && user ? "/account" : "/account/login"}

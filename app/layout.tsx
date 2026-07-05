@@ -5,6 +5,7 @@ import "./globals.css";
 import { Navbar } from "@/components/navbar";
 import { AnnouncementBar } from "@/components/announcement-bar";
 import { ConditionalFooter } from "@/components/conditional-footer";
+import { Providers } from "@/components/providers";
 
 const fraunces = Fraunces({
   subsets: ["latin"],
@@ -58,9 +59,11 @@ export default function RootLayout({
         <Suspense fallback={null}>
           <AnnouncementBar />
         </Suspense>
-        <Navbar />
-        <main className="overflow-x-clip">{children}</main>
-        <ConditionalFooter />
+        <Providers>
+          <Navbar />
+          <main className="overflow-x-clip">{children}</main>
+          <ConditionalFooter />
+        </Providers>
       </body>
     </html>
   );
