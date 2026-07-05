@@ -28,7 +28,7 @@ Copy `.env.example` to `.env.local` and provide:
 | Variable | Required | Notes |
 | --- | --- | --- |
 | `NEXT_PUBLIC_SUPABASE_URL` | yes | Supabase project URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | yes | Public anon key (protected by RLS) |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | yes | Public publishable/anon key (protected by RLS). New key format: `sb_publishable_…` |
 | `SUPABASE_SERVICE_ROLE_KEY` | yes | **Server-only.** Bypasses RLS — never expose to the client |
 | `ADMIN_PASSWORD` | yes | **Server-only.** Admin gate password, validated by `/api/admin/login` |
 | `ADMIN_ENCRYPTION_KEY` | no | Encrypts admin secrets; falls back to the service-role key |

@@ -6,7 +6,7 @@ import { motion } from "framer-motion";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { categories } from "@/lib/data";
 import type { Product } from "@/lib/data";
-import { supabase } from "@/lib/supabase";
+import { createClient } from "@/utils/supabase/client";
 import { AnimatedProductCard } from "@/components/animated-product-card";
 import { cn } from "@/lib/utils";
 
@@ -59,7 +59,7 @@ export function MenuGrid() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const db = supabase as unknown as SupabaseClient;
+      const db = createClient() as unknown as SupabaseClient;
       const { data } = await db
         .from("products")
         .select("id,name,description,price,image_url,category,badge,in_stock")
