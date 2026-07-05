@@ -7,7 +7,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { categories } from "@/lib/data";
 import type { Product } from "@/lib/data";
 import { supabase } from "@/lib/supabase";
-import { ScrollTriggered } from "@/components/ui/stack-card";
+import { AnimatedProductCard } from "@/components/animated-product-card";
 import { cn } from "@/lib/utils";
 
 const slugToName: Record<string, string> = Object.fromEntries(
@@ -137,8 +137,24 @@ export function MenuGrid() {
         <MenuSkeleton />
       ) : (
         <>
-          {/* Re-key on the active filter so newly shown cards replay the spring */}
-          <ScrollTriggered key={active} products={filtered} />
+          {/* Re-key on the active filter so newly shown cards replay the reveal */}
+          <div
+            key={active}
+            className="mx-auto grid w-full max-w-[1200px] grid-cols-1 justify-items-center gap-6 pb-[100px] lg:grid-cols-2"
+          >
+            {filtered.map((product, i) => (
+              <motion.div
+                key={product.id}
+                initial={{ opacity: 0, y: 40 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true, amount: 0.2 }}
+                transition={{ duration: 0.5, ease: "easeOut", delay: (i % 2) * 0.08 }}
+                className="w-full max-w-[560px]"
+              >
+                <AnimatedProductCard product={product} />
+              </motion.div>
+            ))}
+          </div>
 
           {filtered.length === 0 && (
             <p className="py-16 text-center text-darkberry-light">
@@ -151,25 +167,21 @@ export function MenuGrid() {
   );
 }
 
-// Loading placeholder that mirrors the ScrollTriggered card grid + card shape.
+// Loading placeholder that mirrors the AnimatedProductCard grid + card shape.
 function MenuSkeleton() {
   return (
-    <div className="mx-auto grid w-full max-w-[1200px] grid-cols-1 justify-items-center gap-6 pb-[100px] sm:grid-cols-2 lg:grid-cols-4">
-      {Array.from({ length: 8 }).map((_, i) => (
+    <div className="mx-auto grid w-full max-w-[1200px] grid-cols-1 justify-items-center gap-6 pb-[100px] lg:grid-cols-2">
+      {Array.from({ length: 6 }).map((_, i) => (
         <div
           key={i}
-          className="flex h-[420px] w-[280px] animate-pulse flex-col overflow-hidden rounded-[20px] bg-white shadow-clay-sm"
+          className="flex h-[300px] w-full max-w-[560px] animate-pulse gap-3 rounded-[28px] bg-[#F9EEEA] p-4 md:h-[320px]"
         >
-          <div className="h-[55%] w-full bg-[#F9EEEA]" />
-          <div className="flex flex-1 flex-col gap-3 p-5">
-            <div className="h-3 w-1/3 rounded bg-[#F9EEEA]" />
-            <div className="h-5 w-3/4 rounded bg-[#F9EEEA]" />
-            <div className="h-3 w-full rounded bg-[#F9EEEA]" />
-            <div className="mt-auto flex items-center justify-between pt-4">
-              <div className="h-5 w-14 rounded bg-[#F9EEEA]" />
-              <div className="h-9 w-20 rounded-full bg-[#F9EEEA]" />
-            </div>
+          <div className="flex flex-1 flex-col justify-center gap-3 px-2">
+            <div className="h-3 w-1/3 rounded bg-white/60" />
+            <div className="h-5 w-3/4 rounded bg-white/60" />
+            <div className="h-4 w-1/4 rounded bg-white/60" />
           </div>
+          <div className="aspect-[3/4] h-full shrink-0 rounded-[22px] bg-white/60" />
         </div>
       ))}
     </div>
