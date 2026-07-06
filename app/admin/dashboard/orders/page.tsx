@@ -17,6 +17,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { adminGet, adminSend } from "@/lib/admin-api";
 import { useIsMobile } from "@/lib/use-is-mobile";
 
+// Never statically cache this route — orders must always render live data.
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 const WINE = "#873853";
 const BERRY = "#5C2A41";
 const PAGE_SIZE = 20;
@@ -100,16 +104,17 @@ export default function OrdersAdminPage() {
   const [selected, setSelected] = useState<Order | null>(null);
   const [updating, setUpdating] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true);
     setError("");
     try {
-      const data = await adminGet<{ orders: Order[] }>("/api/admin/orders");
+      // force:true bypasses the in-memory GET cache so we always get live data.
+      const data = await adminGet<{ orders: Order[] }>("/api/admin/orders", { force: true });
       setOrders(data.orders || []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load orders");
     } finally {
-      setLoading(false);
+      if (!opts?.silent) setLoading(false);
     }
   }, []);
 
@@ -139,13 +144,18 @@ export default function OrdersAdminPage() {
   async function updateStatus(order: Order, status: string) {
     setUpdating(true);
     setError("");
+    // Optimistic update for an instant UI response…
     setOrders((prev) => prev.map((o) => (o.id === order.id ? { ...o, status } : o)));
     setSelected((s) => (s && s.id === order.id ? { ...s, status } : s));
     try {
       await adminSend(`/api/admin/orders/${order.id}`, "PUT", { status });
+      // …then immediately refetch all orders so the table re-renders with the
+      // authoritative server data (no page reload). adminSend already cleared
+      // the GET cache; force:true guarantees a fresh fetch regardless.
+      await load({ silent: true });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to update status");
-      await load();
+      await load({ silent: true });
     } finally {
       setUpdating(false);
     }

@@ -16,6 +16,11 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { adminGet } from "@/lib/admin-api";
 
+// Never statically cache — the summary cards must reflect the latest orders
+// on every visit.
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 const WINE = "#873853";
 const BERRY = "#5C2A41";
 
@@ -62,7 +67,9 @@ export default function DashboardHome() {
           week: String(startOfWeek()),
           month: String(startOfMonth()),
         });
-        const d = await adminGet<Payload>(`/api/admin/dashboard?${qs.toString()}`);
+        // force:true bypasses the in-memory GET cache so the cards always show
+        // the latest orders on every visit (not a copy up to 60s old).
+        const d = await adminGet<Payload>(`/api/admin/dashboard?${qs.toString()}`, { force: true });
         setData(d);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to load dashboard stats");

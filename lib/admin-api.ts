@@ -41,7 +41,10 @@ export async function adminGet<T>(url: string, opts?: { force?: boolean }): Prom
     const hit = GET_CACHE.get(url);
     if (hit && Date.now() - hit.ts < CACHE_TTL) return hit.data as T;
   }
-  const res = await fetch(url, { headers: { ...authHeader() } });
+  // Never let the browser/HTTP layer serve a stale copy — admin data must be
+  // live. (The in-memory GET_CACHE above is the only intended cache; bypass it
+  // with { force: true } when freshness matters, e.g. the dashboard.)
+  const res = await fetch(url, { headers: { ...authHeader() }, cache: "no-store" });
   if (!res.ok) throw new Error((await safeMsg(res)) || `Request failed (${res.status})`);
   const data = (await res.json()) as T;
   GET_CACHE.set(url, { ts: Date.now(), data });
