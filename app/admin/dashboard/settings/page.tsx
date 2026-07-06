@@ -37,20 +37,42 @@ type Announcement = { enabled: boolean; text: string };
 type HeroBanner = { enabled: boolean; heading: string; subtext: string };
 type WhatsappBar = { enabled: boolean; text: string; number: string };
 type Contact = { phone: string; whatsapp: string; email: string; address: string };
-type BannerType = "hero" | "offer" | "announcement";
-type RotatingBanner = { type: BannerType; heading: string; subtext: string; enabled: boolean };
+type BannerType = "hero" | "offer" | "announcement" | "custom_cakes";
+type RotatingBanner = {
+  type: BannerType;
+  heading: string;
+  subtext: string;
+  cta_text: string;
+  cta_link: string;
+  enabled: boolean;
+};
 
 const CONTACT_DEFAULT: Contact = { phone: "", whatsapp: "", email: "", address: "" };
 
 const BANNER_TYPE_OPTIONS: { value: BannerType; label: string }[] = [
+  { value: "custom_cakes", label: "🎂 Custom Cakes" },
+  { value: "offer", label: "🎁 Offer" },
   { value: "hero", label: "Hero" },
-  { value: "offer", label: "Offer" },
-  { value: "announcement", label: "Announcement" },
+  { value: "announcement", label: "📣 Announcement" },
 ];
 
 const DEFAULT_ROTATING_BANNERS: RotatingBanner[] = [
-  { type: "hero", heading: "Every Bite, Eggless & Divine", subtext: "Handcrafted fresh daily — pick your craving", enabled: true },
-  { type: "offer", heading: "Custom Cakes — Designed just for you", subtext: "Order now for your special occasion", enabled: true },
+  {
+    type: "custom_cakes",
+    heading: "Custom Cakes for Every Occasion",
+    subtext: "Birthdays, weddings, anniversaries — we craft the perfect eggless cake for your event",
+    cta_text: "Order Custom Cake",
+    cta_link: "/contact",
+    enabled: true,
+  },
+  {
+    type: "offer",
+    heading: "Special Offer",
+    subtext: "Free delivery on orders over £60",
+    cta_text: "Shop Now",
+    cta_link: "/menu",
+    enabled: true,
+  },
 ];
 
 const HERO_DEFAULT: HeroBanner = {
@@ -127,9 +149,11 @@ export default function SettingsAdminPage() {
       };
       const rb = Array.isArray(d.rotating_banners) && d.rotating_banners.length > 0
         ? (d.rotating_banners as RotatingBanner[]).map((b) => ({
-            type: (["hero", "offer", "announcement"].includes(b?.type) ? b.type : "hero") as BannerType,
+            type: (["hero", "offer", "announcement", "custom_cakes"].includes(b?.type) ? b.type : "hero") as BannerType,
             heading: typeof b?.heading === "string" ? b.heading : "",
             subtext: typeof b?.subtext === "string" ? b.subtext : "",
+            cta_text: typeof b?.cta_text === "string" ? b.cta_text : "",
+            cta_link: typeof b?.cta_link === "string" ? b.cta_link : "",
             enabled: b?.enabled !== false,
           }))
         : DEFAULT_ROTATING_BANNERS;
@@ -522,7 +546,10 @@ function RotatingBannersSection({
     onChange(banners.map((b, idx) => (idx === i ? { ...b, ...patch } : b)));
   }
   function add() {
-    onChange([...banners, { type: "offer", heading: "", subtext: "", enabled: true }]);
+    onChange([
+      ...banners,
+      { type: "offer", heading: "", subtext: "", cta_text: "", cta_link: "", enabled: true },
+    ]);
     setIds((prev) => [...prev, nextBid()]);
   }
   function remove(i: number) {
@@ -649,14 +676,28 @@ function SortableBannerRow({
         style={{ ...inputStyle, marginBottom: 8 }}
         value={banner.heading}
         onChange={(e) => onUpdate({ heading: e.target.value })}
-        placeholder="Heading (e.g. 30% off on any product)"
+        placeholder="Heading (e.g. Custom Cakes for Every Occasion)"
       />
       <input
-        style={inputStyle}
+        style={{ ...inputStyle, marginBottom: 8 }}
         value={banner.subtext}
         onChange={(e) => onUpdate({ subtext: e.target.value })}
         placeholder="Subtext (optional)"
       />
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <input
+          style={{ ...inputStyle, flex: 1, minWidth: 160 }}
+          value={banner.cta_text}
+          onChange={(e) => onUpdate({ cta_text: e.target.value })}
+          placeholder="Button text (e.g. Order Custom Cake)"
+        />
+        <input
+          style={{ ...inputStyle, flex: 1, minWidth: 160 }}
+          value={banner.cta_link}
+          onChange={(e) => onUpdate({ cta_link: e.target.value })}
+          placeholder="Button link (e.g. /contact)"
+        />
+      </div>
     </div>
   );
 }

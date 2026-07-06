@@ -6,12 +6,12 @@
 -- Content & Settings → "Rotating Banners" section.
 --
 -- Shape: array of
---   { "type": "hero" | "offer" | "announcement",
---     "heading": "...", "subtext": "...", "enabled": bool }
+--   { "type": "hero" | "offer" | "announcement" | "custom_cakes",
+--     "heading", "subtext", "cta_text", "cta_link", "enabled" }
 --
--- Seeded with the two default banners. Safe to run more than once.
+-- Seeded with the two default banners (Custom Cakes + Offer). Safe to re-run.
 -- ============================================================
 
 alter table public.site_settings
   add column if not exists rotating_banners jsonb default
-    '[{"type":"hero","heading":"Every Bite, Eggless & Divine","subtext":"Handcrafted fresh daily — pick your craving","enabled":true},{"type":"offer","heading":"Custom Cakes — Designed just for you","subtext":"Order now for your special occasion","enabled":true}]'::jsonb;
+    '[{"type":"custom_cakes","heading":"Custom Cakes for Every Occasion","subtext":"Birthdays, weddings, anniversaries — we craft the perfect eggless cake for your event","cta_text":"Order Custom Cake","cta_link":"/contact","enabled":true},{"type":"offer","heading":"Special Offer","subtext":"Free delivery on orders over £60","cta_text":"Shop Now","cta_link":"/menu","enabled":true}]'::jsonb;

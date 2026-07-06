@@ -22,12 +22,22 @@ export const ALL_DELIVERY_DAYS = [
 export type Announcement = { enabled: boolean; text: string };
 export type HeroBanner = { enabled: boolean; heading: string; subtext: string };
 export type WhatsappBar = { enabled: boolean; text: string; number: string };
-export type BannerType = "hero" | "offer" | "announcement";
+export type BannerType = "hero" | "offer" | "announcement" | "custom_cakes";
 export type RotatingBanner = {
   type: BannerType;
   heading: string;
   subtext: string;
+  cta_text: string;
+  cta_link: string;
   enabled: boolean;
+};
+
+// Emoji shown alongside each banner, derived from its type.
+export const BANNER_ICONS: Record<BannerType, string> = {
+  hero: "",
+  offer: "🎁",
+  announcement: "📣",
+  custom_cakes: "🎂",
 };
 // Single source of truth for all contact info across the site.
 export type Contact = { phone: string; whatsapp: string; email: string; address: string };
@@ -78,20 +88,25 @@ export const CONTACT_DEFAULT: Contact = {
 // Fallback shown on the Menu page when the DB has no rotating_banners yet.
 export const DEFAULT_ROTATING_BANNERS: RotatingBanner[] = [
   {
-    type: "hero",
-    heading: "Every Bite, Eggless & Divine",
-    subtext: "Handcrafted fresh daily — pick your craving",
+    type: "custom_cakes",
+    heading: "Custom Cakes for Every Occasion",
+    subtext:
+      "Birthdays, weddings, anniversaries — we craft the perfect eggless cake for your event",
+    cta_text: "Order Custom Cake",
+    cta_link: "/contact",
     enabled: true,
   },
   {
     type: "offer",
-    heading: "Custom Cakes — Designed just for you",
-    subtext: "Order now for your special occasion",
+    heading: "Special Offer",
+    subtext: "Free delivery on orders over £60",
+    cta_text: "Shop Now",
+    cta_link: "/menu",
     enabled: true,
   },
 ];
 
-const BANNER_TYPES: BannerType[] = ["hero", "offer", "announcement"];
+const BANNER_TYPES: BannerType[] = ["hero", "offer", "announcement", "custom_cakes"];
 
 /** Coerce an unknown value into a valid RotatingBanner. */
 function normaliseBanner(v: unknown): RotatingBanner {
@@ -101,6 +116,8 @@ function normaliseBanner(v: unknown): RotatingBanner {
     type,
     heading: typeof b.heading === "string" ? b.heading : "",
     subtext: typeof b.subtext === "string" ? b.subtext : "",
+    cta_text: typeof b.cta_text === "string" ? b.cta_text : "",
+    cta_link: typeof b.cta_link === "string" ? b.cta_link : "",
     enabled: b.enabled !== false,
   };
 }

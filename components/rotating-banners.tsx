@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import {
+  BANNER_ICONS,
   DEFAULT_ROTATING_BANNERS,
   type RotatingBanner,
 } from "@/lib/site-settings";
@@ -18,7 +20,7 @@ export function RotatingBanners({
   count: number;
 }) {
   // Only enabled banners rotate; if none are enabled fall back to the first
-  // default hero banner so the Menu page never looks empty.
+  // default banner so the Menu page never looks empty.
   const enabled = banners.filter((b) => b.enabled);
   const slides = enabled.length > 0 ? enabled : [DEFAULT_ROTATING_BANNERS[0]];
 
@@ -29,7 +31,7 @@ export function RotatingBanners({
     if (index >= slides.length) setIndex(0);
   }, [slides.length, index]);
 
-  // Auto-rotate every 5s. Pauses (single slide) or resets when the list changes.
+  // Auto-rotate every 5s. Single-slide lists don't rotate.
   useEffect(() => {
     if (slides.length <= 1) return;
     const id = setInterval(() => {
@@ -39,6 +41,7 @@ export function RotatingBanners({
   }, [slides.length]);
 
   const current = slides[Math.min(index, slides.length - 1)];
+  const icon = BANNER_ICONS[current.type] ?? "";
 
   return (
     <section className="relative w-full overflow-hidden bg-[#F9EEEA] px-8 py-16">
@@ -47,8 +50,9 @@ export function RotatingBanners({
         {count}
       </span>
 
-      {/* Rotating content — cross-fades between banners */}
-      <div className="relative min-h-[150px] max-w-2xl md:min-h-[190px]">
+      {/* Rotating content — cross-fades between banners. Fixed min-height so
+          the banner keeps the same height as the old hero (no layout jump). */}
+      <div className="relative min-h-[210px] max-w-2xl md:min-h-[240px]">
         <AnimatePresence mode="wait">
           <motion.div
             key={index}
@@ -57,9 +61,9 @@ export function RotatingBanners({
             exit={{ opacity: 0, y: -16 }}
             transition={{ duration: 0.6, ease: "easeOut" }}
           >
-            {current.type !== "hero" && (
-              <span className="mb-3 inline-block rounded-full bg-wine px-3 py-1 text-[11px] font-bold uppercase tracking-widest text-blush-50">
-                {current.type === "offer" ? "Special Offer" : "Announcement"}
+            {icon && (
+              <span className="mb-2 block text-4xl leading-none" aria-hidden>
+                {icon}
               </span>
             )}
             <h2 className="font-display text-5xl font-bold leading-tight text-[#612437] md:text-7xl">
@@ -67,6 +71,14 @@ export function RotatingBanners({
             </h2>
             {current.subtext && (
               <p className="mt-4 text-[#9C616D]">{current.subtext}</p>
+            )}
+            {current.cta_text && current.cta_link && (
+              <Link
+                href={current.cta_link}
+                className="mt-6 inline-flex items-center gap-2 rounded-full bg-wine px-6 py-3 text-sm font-semibold text-blush-50 shadow-clay-sm transition-transform hover:-translate-y-0.5"
+              >
+                {current.cta_text}
+              </Link>
             )}
           </motion.div>
         </AnimatePresence>
