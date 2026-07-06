@@ -234,6 +234,8 @@ alter table public.site_settings add column if not exists announcement     jsonb
 alter table public.site_settings add column if not exists hero_banner      jsonb not null default '{"enabled": true, "heading": "Every Bite, Eggless & Divine", "subtext": "Handcrafted fresh daily — pick your craving"}'::jsonb;
 -- menu rotating banners: array of { "type", "heading", "subtext", "cta_text", "cta_link", "enabled" }
 alter table public.site_settings add column if not exists rotating_banners jsonb default '[{"type":"custom_cakes","heading":"Custom Cakes for Every Occasion","subtext":"Birthdays, weddings, anniversaries — we craft the perfect eggless cake for your event","cta_text":"Order Custom Cake","cta_link":"/contact","enabled":true},{"type":"offer","heading":"Special Offer","subtext":"Free delivery on orders over £60","cta_text":"Shop Now","cta_link":"/menu","enabled":true}]'::jsonb;
+-- home landing-page slider: array of image URLs (managed in admin → Home Slider)
+alter table public.site_settings add column if not exists home_slider     jsonb not null default '["https://images.unsplash.com/photo-1578985545062-69928b1d9587?auto=format&fit=crop&w=1600&q=80","https://images.unsplash.com/photo-1535141192574-5d4897c12636?auto=format&fit=crop&w=1600&q=80","https://images.unsplash.com/photo-1565958011703-44f9829ba187?auto=format&fit=crop&w=1600&q=80"]'::jsonb;
 -- menu WhatsApp bar: { "enabled": bool, "text": "...", "number": "..." }
 -- No seeded number — the admin sets it in Content & Settings; the bar stays
 -- hidden until a number is configured.

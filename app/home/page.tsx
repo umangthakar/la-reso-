@@ -1,0 +1,121 @@
+import type { Metadata } from "next";
+import { Phone } from "lucide-react";
+import { getPublicSettings } from "@/lib/site-settings-server";
+import { HomeSlider } from "@/components/home/home-slider";
+import { HomeProducts, type HomeProduct } from "@/components/home/home-products";
+import { WhatsappFloat } from "@/components/home/whatsapp-float";
+
+// Fetch settings + products fresh on every request so admin edits show
+// immediately with no redeploy.
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+export const metadata: Metadata = {
+  title: "Le Rasa Bakery — Eggless Cakes & Desserts",
+  description:
+    "Handcrafted 100% eggless cakes, cupcakes, brownies and gift boxes. Order custom cakes for every occasion.",
+};
+
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SUPABASE_ANON_KEY =
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+// First 6 visible products, freshest ordering (sort_order), no caching.
+async function fetchHomeProducts(): Promise<HomeProduct[]> {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return [];
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/products?select=id,name,price,image_url,category,badge&visible=eq.true&order=sort_order.asc&limit=6`,
+      {
+        headers: {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        },
+        cache: "no-store",
+      },
+    );
+    if (!res.ok) return [];
+    return (await res.json()) as HomeProduct[];
+  } catch {
+    return [];
+  }
+}
+
+export default async function HomeLandingPage() {
+  const [settings, products] = await Promise.all([
+    getPublicSettings(),
+    fetchHomeProducts(),
+  ]);
+
+  const phone = settings.contact.phone.trim();
+  const phoneDigits = phone.replace(/\s+/g, "");
+  const waDigits = settings.contact.whatsapp.replace(/[^0-9]/g, "");
+  const waText = settings.whatsapp_bar.text || "For any question";
+  const address = settings.contact.address.trim();
+
+  return (
+    <div className="pb-16">
+      {/* 2. CONTACT BAR — click to call */}
+      {phone && (
+        <a
+          href={`tel:${phoneDigits}`}
+          className="flex min-h-[44px] w-full items-center justify-center gap-2 bg-darkberry px-4 text-sm font-semibold text-blush-50 transition-colors hover:bg-[#4a1e30]"
+        >
+          <Phone className="h-4 w-4" />
+          <span>Call us: {phone}</span>
+        </a>
+      )}
+
+      {/* 3. WHATSAPP BAR */}
+      {waDigits && (
+        <div className="w-full bg-[#873853] text-white">
+          <div className="container flex min-h-[44px] items-center justify-center gap-2 py-2.5 text-center text-sm font-medium">
+            <span>
+              {waText}{" "}
+              <a
+                href={`https://wa.me/${waDigits}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-bold underline underline-offset-2 hover:opacity-90"
+              >
+                Click here
+              </a>
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* 4. IMAGE SLIDER */}
+      <HomeSlider images={settings.home_slider} />
+
+      {/* 5. ABOUT US */}
+      <section className="container mt-14 text-center">
+        <div className="mx-auto flex max-w-md items-center justify-center gap-4">
+          <span className="h-px flex-1 bg-[#D5A4A4]" />
+          <h2 className="font-display text-3xl font-bold text-darkberry md:text-4xl">About Us</h2>
+          <span className="h-px flex-1 bg-[#D5A4A4]" />
+        </div>
+        <p className="mx-auto mt-5 max-w-2xl leading-relaxed text-[#9C616D]">
+          {settings.about.text}
+        </p>
+      </section>
+
+      {/* 6. PRODUCTS */}
+      <HomeProducts products={products} />
+
+      {/* 7. WHATSAPP FLOATING BUTTON */}
+      <WhatsappFloat number={settings.contact.whatsapp} />
+
+      {/* 8. FOOTER — shared footer (branding + address) is rendered by the
+          root layout. Address also surfaced here for the landing context. */}
+      {address && (
+        <section className="container mt-16 border-t border-[#F2DCD6] pt-6 text-center text-sm text-[#9C616D]">
+          <span className="font-display text-lg font-bold text-darkberry">Le Rasa</span>
+          <span className="mx-2">·</span>
+          {address}
+        </section>
+      )}
+    </div>
+  );
+}

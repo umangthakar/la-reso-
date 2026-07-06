@@ -41,6 +41,7 @@ export const BANNER_ICONS: Record<BannerType, string> = {
 };
 // Single source of truth for all contact info across the site.
 export type Contact = { phone: string; whatsapp: string; email: string; address: string };
+export type About = { text: string; image_url: string };
 export type DeliveryZone = {
   id: string;
   name: string;
@@ -57,6 +58,8 @@ export type PublicSettings = {
   hero_banner: HeroBanner;
   rotating_banners: RotatingBanner[];
   whatsapp_bar: WhatsappBar;
+  about: About;
+  home_slider: string[];
   delivery_zones: DeliveryZone[];
   lead_time_days: number;
   blocked_dates: string[];
@@ -108,6 +111,17 @@ export const DEFAULT_ROTATING_BANNERS: RotatingBanner[] = [
 
 const BANNER_TYPES: BannerType[] = ["hero", "offer", "announcement", "custom_cakes"];
 
+// Default landing-page slider images (all on the already-whitelisted Unsplash
+// host). Shown until the admin sets site_settings.home_slider.
+export const DEFAULT_HOME_SLIDER: string[] = [
+  "https://images.unsplash.com/photo-1578985545062-69928b1d9587?auto=format&fit=crop&w=1600&q=80",
+  "https://images.unsplash.com/photo-1535141192574-5d4897c12636?auto=format&fit=crop&w=1600&q=80",
+  "https://images.unsplash.com/photo-1565958011703-44f9829ba187?auto=format&fit=crop&w=1600&q=80",
+];
+
+export const DEFAULT_ABOUT_TEXT =
+  "Le Rasa is a house of 100% eggless desserts — handcrafted cakes, cupcakes, brownies and gift boxes, baked fresh daily with real ingredients so every celebration can be shared by everyone.";
+
 /** Coerce an unknown value into a valid RotatingBanner. */
 function normaliseBanner(v: unknown): RotatingBanner {
   const b = (v ?? {}) as Partial<RotatingBanner>;
@@ -133,6 +147,8 @@ export const DEFAULT_SETTINGS: PublicSettings = {
   hero_banner: HERO_DEFAULT,
   rotating_banners: DEFAULT_ROTATING_BANNERS,
   whatsapp_bar: WHATSAPP_BAR_DEFAULT,
+  about: { text: DEFAULT_ABOUT_TEXT, image_url: "" },
+  home_slider: DEFAULT_HOME_SLIDER,
   delivery_zones: [],
   lead_time_days: 3,
   blocked_dates: [],
@@ -143,7 +159,7 @@ export const DEFAULT_SETTINGS: PublicSettings = {
 // `contact` is the unified contact jsonb; phone/email/address/whatsapp are the
 // legacy columns still read as a fallback until `contact` is populated.
 export const PUBLIC_SETTINGS_SELECT =
-  "contact,phone,email,address,whatsapp,instagram_url,facebook_url,tiktok_url,announcement,hero_banner,rotating_banners,whatsapp_bar,delivery_zones,lead_time_days,blocked_dates,delivery_days";
+  "contact,phone,email,address,whatsapp,instagram_url,facebook_url,tiktok_url,announcement,hero_banner,rotating_banners,whatsapp_bar,about_story,about_image_url,home_slider,delivery_zones,lead_time_days,blocked_dates,delivery_days";
 
 function str(v: unknown): string {
   return typeof v === "string" ? v : "";
@@ -186,6 +202,24 @@ export function normaliseSettings(
       Array.isArray(r.rotating_banners) && (r.rotating_banners as unknown[]).length > 0
         ? (r.rotating_banners as unknown[]).map(normaliseBanner)
         : DEFAULT_ROTATING_BANNERS,
+    // About text: prefer an `about` jsonb, fall back to the legacy about_story
+    // column, then a sensible default so the landing page is never blank.
+    about: {
+      text:
+        str((r.about as { text?: unknown } | undefined)?.text) ||
+        str(r.about_story) ||
+        DEFAULT_ABOUT_TEXT,
+      image_url:
+        str((r.about as { image_url?: unknown } | undefined)?.image_url) ||
+        str(r.about_image_url),
+    },
+    // Landing-page slider images (jsonb string[]); default when empty/missing.
+    home_slider:
+      Array.isArray(r.home_slider) && (r.home_slider as unknown[]).length > 0
+        ? (r.home_slider as unknown[]).filter(
+            (u): u is string => typeof u === "string" && u.trim() !== "",
+          )
+        : DEFAULT_HOME_SLIDER,
     whatsapp_bar: {
       enabled: wab.enabled ?? WHATSAPP_BAR_DEFAULT.enabled,
       text: str(wab.text) || WHATSAPP_BAR_DEFAULT.text,

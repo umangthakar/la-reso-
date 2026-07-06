@@ -92,6 +92,7 @@ type Settings = {
   announcement: Announcement;
   hero_banner: HeroBanner;
   rotating_banners: RotatingBanner[];
+  home_slider: string[];
   whatsapp_bar: WhatsappBar;
   instagram_url: string;
   facebook_url: string;
@@ -108,6 +109,7 @@ const EMPTY: Settings = {
   announcement: { enabled: false, text: "" },
   hero_banner: HERO_DEFAULT,
   rotating_banners: DEFAULT_ROTATING_BANNERS,
+  home_slider: [],
   whatsapp_bar: WHATSAPP_BAR_DEFAULT,
   instagram_url: "",
   facebook_url: "",
@@ -157,6 +159,9 @@ export default function SettingsAdminPage() {
             enabled: b?.enabled !== false,
           }))
         : DEFAULT_ROTATING_BANNERS;
+      const slider = Array.isArray(d.home_slider)
+        ? (d.home_slider as unknown[]).filter((u): u is string => typeof u === "string" && u.trim() !== "")
+        : [];
       setS({
         ...EMPTY,
         ...Object.fromEntries(
@@ -164,6 +169,7 @@ export default function SettingsAdminPage() {
         ),
         contact,
         rotating_banners: rb,
+        home_slider: slider,
         announcement: {
           enabled: Boolean(ann.enabled),
           text: ann.text ?? "",
@@ -303,6 +309,15 @@ export default function SettingsAdminPage() {
         onChange={(next) => set("rotating_banners", next)}
         saved={savedSection === "rotating_banners"}
         onSave={() => saveSection("rotating_banners", ["rotating_banners"])}
+      />
+
+      {/* 2b-2. HOME SLIDER (Home landing page) */}
+      <HomeSliderSection
+        images={s.home_slider}
+        onChange={(next) => set("home_slider", next)}
+        onError={setError}
+        saved={savedSection === "home_slider"}
+        onSave={() => saveSection("home_slider", ["home_slider"])}
       />
 
       {/* 2c. WHATSAPP BAR (Menu page) */}
@@ -699,6 +714,104 @@ function SortableBannerRow({
         />
       </div>
     </div>
+  );
+}
+
+// ---------------- Home slider (image list + upload) ----------------
+function HomeSliderSection({
+  images,
+  onChange,
+  onError,
+  saved,
+  onSave,
+}: {
+  images: string[];
+  onChange: (next: string[]) => void;
+  onError: (msg: string) => void;
+  saved: boolean;
+  onSave: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+
+  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    onError("");
+    try {
+      const { url } = await adminUpload(file, "/api/admin/site-assets/upload");
+      onChange([...images, url]);
+    } catch (err) {
+      onError(err instanceof Error ? err.message : "Image upload failed");
+    } finally {
+      setUploading(false);
+      e.target.value = "";
+    }
+  }
+
+  function move(i: number, dir: number) {
+    const j = i + dir;
+    if (j < 0 || j >= images.length) return;
+    const next = [...images];
+    [next[i], next[j]] = [next[j], next[i]];
+    onChange(next);
+  }
+  function remove(i: number) {
+    onChange(images.filter((_, idx) => idx !== i));
+  }
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    await onSave();
+    setSaving(false);
+  }
+
+  return (
+    <form
+      onSubmit={submit}
+      style={{ background: "white", borderRadius: 16, padding: "1.5rem 1.75rem", marginTop: 20, boxShadow: "0 10px 30px rgba(135,56,83,0.08)" }}
+    >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6, gap: 12 }}>
+        <h2 style={{ color: WINE, margin: 0, fontSize: "1.15rem", fontWeight: 800 }}>Home Slider</h2>
+        {saved && <span style={{ color: "#2e7d4f", fontWeight: 700, fontSize: "0.9rem" }}>Saved ✓</span>}
+      </div>
+      <p style={{ ...hint, marginBottom: 16 }}>
+        Images shown in the auto-rotating slider on the Home landing page. Upload, reorder or remove.
+      </p>
+
+      {images.length === 0 ? (
+        <p style={{ color: BERRY, opacity: 0.7, fontSize: "0.9rem" }}>
+          No slider images yet — the Home page uses defaults until you add some.
+        </p>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {images.map((url, i) => (
+            <div key={`${url}-${i}`} style={{ display: "flex", alignItems: "center", gap: 12, background: "#FBF4F1", border: "1px solid rgba(135,56,83,0.12)", borderRadius: 12, padding: 10 }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={url} alt={`Slide ${i + 1}`} style={{ width: 84, height: 52, objectFit: "cover", borderRadius: 8 }} />
+              <span style={{ fontWeight: 700, color: BERRY, fontSize: "0.85rem" }}>#{i + 1}</span>
+              <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+                <button type="button" onClick={() => move(i, -1)} disabled={i === 0} style={{ ...ghostBtn, padding: "6px 10px", opacity: i === 0 ? 0.4 : 1 }}>↑</button>
+                <button type="button" onClick={() => move(i, 1)} disabled={i === images.length - 1} style={{ ...ghostBtn, padding: "6px 10px", opacity: i === images.length - 1 ? 0.4 : 1 }}>↓</button>
+                <button type="button" onClick={() => remove(i)} style={linkBtn}>Remove</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 10, marginTop: 16, flexWrap: "wrap", alignItems: "center" }}>
+        <label style={{ ...ghostBtn, display: "inline-block" }}>
+          {uploading ? "Uploading…" : "+ Add image"}
+          <input type="file" accept="image/*" onChange={handleFile} disabled={uploading} style={{ display: "none" }} />
+        </label>
+        <button type="submit" disabled={saving || uploading} style={{ ...primaryBtn, opacity: saving || uploading ? 0.6 : 1 }}>
+          {saving ? "Saving…" : "Save"}
+        </button>
+      </div>
+    </form>
   );
 }
 
