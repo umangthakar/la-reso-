@@ -7,6 +7,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Product } from "@/lib/data";
 import { createClient } from "@/utils/supabase/client";
 import { AnimatedProductCard } from "@/components/animated-product-card";
+import { RotatingBanners } from "@/components/rotating-banners";
 import { useSiteSettings } from "@/lib/use-site-settings";
 import { slugify } from "@/lib/slug";
 import { cn } from "@/lib/utils";
@@ -47,7 +48,6 @@ export function MenuGrid() {
   const [categoryNames, setCategoryNames] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const { settings } = useSiteSettings();
-  const hero = settings.hero_banner;
 
   // Category filter tabs are fetched fresh from the DB (no-store) so admin
   // add / rename / delete reflects on the menu immediately. Re-fetch on
@@ -117,37 +117,15 @@ export function MenuGrid() {
       ? products
       : products.filter((p) => p.category === active);
 
-  // Hero banner content comes from site_settings.hero_banner (admin-editable,
-  // fetched no-store). Defaults are already applied by useSiteSettings; hide
-  // only when the admin explicitly turns it off.
-  const heroVisible = hero.enabled !== false;
-  const heroHeading = hero.heading;
-  const heroSubtext = hero.subtext;
+  // Auto-rotating banners come from site_settings.rotating_banners (admin-
+  // editable, fetched no-store). useSiteSettings already applies the default
+  // banners when the DB has none.
+  const banners = settings.rotating_banners;
 
   return (
     <div>
-      {/* Premium hero banner — sits at the top of the product grid */}
-      {heroVisible && (
-        <motion.section
-          initial={{ opacity: 0, y: 30 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, amount: 0.4 }}
-          transition={{ duration: 0.6, ease: "easeOut" }}
-          className="relative w-full overflow-hidden bg-[#F9EEEA] px-8 py-16"
-        >
-          {/* Decorative product-count watermark */}
-          <span className="pointer-events-none absolute right-6 top-1/2 hidden -translate-y-1/2 select-none font-display text-[200px] font-bold leading-none text-[#D5A4A4]/20 md:block">
-            {filtered.length}
-          </span>
-
-          <div className="relative max-w-2xl">
-            <h2 className="font-display text-5xl font-bold leading-tight text-[#612437] md:text-7xl">
-              {heroHeading}
-            </h2>
-            <p className="mt-4 text-[#9C616D]">{heroSubtext}</p>
-          </div>
-        </motion.section>
-      )}
+      {/* Auto-rotating banner — sits at the top of the product grid */}
+      <RotatingBanners banners={banners} count={filtered.length} />
 
       {/* Thin divider before the cards begin */}
       <div className="mb-2 h-px w-full bg-[#D5A4A4]" />

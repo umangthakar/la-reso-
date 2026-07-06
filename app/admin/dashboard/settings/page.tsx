@@ -13,6 +13,21 @@
 // ============================================================
 
 import { useCallback, useEffect, useState } from "react";
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+  useSortable,
+  arrayMove,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { adminGet, adminSend, adminUpload } from "@/lib/admin-api";
 
 const WINE = "#873853";
@@ -22,8 +37,21 @@ type Announcement = { enabled: boolean; text: string };
 type HeroBanner = { enabled: boolean; heading: string; subtext: string };
 type WhatsappBar = { enabled: boolean; text: string; number: string };
 type Contact = { phone: string; whatsapp: string; email: string; address: string };
+type BannerType = "hero" | "offer" | "announcement";
+type RotatingBanner = { type: BannerType; heading: string; subtext: string; enabled: boolean };
 
 const CONTACT_DEFAULT: Contact = { phone: "", whatsapp: "", email: "", address: "" };
+
+const BANNER_TYPE_OPTIONS: { value: BannerType; label: string }[] = [
+  { value: "hero", label: "Hero" },
+  { value: "offer", label: "Offer" },
+  { value: "announcement", label: "Announcement" },
+];
+
+const DEFAULT_ROTATING_BANNERS: RotatingBanner[] = [
+  { type: "hero", heading: "Every Bite, Eggless & Divine", subtext: "Handcrafted fresh daily — pick your craving", enabled: true },
+  { type: "offer", heading: "Custom Cakes — Designed just for you", subtext: "Order now for your special occasion", enabled: true },
+];
 
 const HERO_DEFAULT: HeroBanner = {
   enabled: true,
@@ -41,6 +69,7 @@ type Settings = {
   contact: Contact;
   announcement: Announcement;
   hero_banner: HeroBanner;
+  rotating_banners: RotatingBanner[];
   whatsapp_bar: WhatsappBar;
   instagram_url: string;
   facebook_url: string;
@@ -56,6 +85,7 @@ const EMPTY: Settings = {
   contact: CONTACT_DEFAULT,
   announcement: { enabled: false, text: "" },
   hero_banner: HERO_DEFAULT,
+  rotating_banners: DEFAULT_ROTATING_BANNERS,
   whatsapp_bar: WHATSAPP_BAR_DEFAULT,
   instagram_url: "",
   facebook_url: "",
@@ -95,12 +125,21 @@ export default function SettingsAdminPage() {
         email: (c.email ?? (dRaw.email as string) ?? "") || "",
         address: (c.address ?? (dRaw.address as string) ?? "") || "",
       };
+      const rb = Array.isArray(d.rotating_banners) && d.rotating_banners.length > 0
+        ? (d.rotating_banners as RotatingBanner[]).map((b) => ({
+            type: (["hero", "offer", "announcement"].includes(b?.type) ? b.type : "hero") as BannerType,
+            heading: typeof b?.heading === "string" ? b.heading : "",
+            subtext: typeof b?.subtext === "string" ? b.subtext : "",
+            enabled: b?.enabled !== false,
+          }))
+        : DEFAULT_ROTATING_BANNERS;
       setS({
         ...EMPTY,
         ...Object.fromEntries(
           Object.entries(d).filter(([, v]) => v != null),
         ),
         contact,
+        rotating_banners: rb,
         announcement: {
           enabled: Boolean(ann.enabled),
           text: ann.text ?? "",
@@ -234,41 +273,13 @@ export default function SettingsAdminPage() {
         <p style={hint}>When on, this shows as a bar across the top of the whole site.</p>
       </SectionForm>
 
-      {/* 2b. MENU HERO BANNER */}
-      <SectionForm
-        title="Hero Banner"
-        saved={savedSection === "hero_banner"}
-        onSave={() => saveSection("hero_banner", ["hero_banner"])}
-      >
-        <label style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14, cursor: "pointer" }}>
-          <Toggle
-            on={s.hero_banner.enabled}
-            onClick={() =>
-              set("hero_banner", { ...s.hero_banner, enabled: !s.hero_banner.enabled })
-            }
-          />
-          <span style={{ fontWeight: 600, color: BERRY }}>
-            {s.hero_banner.enabled ? "Banner is visible" : "Banner is hidden"}
-          </span>
-        </label>
-        <Field label="Main heading">
-          <input
-            style={inputStyle}
-            value={s.hero_banner.heading}
-            onChange={(e) => set("hero_banner", { ...s.hero_banner, heading: e.target.value })}
-            placeholder="Every Bite, Eggless & Divine"
-          />
-        </Field>
-        <Field label="Subtext">
-          <input
-            style={inputStyle}
-            value={s.hero_banner.subtext}
-            onChange={(e) => set("hero_banner", { ...s.hero_banner, subtext: e.target.value })}
-            placeholder="Handcrafted fresh daily — pick your craving"
-          />
-        </Field>
-        <p style={hint}>This is the large banner at the top of the Menu page.</p>
-      </SectionForm>
+      {/* 2b. ROTATING BANNERS (Menu page) */}
+      <RotatingBannersSection
+        banners={s.rotating_banners}
+        onChange={(next) => set("rotating_banners", next)}
+        saved={savedSection === "rotating_banners"}
+        onSave={() => saveSection("rotating_banners", ["rotating_banners"])}
+      />
 
       {/* 2c. WHATSAPP BAR (Menu page) */}
       <SectionForm
@@ -472,6 +483,181 @@ function SectionForm({
         {saving ? "Saving…" : saveLabel}
       </button>
     </form>
+  );
+}
+
+// ---------------- Rotating banners (list + drag reorder) ----------------
+let _bid = 0;
+const nextBid = () => `b${_bid++}`;
+
+function RotatingBannersSection({
+  banners,
+  onChange,
+  saved,
+  onSave,
+}: {
+  banners: RotatingBanner[];
+  onChange: (next: RotatingBanner[]) => void;
+  saved: boolean;
+  onSave: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  // Stable client-side ids so drag-and-drop keys survive edits/reorders.
+  const [ids, setIds] = useState<string[]>(() => banners.map(() => nextBid()));
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+
+  // Keep the id list length in step with the banners (safety net).
+  useEffect(() => {
+    setIds((prev) => {
+      if (prev.length === banners.length) return prev;
+      if (prev.length < banners.length) {
+        const extra = Array.from({ length: banners.length - prev.length }, () => nextBid());
+        return [...prev, ...extra];
+      }
+      return prev.slice(0, banners.length);
+    });
+  }, [banners.length]);
+
+  function update(i: number, patch: Partial<RotatingBanner>) {
+    onChange(banners.map((b, idx) => (idx === i ? { ...b, ...patch } : b)));
+  }
+  function add() {
+    onChange([...banners, { type: "offer", heading: "", subtext: "", enabled: true }]);
+    setIds((prev) => [...prev, nextBid()]);
+  }
+  function remove(i: number) {
+    onChange(banners.filter((_, idx) => idx !== i));
+    setIds((prev) => prev.filter((_, idx) => idx !== i));
+  }
+  function handleDragEnd(e: DragEndEvent) {
+    const { active, over } = e;
+    if (!over || active.id === over.id) return;
+    const oldIndex = ids.indexOf(String(active.id));
+    const newIndex = ids.indexOf(String(over.id));
+    if (oldIndex === -1 || newIndex === -1) return;
+    onChange(arrayMove(banners, oldIndex, newIndex));
+    setIds((prev) => arrayMove(prev, oldIndex, newIndex));
+  }
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    await onSave();
+    setSaving(false);
+  }
+
+  return (
+    <form
+      onSubmit={submit}
+      style={{ background: "white", borderRadius: 16, padding: "1.5rem 1.75rem", marginTop: 20, boxShadow: "0 10px 30px rgba(135,56,83,0.08)" }}
+    >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6, gap: 12 }}>
+        <h2 style={{ color: WINE, margin: 0, fontSize: "1.15rem", fontWeight: 800 }}>Rotating Banners</h2>
+        {saved && <span style={{ color: "#2e7d4f", fontWeight: 700, fontSize: "0.9rem" }}>Saved ✓</span>}
+      </div>
+      <p style={{ ...hint, marginBottom: 16 }}>
+        Banners auto-rotate every 5 seconds at the top of the Menu page. Drag the ⠿ handle to
+        reorder. Only enabled banners are shown.
+      </p>
+
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        <SortableContext items={ids} strategy={verticalListSortingStrategy}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {banners.map((b, i) => (
+              <SortableBannerRow
+                key={ids[i]}
+                id={ids[i]}
+                banner={b}
+                position={i + 1}
+                onUpdate={(patch) => update(i, patch)}
+                onDelete={() => remove(i)}
+              />
+            ))}
+          </div>
+        </SortableContext>
+      </DndContext>
+
+      {banners.length === 0 && (
+        <p style={{ color: BERRY, opacity: 0.7, fontSize: "0.9rem", marginTop: 4 }}>
+          No banners yet — add one below.
+        </p>
+      )}
+
+      <div style={{ display: "flex", gap: 10, marginTop: 16, flexWrap: "wrap" }}>
+        <button type="button" onClick={add} style={ghostBtn}>+ Add banner</button>
+        <button type="submit" disabled={saving} style={{ ...primaryBtn, opacity: saving ? 0.6 : 1 }}>
+          {saving ? "Saving…" : "Save"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function SortableBannerRow({
+  id,
+  banner,
+  position,
+  onUpdate,
+  onDelete,
+}: {
+  id: string;
+  banner: RotatingBanner;
+  position: number;
+  onUpdate: (patch: Partial<RotatingBanner>) => void;
+  onDelete: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    background: isDragging ? "rgba(135,56,83,0.05)" : "#FBF4F1",
+    border: "1px solid rgba(135,56,83,0.12)",
+    borderRadius: 12,
+    padding: "12px 14px",
+  };
+
+  return (
+    <div ref={setNodeRef} style={style}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+        <span
+          {...attributes}
+          {...listeners}
+          title="Drag to reorder"
+          style={{ cursor: "grab", touchAction: "none", color: "rgba(135,56,83,0.5)", fontSize: "1.3rem", lineHeight: 1 }}
+        >
+          ⠿
+        </span>
+        <span style={{ fontWeight: 700, color: BERRY, fontSize: "0.85rem" }}>#{position}</span>
+        <select
+          value={banner.type}
+          onChange={(e) => onUpdate({ type: e.target.value as BannerType })}
+          style={{ ...inputStyle, width: "auto", padding: "6px 10px" }}
+        >
+          {BANNER_TYPE_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto", color: BERRY, fontWeight: 600, fontSize: "0.85rem" }}>
+          <Toggle on={banner.enabled} onClick={() => onUpdate({ enabled: !banner.enabled })} />
+          {banner.enabled ? "On" : "Off"}
+        </label>
+        <button type="button" onClick={onDelete} style={{ ...linkBtn, marginLeft: 4 }} title="Delete banner">
+          Delete
+        </button>
+      </div>
+      <input
+        style={{ ...inputStyle, marginBottom: 8 }}
+        value={banner.heading}
+        onChange={(e) => onUpdate({ heading: e.target.value })}
+        placeholder="Heading (e.g. 30% off on any product)"
+      />
+      <input
+        style={inputStyle}
+        value={banner.subtext}
+        onChange={(e) => onUpdate({ subtext: e.target.value })}
+        placeholder="Subtext (optional)"
+      />
+    </div>
   );
 }
 

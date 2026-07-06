@@ -22,6 +22,13 @@ export const ALL_DELIVERY_DAYS = [
 export type Announcement = { enabled: boolean; text: string };
 export type HeroBanner = { enabled: boolean; heading: string; subtext: string };
 export type WhatsappBar = { enabled: boolean; text: string; number: string };
+export type BannerType = "hero" | "offer" | "announcement";
+export type RotatingBanner = {
+  type: BannerType;
+  heading: string;
+  subtext: string;
+  enabled: boolean;
+};
 // Single source of truth for all contact info across the site.
 export type Contact = { phone: string; whatsapp: string; email: string; address: string };
 export type DeliveryZone = {
@@ -38,6 +45,7 @@ export type PublicSettings = {
   tiktok_url: string;
   announcement: Announcement;
   hero_banner: HeroBanner;
+  rotating_banners: RotatingBanner[];
   whatsapp_bar: WhatsappBar;
   delivery_zones: DeliveryZone[];
   lead_time_days: number;
@@ -67,6 +75,36 @@ export const CONTACT_DEFAULT: Contact = {
   address: "",
 };
 
+// Fallback shown on the Menu page when the DB has no rotating_banners yet.
+export const DEFAULT_ROTATING_BANNERS: RotatingBanner[] = [
+  {
+    type: "hero",
+    heading: "Every Bite, Eggless & Divine",
+    subtext: "Handcrafted fresh daily — pick your craving",
+    enabled: true,
+  },
+  {
+    type: "offer",
+    heading: "Custom Cakes — Designed just for you",
+    subtext: "Order now for your special occasion",
+    enabled: true,
+  },
+];
+
+const BANNER_TYPES: BannerType[] = ["hero", "offer", "announcement"];
+
+/** Coerce an unknown value into a valid RotatingBanner. */
+function normaliseBanner(v: unknown): RotatingBanner {
+  const b = (v ?? {}) as Partial<RotatingBanner>;
+  const type = BANNER_TYPES.includes(b.type as BannerType) ? (b.type as BannerType) : "hero";
+  return {
+    type,
+    heading: typeof b.heading === "string" ? b.heading : "",
+    subtext: typeof b.subtext === "string" ? b.subtext : "",
+    enabled: b.enabled !== false,
+  };
+}
+
 // Sensible defaults so the storefront still renders when the DB row is
 // empty or a column has not been added yet.
 export const DEFAULT_SETTINGS: PublicSettings = {
@@ -76,6 +114,7 @@ export const DEFAULT_SETTINGS: PublicSettings = {
   tiktok_url: "",
   announcement: { enabled: false, text: "" },
   hero_banner: HERO_DEFAULT,
+  rotating_banners: DEFAULT_ROTATING_BANNERS,
   whatsapp_bar: WHATSAPP_BAR_DEFAULT,
   delivery_zones: [],
   lead_time_days: 3,
@@ -87,7 +126,7 @@ export const DEFAULT_SETTINGS: PublicSettings = {
 // `contact` is the unified contact jsonb; phone/email/address/whatsapp are the
 // legacy columns still read as a fallback until `contact` is populated.
 export const PUBLIC_SETTINGS_SELECT =
-  "contact,phone,email,address,whatsapp,instagram_url,facebook_url,tiktok_url,announcement,hero_banner,whatsapp_bar,delivery_zones,lead_time_days,blocked_dates,delivery_days";
+  "contact,phone,email,address,whatsapp,instagram_url,facebook_url,tiktok_url,announcement,hero_banner,rotating_banners,whatsapp_bar,delivery_zones,lead_time_days,blocked_dates,delivery_days";
 
 function str(v: unknown): string {
   return typeof v === "string" ? v : "";
@@ -124,6 +163,12 @@ export function normaliseSettings(
       heading: str(hero.heading) || HERO_DEFAULT.heading,
       subtext: str(hero.subtext) || HERO_DEFAULT.subtext,
     },
+    // Use the DB array when present & non-empty; otherwise fall back to the
+    // default banners so the Menu page always has something to show.
+    rotating_banners:
+      Array.isArray(r.rotating_banners) && (r.rotating_banners as unknown[]).length > 0
+        ? (r.rotating_banners as unknown[]).map(normaliseBanner)
+        : DEFAULT_ROTATING_BANNERS,
     whatsapp_bar: {
       enabled: wab.enabled ?? WHATSAPP_BAR_DEFAULT.enabled,
       text: str(wab.text) || WHATSAPP_BAR_DEFAULT.text,
