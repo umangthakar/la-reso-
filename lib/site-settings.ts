@@ -21,6 +21,7 @@ export const ALL_DELIVERY_DAYS = [
 
 export type Announcement = { enabled: boolean; text: string };
 export type HeroBanner = { enabled: boolean; heading: string; subtext: string };
+export type WhatsappBar = { enabled: boolean; text: string; number: string };
 export type DeliveryZone = {
   id: string;
   name: string;
@@ -38,6 +39,7 @@ export type PublicSettings = {
   tiktok_url: string;
   announcement: Announcement;
   hero_banner: HeroBanner;
+  whatsapp_bar: WhatsappBar;
   delivery_zones: DeliveryZone[];
   lead_time_days: number;
   blocked_dates: string[];
@@ -48,6 +50,12 @@ export const HERO_DEFAULT: HeroBanner = {
   enabled: true,
   heading: "Every Bite, Eggless & Divine",
   subtext: "Handcrafted fresh daily — pick your craving",
+};
+
+export const WHATSAPP_BAR_DEFAULT: WhatsappBar = {
+  enabled: true,
+  text: "For any question",
+  number: "441234567890",
 };
 
 // Sensible defaults so the storefront still renders when the DB row is
@@ -62,6 +70,7 @@ export const DEFAULT_SETTINGS: PublicSettings = {
   tiktok_url: "",
   announcement: { enabled: false, text: "" },
   hero_banner: HERO_DEFAULT,
+  whatsapp_bar: WHATSAPP_BAR_DEFAULT,
   delivery_zones: [],
   lead_time_days: 3,
   blocked_dates: [],
@@ -70,7 +79,7 @@ export const DEFAULT_SETTINGS: PublicSettings = {
 
 // Columns the storefront may read (fed to the Supabase REST select).
 export const PUBLIC_SETTINGS_SELECT =
-  "phone,email,address,whatsapp,instagram_url,facebook_url,tiktok_url,announcement,hero_banner,delivery_zones,lead_time_days,blocked_dates,delivery_days";
+  "phone,email,address,whatsapp,instagram_url,facebook_url,tiktok_url,announcement,hero_banner,whatsapp_bar,delivery_zones,lead_time_days,blocked_dates,delivery_days";
 
 function str(v: unknown): string {
   return typeof v === "string" ? v : "";
@@ -83,6 +92,7 @@ export function normaliseSettings(
   const r = raw ?? {};
   const ann = (r.announcement ?? {}) as Partial<Announcement>;
   const hero = (r.hero_banner ?? {}) as Partial<HeroBanner>;
+  const wab = (r.whatsapp_bar ?? {}) as Partial<WhatsappBar>;
 
   return {
     phone: str(r.phone),
@@ -100,6 +110,11 @@ export function normaliseSettings(
       enabled: hero.enabled ?? HERO_DEFAULT.enabled,
       heading: str(hero.heading) || HERO_DEFAULT.heading,
       subtext: str(hero.subtext) || HERO_DEFAULT.subtext,
+    },
+    whatsapp_bar: {
+      enabled: wab.enabled ?? WHATSAPP_BAR_DEFAULT.enabled,
+      text: str(wab.text) || WHATSAPP_BAR_DEFAULT.text,
+      number: str(wab.number) || WHATSAPP_BAR_DEFAULT.number,
     },
     delivery_zones: Array.isArray(r.delivery_zones)
       ? (r.delivery_zones as DeliveryZone[])

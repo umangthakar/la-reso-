@@ -5,6 +5,7 @@ import { Marquee } from "@/components/marquee";
 import { TrustBar } from "@/components/trust-bar";
 import { Testimonials } from "@/components/testimonials";
 import { OrderCTA } from "@/components/order-cta";
+import { getPublicSettings } from "@/lib/site-settings-server";
 
 // Never statically cache the menu — hero banner + products must reflect admin
 // edits on the next request (no redeploy).
@@ -17,21 +18,33 @@ export const metadata: Metadata = {
     "Browse our full menu of 100% eggless cakes, cupcakes, brownies, cookies and gift boxes. Filter by category and order your favourites.",
 };
 
-export default function MenuPage() {
+export default async function MenuPage() {
+  // Fetched no-store (getPublicSettings) so admin edits reflect immediately;
+  // the page is force-dynamic so this re-runs on every request.
+  const { whatsapp_bar } = await getPublicSettings();
+  const waNumber = whatsapp_bar.number.replace(/[^0-9]/g, "");
+
   return (
     <>
-      {/* Promo banner — scrolls to the custom-order CTA on this page */}
-      <a
-        href="#custom-order"
-        className="block w-full bg-[#873853] text-white transition-colors hover:bg-[#743249]"
-      >
-        <div className="container flex flex-col items-center justify-center gap-1 py-3 text-center text-sm font-medium sm:flex-row sm:justify-between sm:gap-4 sm:text-left">
-          <span>🎂 Custom Cakes — Designed just for you</span>
-          <span className="inline-flex animate-pulse items-center gap-1 font-semibold">
-            Order Now →
-          </span>
+      {/* WhatsApp bar — admin-managed (Content & Settings → WhatsApp Bar).
+          Same dark-rose styling as the previous promo bar. */}
+      {whatsapp_bar.enabled && (
+        <div className="block w-full bg-[#873853] text-white transition-colors hover:bg-[#743249]">
+          <div className="container flex flex-col items-center justify-center gap-1 py-3 text-center text-sm font-medium sm:flex-row sm:justify-center sm:gap-2">
+            <span>
+              {whatsapp_bar.text}{" "}
+              <a
+                href={`https://wa.me/${waNumber}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-bold underline underline-offset-2 hover:opacity-90"
+              >
+                Click here
+              </a>
+            </span>
+          </div>
         </div>
-      </a>
+      )}
 
       <section className="pb-24">
         <div className="container">

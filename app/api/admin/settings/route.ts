@@ -27,6 +27,7 @@ const WRITABLE = [
   "whatsapp",
   "announcement",
   "hero_banner",
+  "whatsapp_bar",
   "instagram_url",
   "facebook_url",
   "tiktok_url",

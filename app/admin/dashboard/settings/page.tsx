@@ -20,11 +20,18 @@ const BERRY = "#5C2A41";
 
 type Announcement = { enabled: boolean; text: string };
 type HeroBanner = { enabled: boolean; heading: string; subtext: string };
+type WhatsappBar = { enabled: boolean; text: string; number: string };
 
 const HERO_DEFAULT: HeroBanner = {
   enabled: true,
   heading: "Every Bite, Eggless & Divine",
   subtext: "Handcrafted fresh daily — pick your craving",
+};
+
+const WHATSAPP_BAR_DEFAULT: WhatsappBar = {
+  enabled: true,
+  text: "For any question",
+  number: "441234567890",
 };
 
 type Settings = {
@@ -34,6 +41,7 @@ type Settings = {
   address: string;
   announcement: Announcement;
   hero_banner: HeroBanner;
+  whatsapp_bar: WhatsappBar;
   instagram_url: string;
   facebook_url: string;
   tiktok_url: string;
@@ -51,6 +59,7 @@ const EMPTY: Settings = {
   address: "",
   announcement: { enabled: false, text: "" },
   hero_banner: HERO_DEFAULT,
+  whatsapp_bar: WHATSAPP_BAR_DEFAULT,
   instagram_url: "",
   facebook_url: "",
   tiktok_url: "",
@@ -78,6 +87,7 @@ export default function SettingsAdminPage() {
       const d = data.settings ?? {};
       const ann = (d.announcement ?? {}) as Partial<Announcement>;
       const hb = (d.hero_banner ?? {}) as Partial<HeroBanner>;
+      const wab = (d.whatsapp_bar ?? {}) as Partial<WhatsappBar>;
       setS({
         ...EMPTY,
         ...Object.fromEntries(
@@ -91,6 +101,11 @@ export default function SettingsAdminPage() {
           enabled: hb.enabled ?? HERO_DEFAULT.enabled,
           heading: hb.heading ?? HERO_DEFAULT.heading,
           subtext: hb.subtext ?? HERO_DEFAULT.subtext,
+        },
+        whatsapp_bar: {
+          enabled: wab.enabled ?? WHATSAPP_BAR_DEFAULT.enabled,
+          text: wab.text ?? WHATSAPP_BAR_DEFAULT.text,
+          number: wab.number ?? WHATSAPP_BAR_DEFAULT.number,
         },
       } as Settings);
     } catch (e) {
@@ -219,6 +234,45 @@ export default function SettingsAdminPage() {
           />
         </Field>
         <p style={hint}>This is the large banner at the top of the Menu page.</p>
+      </SectionForm>
+
+      {/* 2c. WHATSAPP BAR (Menu page) */}
+      <SectionForm
+        title="WhatsApp Bar"
+        saved={savedSection === "whatsapp_bar"}
+        onSave={() => saveSection("whatsapp_bar", ["whatsapp_bar"])}
+      >
+        <label style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14, cursor: "pointer" }}>
+          <Toggle
+            on={s.whatsapp_bar.enabled}
+            onClick={() =>
+              set("whatsapp_bar", { ...s.whatsapp_bar, enabled: !s.whatsapp_bar.enabled })
+            }
+          />
+          <span style={{ fontWeight: 600, color: BERRY }}>
+            {s.whatsapp_bar.enabled ? "Bar is visible" : "Bar is hidden"}
+          </span>
+        </label>
+        <Field label="Bar text">
+          <input
+            style={inputStyle}
+            value={s.whatsapp_bar.text}
+            onChange={(e) => set("whatsapp_bar", { ...s.whatsapp_bar, text: e.target.value })}
+            placeholder="For any question"
+          />
+        </Field>
+        <Field label="WhatsApp number">
+          <input
+            style={inputStyle}
+            value={s.whatsapp_bar.number}
+            onChange={(e) => set("whatsapp_bar", { ...s.whatsapp_bar, number: e.target.value })}
+            placeholder="441234567890"
+          />
+        </Field>
+        <p style={hint}>
+          Shows a bar at the top of the Menu page with your text and a bold “Click here” link
+          that opens wa.me/&lt;number&gt; in a new tab. Digits only, incl. country code (no +).
+        </p>
       </SectionForm>
 
       {/* 3. SOCIAL MEDIA */}
