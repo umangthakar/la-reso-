@@ -6,10 +6,10 @@ import { CardCarousel } from "@/components/ui/card-carousel";
 import { useSiteSettings } from "@/lib/use-site-settings";
 
 // Shown when the matching site_settings field is empty, so the footer never
-// looks blank (and matches the original hardcoded design).
+// looks blank. Phone is intentionally NOT defaulted — it comes solely from
+// the DB and its row is hidden when unset (no hardcoded number anywhere).
 const FALLBACK = {
   address: "14 Honey Lane, London, E1 6AN",
-  phone: "+44 1234 567 890",
   email: "hello@lerasabakery.com",
 };
 
@@ -17,9 +17,9 @@ export function Footer() {
   const { settings } = useSiteSettings();
 
   const address = settings.address.trim() || FALLBACK.address;
-  const phone = settings.phone.trim() || FALLBACK.phone;
+  const phone = settings.phone.trim();
   const email = settings.email.trim() || FALLBACK.email;
-  const telHref = `tel:${phone.replace(/\s+/g, "")}`;
+  const telHref = phone ? `tel:${phone.replace(/\s+/g, "")}` : "";
 
   // Only render social icons whose URL is configured.
   const socials = [
@@ -158,12 +158,14 @@ export function Footer() {
                 <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-dustyrose" />
                 {address}
               </li>
-              <li className="flex items-center justify-center gap-2.5 sm:justify-start">
-                <Phone className="h-4 w-4 shrink-0 text-dustyrose" />
-                <a href={telHref} className="transition-colors hover:text-dustyrose">
-                  {phone}
-                </a>
-              </li>
+              {phone && (
+                <li className="flex items-center justify-center gap-2.5 sm:justify-start">
+                  <Phone className="h-4 w-4 shrink-0 text-dustyrose" />
+                  <a href={telHref} className="transition-colors hover:text-dustyrose">
+                    {phone}
+                  </a>
+                </li>
+              )}
               <li className="flex items-center justify-center gap-2.5 sm:justify-start">
                 <Mail className="h-4 w-4 shrink-0 text-dustyrose" />
                 <a href={`mailto:${email}`} className="transition-colors hover:text-dustyrose">

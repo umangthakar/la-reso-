@@ -3,23 +3,17 @@ import { MapPin, Phone, Mail, Clock, Instagram } from "lucide-react";
 import { PageHero } from "@/components/page-hero";
 import { ContactForm } from "@/components/contact-form";
 import { Reveal } from "@/components/motion";
+import { getPublicSettings } from "@/lib/site-settings-server";
+
+// Re-fetch settings server-side on every request (getPublicSettings is
+// no-store) so the contact phone always reflects the admin value.
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Order & Contact — Le Rasa Bakery",
   description:
     "Start your custom eggless cake order or get in touch with Le Rasa Bakery. We reply within 24 hours.",
 };
-
-const info = [
-  {
-    icon: MapPin,
-    label: "Visit us",
-    value: "14 Honey Lane, London, E1 6AN",
-  },
-  { icon: Phone, label: "Call us", value: "+44 1234 567 890" },
-  { icon: Mail, label: "Email", value: "hello@lerasabakery.com" },
-  { icon: Clock, label: "Hours", value: "Tue–Sun · 9am – 7pm" },
-];
 
 const faqs = [
   {
@@ -40,7 +34,19 @@ const faqs = [
   },
 ];
 
-export default function ContactPage() {
+export default async function ContactPage() {
+  const settings = await getPublicSettings();
+  const phone = settings.phone.trim();
+
+  // "Call us" only appears when a phone number is set in the DB — no hardcoded
+  // number is ever shown.
+  const info = [
+    { icon: MapPin, label: "Visit us", value: "14 Honey Lane, London, E1 6AN" },
+    ...(phone ? [{ icon: Phone, label: "Call us", value: phone }] : []),
+    { icon: Mail, label: "Email", value: "hello@lerasabakery.com" },
+    { icon: Clock, label: "Hours", value: "Tue–Sun · 9am – 7pm" },
+  ];
+
   return (
     <>
       <PageHero

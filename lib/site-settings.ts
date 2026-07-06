@@ -52,10 +52,13 @@ export const HERO_DEFAULT: HeroBanner = {
   subtext: "Handcrafted fresh daily — pick your craving",
 };
 
+// No hardcoded number — it must come solely from the DB (whatsapp_bar.number).
+// The bar is only rendered when a number is actually present (see the Menu
+// page guard), so an empty default just means "hidden until configured".
 export const WHATSAPP_BAR_DEFAULT: WhatsappBar = {
-  enabled: true,
+  enabled: false,
   text: "For any question",
-  number: "441234567890",
+  number: "",
 };
 
 // Sensible defaults so the storefront still renders when the DB row is

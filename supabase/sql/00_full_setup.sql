@@ -229,8 +229,10 @@ alter table public.site_settings add column if not exists about_image_url  text;
 alter table public.site_settings add column if not exists announcement     jsonb not null default '{"enabled": false, "text": ""}'::jsonb;
 -- menu hero banner: { "enabled": bool, "heading": "...", "subtext": "..." }
 alter table public.site_settings add column if not exists hero_banner      jsonb not null default '{"enabled": true, "heading": "Every Bite, Eggless & Divine", "subtext": "Handcrafted fresh daily — pick your craving"}'::jsonb;
--- menu WhatsApp bar: { "enabled": bool, "text": "...", "number": "441234567890" }
-alter table public.site_settings add column if not exists whatsapp_bar     jsonb not null default '{"enabled": true, "text": "For any question", "number": "441234567890"}'::jsonb;
+-- menu WhatsApp bar: { "enabled": bool, "text": "...", "number": "..." }
+-- No seeded number — the admin sets it in Content & Settings; the bar stays
+-- hidden until a number is configured.
+alter table public.site_settings add column if not exists whatsapp_bar     jsonb not null default '{"enabled": false, "text": "For any question", "number": ""}'::jsonb;
 alter table public.site_settings add column if not exists delivery_zones   jsonb not null default '[]'::jsonb;
 alter table public.site_settings add column if not exists lead_time_days   integer not null default 3;
 alter table public.site_settings add column if not exists blocked_dates    jsonb not null default '[]'::jsonb;

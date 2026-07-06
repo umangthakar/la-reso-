@@ -6,10 +6,11 @@
 -- announcement — not an INSERT (key, value) row. Adding the column with a
 -- DEFAULT backfills the existing settings row with the seeded value.
 --
--- Shape: { "enabled": bool, "text": "...", "number": "441234567890" }
+-- Shape: { "enabled": bool, "text": "...", "number": "..." }
+-- No seeded number — the admin configures it; the bar stays hidden until then.
 -- Safe to run more than once.
 -- ============================================================
 
 alter table public.site_settings
   add column if not exists whatsapp_bar jsonb not null default
-    '{"enabled": true, "text": "For any question", "number": "441234567890"}'::jsonb;
+    '{"enabled": false, "text": "For any question", "number": ""}'::jsonb;

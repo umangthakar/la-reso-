@@ -19,10 +19,7 @@ import {
   CalendarDays,
 } from "lucide-react";
 import { money } from "@/lib/pricing";
-
-// Bakery WhatsApp contact number.
-const WHATSAPP_DISPLAY = "+44 1234 567 890";
-const WHATSAPP_DIGITS = "441234567890";
+import { useSiteSettings } from "@/lib/use-site-settings";
 
 type Snapshot = {
   orderId: string;
@@ -58,6 +55,11 @@ export default function OrderConfirmationPage() {
   const [order, setOrder] = useState<Snapshot | null>(null);
   const [ready, setReady] = useState(false);
 
+  // WhatsApp number comes solely from the DB (whatsapp_bar.number), fetched
+  // no-store via useSiteSettings. Never a hardcoded number.
+  const { settings } = useSiteSettings();
+  const waDigits = settings.whatsapp_bar.number.replace(/[^0-9]/g, "");
+
   useEffect(() => {
     try {
       const raw = sessionStorage.getItem("lerasa_last_order");
@@ -76,7 +78,7 @@ export default function OrderConfirmationPage() {
   const waText = encodeURIComponent(
     `Hi Le Rasa! I've just placed order #${orderNumber}. `,
   );
-  const waLink = `https://wa.me/${WHATSAPP_DIGITS}?text=${waText}`;
+  const waLink = `https://wa.me/${waDigits}?text=${waText}`;
 
   return (
     <div className="pb-24 pt-10">
@@ -190,15 +192,17 @@ export default function OrderConfirmationPage() {
 
         {/* Actions */}
         <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center">
-          <a
-            href={waLink}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center justify-center gap-2 rounded-full bg-[#25D366] px-6 py-3.5 text-sm font-bold text-white shadow-clay-sm transition-transform hover:-translate-y-0.5"
-          >
-            <MessageCircle className="h-4 w-4" />
-            WhatsApp us · {WHATSAPP_DISPLAY}
-          </a>
+          {waDigits && (
+            <a
+              href={waLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center justify-center gap-2 rounded-full bg-[#25D366] px-6 py-3.5 text-sm font-bold text-white shadow-clay-sm transition-transform hover:-translate-y-0.5"
+            >
+              <MessageCircle className="h-4 w-4" />
+              WhatsApp us · +{waDigits}
+            </a>
+          )}
           <Link
             href="/menu"
             className="inline-flex items-center justify-center gap-2 rounded-full border-2 border-wine/40 px-6 py-3.5 text-sm font-bold uppercase tracking-wide text-wine-dark transition-colors hover:bg-wine/10"

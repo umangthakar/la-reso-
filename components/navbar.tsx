@@ -11,10 +11,6 @@ import { useAuth } from "@/lib/use-auth";
 import { useSiteSettings } from "@/lib/use-site-settings";
 import { CartButton } from "@/components/cart/cart-button";
 
-// Shown until the phone number loads / when it's unset, matching the
-// original hardcoded value so nothing looks blank.
-const FALLBACK_PHONE = "+44 1234 567 890";
-
 const links = [
   { href: "/", label: "Home" },
   { href: "/menu", label: "Menu" },
@@ -30,8 +26,9 @@ export function Navbar() {
   const { settings } = useSiteSettings();
   const initial = user?.name.trim().charAt(0).toUpperCase();
 
-  const phone = settings.phone.trim() || FALLBACK_PHONE;
-  const telHref = `tel:${phone.replace(/\s+/g, "")}`;
+  // Phone comes solely from the DB (site_settings.phone). No hardcoded number.
+  const phone = settings.phone.trim();
+  const telHref = phone ? `tel:${phone.replace(/\s+/g, "")}` : "";
 
   // The home route ("/") is the full-screen splash entry animation, so the
   // navbar stays hidden there and slides into view on every other page.
@@ -58,14 +55,18 @@ export function Navbar() {
       {/* Top utility bar */}
       <div className="bg-darkberry text-blush-50">
         <div className="container flex h-9 items-center justify-between gap-3 text-[11px] font-semibold sm:text-xs">
-          <a
-            href={telHref}
-            className="inline-flex items-center gap-1.5 transition-colors hover:text-dustyrose-light"
-          >
-            <Phone className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">{phone}</span>
-            <span className="sm:hidden">Call us</span>
-          </a>
+          {phone ? (
+            <a
+              href={telHref}
+              className="inline-flex items-center gap-1.5 transition-colors hover:text-dustyrose-light"
+            >
+              <Phone className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">{phone}</span>
+              <span className="sm:hidden">Call us</span>
+            </a>
+          ) : (
+            <span />
+          )}
           <span className="inline-flex items-center gap-1.5">
             <Star className="h-3.5 w-3.5 fill-dustyrose text-dustyrose" />
             <span>4.9/5 · 2,400+ Happy Boxes</span>

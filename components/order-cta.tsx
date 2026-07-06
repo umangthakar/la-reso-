@@ -8,8 +8,13 @@ import { Reveal } from "@/components/motion";
 import { TrustBadges } from "@/components/trust-badges";
 import { ProductHighlightCard } from "@/components/ui/product-card";
 import { GooeyText } from "@/components/ui/gooey-text-morphing";
+import { useSiteSettings } from "@/lib/use-site-settings";
 
 export function OrderCTA() {
+  // Contact number comes from the DB (site_settings.phone) — no hardcoding.
+  const { settings } = useSiteSettings();
+  const phoneDigits = settings.phone.replace(/[^0-9+]/g, "");
+
   return (
     <section id="custom-order" className="section-padding">
       <div className="container">
@@ -72,13 +77,15 @@ export function OrderCTA() {
                       <ArrowRight className="h-4 w-4" />
                     </Link>
                   </Button>
-                  <a
-                    href="tel:+441234567890"
-                    className="inline-flex items-center gap-2 rounded-full border-2 border-blush-50/30 px-6 py-3 text-sm font-semibold text-blush-50 transition-colors hover:bg-blush-50/10"
-                  >
-                    <Phone className="h-4 w-4" />
-                    +44 1234 567 890
-                  </a>
+                  {phoneDigits && (
+                    <a
+                      href={`tel:${phoneDigits}`}
+                      className="inline-flex items-center gap-2 rounded-full border-2 border-blush-50/30 px-6 py-3 text-sm font-semibold text-blush-50 transition-colors hover:bg-blush-50/10"
+                    >
+                      <Phone className="h-4 w-4" />
+                      {settings.phone}
+                    </a>
+                  )}
                 </div>
                 <TrustBadges
                   variant="onDark"

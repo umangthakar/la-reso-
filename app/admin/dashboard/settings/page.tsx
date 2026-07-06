@@ -29,9 +29,9 @@ const HERO_DEFAULT: HeroBanner = {
 };
 
 const WHATSAPP_BAR_DEFAULT: WhatsappBar = {
-  enabled: true,
+  enabled: false,
   text: "For any question",
-  number: "441234567890",
+  number: "",
 };
 
 type Settings = {
@@ -266,7 +266,7 @@ export default function SettingsAdminPage() {
             style={inputStyle}
             value={s.whatsapp_bar.number}
             onChange={(e) => set("whatsapp_bar", { ...s.whatsapp_bar, number: e.target.value })}
-            placeholder="441234567890"
+            placeholder="e.g. 447123456789 (country code, digits only)"
           />
         </Field>
         <p style={hint}>

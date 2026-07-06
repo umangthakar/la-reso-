@@ -22,13 +22,15 @@ export default async function MenuPage() {
   // Fetched no-store (getPublicSettings) so admin edits reflect immediately;
   // the page is force-dynamic so this re-runs on every request.
   const { whatsapp_bar } = await getPublicSettings();
+  // Digits only, straight from the DB — never a hardcoded fallback.
   const waNumber = whatsapp_bar.number.replace(/[^0-9]/g, "");
 
   return (
     <>
       {/* WhatsApp bar — admin-managed (Content & Settings → WhatsApp Bar).
+          Only shown when enabled AND a number is set in the database.
           Same dark-rose styling as the previous promo bar. */}
-      {whatsapp_bar.enabled && (
+      {whatsapp_bar.enabled && waNumber && (
         <div className="block w-full bg-[#873853] text-white transition-colors hover:bg-[#743249]">
           <div className="container flex flex-col items-center justify-center gap-1 py-3 text-center text-sm font-medium sm:flex-row sm:justify-center sm:gap-2">
             <span>
