@@ -21,9 +21,10 @@ export const metadata: Metadata = {
 export default async function MenuPage() {
   // Fetched no-store (getPublicSettings) so admin edits reflect immediately;
   // the page is force-dynamic so this re-runs on every request.
-  const { whatsapp_bar } = await getPublicSettings();
-  // Digits only, straight from the DB — never a hardcoded fallback.
-  const waNumber = whatsapp_bar.number.replace(/[^0-9]/g, "");
+  const { whatsapp_bar, contact } = await getPublicSettings();
+  // Number comes solely from the unified Contact Details (contact.whatsapp),
+  // digits only — never a hardcoded fallback.
+  const waNumber = contact.whatsapp.replace(/[^0-9]/g, "");
 
   return (
     <>

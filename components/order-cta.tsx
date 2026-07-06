@@ -11,9 +11,10 @@ import { GooeyText } from "@/components/ui/gooey-text-morphing";
 import { useSiteSettings } from "@/lib/use-site-settings";
 
 export function OrderCTA() {
-  // Contact number comes from the DB (site_settings.phone) — no hardcoding.
+  // Contact number comes from the DB (site_settings.contact.phone) — no hardcoding.
   const { settings } = useSiteSettings();
-  const phoneDigits = settings.phone.replace(/[^0-9+]/g, "");
+  const phone = settings.contact.phone.trim();
+  const phoneDigits = phone.replace(/[^0-9+]/g, "");
 
   return (
     <section id="custom-order" className="section-padding">
@@ -83,7 +84,7 @@ export function OrderCTA() {
                       className="inline-flex items-center gap-2 rounded-full border-2 border-blush-50/30 px-6 py-3 text-sm font-semibold text-blush-50 transition-colors hover:bg-blush-50/10"
                     >
                       <Phone className="h-4 w-4" />
-                      {settings.phone}
+                      {phone}
                     </a>
                   )}
                 </div>

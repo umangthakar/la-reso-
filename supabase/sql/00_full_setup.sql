@@ -217,6 +217,9 @@ create table if not exists public.site_settings (
 alter table public.site_settings add column if not exists site_name        text default 'Le Rasa Bakery';
 alter table public.site_settings add column if not exists tagline          text default 'Eggless cakes, baked with love';
 alter table public.site_settings add column if not exists whatsapp         text;
+-- Unified contact info: { "phone", "whatsapp", "email", "address" }. Single
+-- source of truth for every contact detail shown on the site.
+alter table public.site_settings add column if not exists contact          jsonb not null default '{"phone": "", "whatsapp": "", "email": "", "address": ""}'::jsonb;
 alter table public.site_settings add column if not exists active_theme     text;
 alter table public.site_settings add column if not exists instagram_url    text;
 alter table public.site_settings add column if not exists facebook_url     text;
@@ -508,6 +511,21 @@ set whatsapp_bar = jsonb_build_object(
   'number',  ''
 )
 where whatsapp_bar ->> 'number' = '441234567890';
+
+-- Backfill the unified `contact` jsonb from the legacy top-level columns, so
+-- existing installs keep their phone/whatsapp/email/address. Only runs while
+-- `contact` is still empty — never clobbers values set via the admin panel.
+update public.site_settings
+set contact = jsonb_build_object(
+  'phone',    coalesce(phone, ''),
+  'whatsapp', coalesce(whatsapp, ''),
+  'email',    coalesce(email, ''),
+  'address',  coalesce(address, '')
+)
+where coalesce(contact->>'phone', '') = ''
+  and coalesce(contact->>'whatsapp', '') = ''
+  and coalesce(contact->>'email', '') = ''
+  and coalesce(contact->>'address', '') = '';
 
 -- Starter delivery zones (only if none exist) so the analytics
 -- zone breakdown has labels.

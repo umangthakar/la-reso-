@@ -16,9 +16,9 @@ const FALLBACK = {
 export function Footer() {
   const { settings } = useSiteSettings();
 
-  const address = settings.address.trim() || FALLBACK.address;
-  const phone = settings.phone.trim();
-  const email = settings.email.trim() || FALLBACK.email;
+  const address = settings.contact.address.trim() || FALLBACK.address;
+  const phone = settings.contact.phone.trim();
+  const email = settings.contact.email.trim() || FALLBACK.email;
   const telHref = phone ? `tel:${phone.replace(/\s+/g, "")}` : "";
 
   // Only render social icons whose URL is configured.

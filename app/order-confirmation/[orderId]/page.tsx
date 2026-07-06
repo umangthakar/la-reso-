@@ -55,10 +55,10 @@ export default function OrderConfirmationPage() {
   const [order, setOrder] = useState<Snapshot | null>(null);
   const [ready, setReady] = useState(false);
 
-  // WhatsApp number comes solely from the DB (whatsapp_bar.number), fetched
+  // WhatsApp number comes solely from the DB (contact.whatsapp), fetched
   // no-store via useSiteSettings. Never a hardcoded number.
   const { settings } = useSiteSettings();
-  const waDigits = settings.whatsapp_bar.number.replace(/[^0-9]/g, "");
+  const waDigits = settings.contact.whatsapp.replace(/[^0-9]/g, "");
 
   useEffect(() => {
     try {

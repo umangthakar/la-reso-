@@ -21,6 +21,9 @@ const BERRY = "#5C2A41";
 type Announcement = { enabled: boolean; text: string };
 type HeroBanner = { enabled: boolean; heading: string; subtext: string };
 type WhatsappBar = { enabled: boolean; text: string; number: string };
+type Contact = { phone: string; whatsapp: string; email: string; address: string };
+
+const CONTACT_DEFAULT: Contact = { phone: "", whatsapp: "", email: "", address: "" };
 
 const HERO_DEFAULT: HeroBanner = {
   enabled: true,
@@ -35,10 +38,7 @@ const WHATSAPP_BAR_DEFAULT: WhatsappBar = {
 };
 
 type Settings = {
-  phone: string;
-  email: string;
-  whatsapp: string;
-  address: string;
+  contact: Contact;
   announcement: Announcement;
   hero_banner: HeroBanner;
   whatsapp_bar: WhatsappBar;
@@ -53,10 +53,7 @@ type Settings = {
 };
 
 const EMPTY: Settings = {
-  phone: "",
-  email: "",
-  whatsapp: "",
-  address: "",
+  contact: CONTACT_DEFAULT,
   announcement: { enabled: false, text: "" },
   hero_banner: HERO_DEFAULT,
   whatsapp_bar: WHATSAPP_BAR_DEFAULT,
@@ -88,11 +85,22 @@ export default function SettingsAdminPage() {
       const ann = (d.announcement ?? {}) as Partial<Announcement>;
       const hb = (d.hero_banner ?? {}) as Partial<HeroBanner>;
       const wab = (d.whatsapp_bar ?? {}) as Partial<WhatsappBar>;
+      // Prefer the unified `contact` jsonb; fall back to legacy columns that
+      // may still be present on the row (phone/whatsapp/email/address).
+      const dRaw = d as Record<string, unknown>;
+      const c = (d.contact ?? {}) as Partial<Contact>;
+      const contact: Contact = {
+        phone: (c.phone ?? (dRaw.phone as string) ?? "") || "",
+        whatsapp: (c.whatsapp ?? (dRaw.whatsapp as string) ?? "") || "",
+        email: (c.email ?? (dRaw.email as string) ?? "") || "",
+        address: (c.address ?? (dRaw.address as string) ?? "") || "",
+      };
       setS({
         ...EMPTY,
         ...Object.fromEntries(
           Object.entries(d).filter(([, v]) => v != null),
         ),
+        contact,
         announcement: {
           enabled: Boolean(ann.enabled),
           text: ann.text ?? "",
@@ -152,24 +160,50 @@ export default function SettingsAdminPage() {
       <Header />
       {error && <p style={errorBox}>{error}</p>}
 
-      {/* 1. CONTACT DETAILS */}
+      {/* 1. CONTACT DETAILS — single source of truth, saved together */}
       <SectionForm
-        title="Contact details"
+        title="Contact Details"
+        saveLabel="Save All"
         saved={savedSection === "contact"}
-        onSave={() => saveSection("contact", ["phone", "email", "whatsapp", "address"])}
+        onSave={() => saveSection("contact", ["contact"])}
       >
-        <Field label="Phone">
-          <input style={inputStyle} value={s.phone} onChange={(e) => set("phone", e.target.value)} placeholder="07xxx xxxxxx" />
-        </Field>
-        <Field label="Email">
-          <input style={inputStyle} type="email" value={s.email} onChange={(e) => set("email", e.target.value)} placeholder="hello@lerasa.co.uk" />
+        <Field label="Phone number">
+          <input
+            style={inputStyle}
+            value={s.contact.phone}
+            onChange={(e) => set("contact", { ...s.contact, phone: e.target.value })}
+            placeholder="e.g. 07xxx xxxxxx"
+          />
         </Field>
         <Field label="WhatsApp number">
-          <input style={inputStyle} value={s.whatsapp} onChange={(e) => set("whatsapp", e.target.value)} placeholder="+44 7xxx xxxxxx" />
+          <input
+            style={inputStyle}
+            value={s.contact.whatsapp}
+            onChange={(e) => set("contact", { ...s.contact, whatsapp: e.target.value })}
+            placeholder="e.g. 447123456789 (country code, digits only)"
+          />
+        </Field>
+        <Field label="Email">
+          <input
+            style={inputStyle}
+            type="email"
+            value={s.contact.email}
+            onChange={(e) => set("contact", { ...s.contact, email: e.target.value })}
+            placeholder="hello@lerasa.co.uk"
+          />
         </Field>
         <Field label="Address">
-          <textarea style={textareaStyle} value={s.address} onChange={(e) => set("address", e.target.value)} placeholder="Shop address" />
+          <textarea
+            style={textareaStyle}
+            value={s.contact.address}
+            onChange={(e) => set("contact", { ...s.contact, address: e.target.value })}
+            placeholder="Shop address"
+          />
         </Field>
+        <p style={hint}>
+          These details feed the whole site — top bar, footer, contact page and the
+          WhatsApp bar. Saving once updates everywhere instantly.
+        </p>
       </SectionForm>
 
       {/* 2. ANNOUNCEMENT BANNER */}
@@ -261,17 +295,10 @@ export default function SettingsAdminPage() {
             placeholder="For any question"
           />
         </Field>
-        <Field label="WhatsApp number">
-          <input
-            style={inputStyle}
-            value={s.whatsapp_bar.number}
-            onChange={(e) => set("whatsapp_bar", { ...s.whatsapp_bar, number: e.target.value })}
-            placeholder="e.g. 447123456789 (country code, digits only)"
-          />
-        </Field>
         <p style={hint}>
           Shows a bar at the top of the Menu page with your text and a bold “Click here” link
-          that opens wa.me/&lt;number&gt; in a new tab. Digits only, incl. country code (no +).
+          that opens WhatsApp. The number comes from <strong>Contact Details</strong> above —
+          the bar only appears when a WhatsApp number is set there.
         </p>
       </SectionForm>
 
@@ -416,11 +443,13 @@ function SectionForm({
   saved,
   onSave,
   children,
+  saveLabel = "Save",
 }: {
   title: string;
   saved: boolean;
   onSave: () => void;
   children: React.ReactNode;
+  saveLabel?: string;
 }) {
   const [saving, setSaving] = useState(false);
   async function submit(e: React.FormEvent) {
@@ -440,7 +469,7 @@ function SectionForm({
       </div>
       {children}
       <button type="submit" disabled={saving} style={{ ...primaryBtn, marginTop: 8, opacity: saving ? 0.6 : 1 }}>
-        {saving ? "Saving…" : "Save"}
+        {saving ? "Saving…" : saveLabel}
       </button>
     </form>
   );

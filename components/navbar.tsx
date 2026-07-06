@@ -26,8 +26,8 @@ export function Navbar() {
   const { settings } = useSiteSettings();
   const initial = user?.name.trim().charAt(0).toUpperCase();
 
-  // Phone comes solely from the DB (site_settings.phone). No hardcoded number.
-  const phone = settings.phone.trim();
+  // Phone comes solely from the DB (site_settings.contact.phone). No hardcoded number.
+  const phone = settings.contact.phone.trim();
   const telHref = phone ? `tel:${phone.replace(/\s+/g, "")}` : "";
 
   // The home route ("/") is the full-screen splash entry animation, so the

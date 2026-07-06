@@ -35,15 +35,17 @@ const faqs = [
 ];
 
 export default async function ContactPage() {
-  const settings = await getPublicSettings();
-  const phone = settings.phone.trim();
+  const { contact } = await getPublicSettings();
+  const phone = contact.phone.trim();
+  const email = contact.email.trim();
+  const address = contact.address.trim();
 
-  // "Call us" only appears when a phone number is set in the DB — no hardcoded
-  // number is ever shown.
+  // All contact info comes from the unified Contact Details (site_settings.contact).
+  // Each row only appears when its value is set — no hardcoded contact info.
   const info = [
-    { icon: MapPin, label: "Visit us", value: "14 Honey Lane, London, E1 6AN" },
+    ...(address ? [{ icon: MapPin, label: "Visit us", value: address }] : []),
     ...(phone ? [{ icon: Phone, label: "Call us", value: phone }] : []),
-    { icon: Mail, label: "Email", value: "hello@lerasabakery.com" },
+    ...(email ? [{ icon: Mail, label: "Email", value: email }] : []),
     { icon: Clock, label: "Hours", value: "Tue–Sun · 9am – 7pm" },
   ];
 
