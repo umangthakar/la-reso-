@@ -1,3 +1,14 @@
+// Derive the Supabase Storage hostname from the project URL so the
+// next/image allow-list can never drift from the actual project again.
+// Falls back to the current project ref if the env var is unset at build.
+const SUPABASE_HOSTNAME = (() => {
+  try {
+    return new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).hostname;
+  } catch {
+    return "fessgqsjotvovzeqooza.supabase.co";
+  }
+})();
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
@@ -22,7 +33,7 @@ const nextConfig = {
       {
         // Supabase Storage — product images uploaded via the admin panel
         protocol: "https",
-        hostname: "mslzcupzkzzlqlygaisv.supabase.co",
+        hostname: SUPABASE_HOSTNAME,
         pathname: "/storage/v1/object/public/**",
       },
     ],
