@@ -164,149 +164,184 @@ export function AnimatedProductCard({ product }: { product: Product }) {
       onHoverStart={() => setHovered(true)}
       onHoverEnd={() => setHovered(false)}
       onTapStart={() => setPinned((p) => !p)}
-      className="group relative isolate h-[300px] w-full max-w-[560px] cursor-pointer select-none rounded-[28px] md:h-[320px]"
-      style={{ transformOrigin: "50% 60%" }}
+      className="group relative isolate flex w-full max-w-[560px] cursor-pointer select-none flex-col overflow-hidden rounded-[28px] md:h-[320px] md:flex-row"
+      style={{ transformOrigin: "50% 50%" }}
     >
-      {/* Blush trapezoid backdrop — right edge sits higher than the left */}
+      {/* Blush trapezoid backdrop — right edge sits higher than the left.
+          Clipped by the card's overflow-hidden so nothing escapes. */}
       <div
-        className="absolute inset-0 -z-10 rounded-[28px] bg-gradient-to-br from-[#F9EEEA] to-[#F2DCD6]"
+        className="absolute inset-0 -z-10 bg-gradient-to-br from-[#F9EEEA] to-[#F2DCD6]"
         style={{ clipPath: "polygon(0 7%, 100% 0, 100% 100%, 0 100%)" }}
       />
 
-      <div className="flex h-full w-full items-stretch gap-2 p-3 md:gap-3 md:p-4">
-        {/* ------------------------------- LEFT ------------------------------- */}
-        <div className="relative flex min-w-0 flex-1 items-center">
-          {/* Collapsed label — visible in the resting state */}
-          <motion.div variants={collapsedLabel} className="px-2 md:px-3">
-            <span className="text-[11px] font-bold uppercase tracking-widest text-[#9C616D]">
-              {product.category}
-            </span>
-            <h3 className="mt-1 line-clamp-3 font-display text-lg font-bold leading-snug text-[#612437] md:text-xl">
-              {product.name}
-            </h3>
-            <span className="mt-2 block font-display text-lg font-bold text-[#743249]">
-              £{product.price.toFixed(2)}
-            </span>
-          </motion.div>
-
-          {/* Details panel — slides in & overhangs the container on open */}
-          <motion.div
-            variants={detailsPanel}
-            className="pointer-events-none absolute -left-5 top-1/2 z-20 w-[118%] -translate-y-1/2 rounded-[22px] bg-white/95 p-4 shadow-[0_18px_45px_-20px_rgba(116,50,73,0.55)] backdrop-blur-sm md:-left-9 md:p-5"
-            style={{ pointerEvents: open ? "auto" : "none" }}
-          >
-            <motion.span
-              variants={line}
-              className="text-[11px] font-bold uppercase tracking-widest text-[#9C616D]"
-            >
-              {product.category}
-            </motion.span>
-            <motion.h3
-              variants={line}
-              className="mt-1 line-clamp-2 font-display text-xl font-bold leading-snug text-[#612437]"
-            >
-              {product.name}
-            </motion.h3>
-            <motion.div variants={line} className="mt-2 flex items-center gap-2">
-              <StarRow value={rating} />
-              <span className="text-sm font-semibold text-[#743249]">{rating.toFixed(1)}</span>
-            </motion.div>
-            <motion.span
-              variants={line}
-              className="mt-2 block font-display text-2xl font-bold text-[#743249]"
-            >
-              £{product.price.toFixed(2)}
-            </motion.span>
-            <motion.p
-              variants={line}
-              className="mt-1.5 line-clamp-2 text-sm leading-relaxed text-[#9C616D]"
-            >
-              {product.description}
-            </motion.p>
-            <motion.div variants={line} className="mt-3">
-              <button
-                type="button"
-                onClick={handleAdd}
-                className="inline-flex items-center gap-1.5 rounded-full bg-[#873853] px-4 py-2 text-sm font-semibold text-white shadow-[0_6px_16px_-6px_rgba(135,56,83,0.7)] transition-transform hover:-translate-y-0.5"
-              >
-                <ShoppingCart className="h-4 w-4" />
-                Add to Cart
-              </button>
-            </motion.div>
-          </motion.div>
-        </div>
-
-        {/* ------------------------------- RIGHT ------------------------------ */}
-        <div className="relative aspect-[3/4] h-full shrink-0 overflow-hidden rounded-[22px] shadow-[0_10px_30px_-12px_rgba(116,50,73,0.5)]">
-          {/* Tapping the image opens the product detail page */}
-          <Link
-            href={detailHref}
-            aria-label={`View ${product.name}`}
-            className="absolute inset-0 z-10"
-          />
-          <motion.div variants={imageWrap} className="absolute inset-0">
-            <Image
-              src={product.image}
-              alt={product.name}
-              fill
-              sizes="(max-width: 1024px) 45vw, 260px"
-              className="object-cover"
-            />
-          </motion.div>
-
-          {/* Dim scrim behind the overlay chrome */}
-          <motion.div
-            variants={dim}
-            className="absolute inset-0 bg-gradient-to-t from-[#3b1622]/80 via-[#3b1622]/25 to-transparent"
-          />
-
-          {/* Price badge — top right */}
-          <motion.span
-            variants={overlayItem}
-            className="absolute right-2 top-2 rounded-full bg-white/95 px-3 py-1 text-sm font-bold text-[#743249] shadow-md"
-          >
+      {/* ------------------------------- LEFT / DETAILS -------------------------------
+          Below the image on mobile (order-2), left column on desktop (order-1).
+          Everything stays inside this column — no overhang. */}
+      <div className="relative order-2 flex min-w-0 flex-1 flex-col justify-center p-4 md:order-1 md:p-5">
+        {/* Desktop resting label — cross-fades out on hover */}
+        <motion.div
+          variants={collapsedLabel}
+          className="pointer-events-none absolute inset-0 hidden flex-col justify-center px-5 md:flex"
+        >
+          <span className="text-[11px] font-bold uppercase tracking-widest text-[#9C616D]">
+            {product.category}
+          </span>
+          <h3 className="mt-1 line-clamp-3 font-display text-xl font-bold leading-snug text-[#612437]">
+            {product.name}
+          </h3>
+          <span className="mt-2 block font-display text-lg font-bold text-[#743249]">
             £{product.price.toFixed(2)}
-          </motion.span>
+          </span>
+        </motion.div>
 
-          {/* Rating + actions — bottom of the image (above the nav overlay) */}
-          <div className="absolute inset-x-0 bottom-0 z-20 flex flex-col gap-2 p-3">
-            <motion.div variants={overlayItem} className="flex items-center gap-1.5">
-              <StarRow value={rating} />
-              <span className="text-xs font-semibold text-white/95">{rating.toFixed(1)}</span>
-            </motion.div>
-            <motion.div
-              variants={overlayItem}
-              className="flex gap-2"
-              style={{ pointerEvents: open ? "auto" : "none" }}
-            >
-              <button
-                type="button"
-                onClick={handleAdd}
-                className="inline-flex flex-1 items-center justify-center gap-1 rounded-full bg-[#873853] px-2.5 py-2 text-[11px] font-bold uppercase tracking-wide text-white transition-transform hover:-translate-y-0.5"
-              >
-                <ShoppingCart className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Add to Cart</span>
-                <span className="sm:hidden">Cart</span>
-              </button>
-              <button
-                type="button"
-                onClick={handleBuyNow}
-                className="inline-flex flex-1 items-center justify-center gap-1 rounded-full bg-white px-2.5 py-2 text-[11px] font-bold uppercase tracking-wide text-[#743249] transition-transform hover:-translate-y-0.5"
-              >
-                <Zap className="h-3.5 w-3.5" />
-                Buy Now
-              </button>
-            </motion.div>
-          </div>
+        {/* Desktop hover panel — slides in from the left, fully inside the column */}
+        <motion.div
+          variants={detailsPanel}
+          className="absolute inset-2 z-20 hidden flex-col justify-center rounded-[20px] bg-white/95 p-4 shadow-[0_18px_45px_-20px_rgba(116,50,73,0.55)] backdrop-blur-sm md:flex md:p-5"
+          style={{ pointerEvents: open ? "auto" : "none" }}
+        >
+          <ProductDetails
+            product={product}
+            rating={rating}
+            handleAdd={handleAdd}
+            animated
+          />
+        </motion.div>
 
-          {/* Category tag chip — resting state accent */}
-          {product.tag && (
-            <span className="absolute left-2 top-2 rounded-full bg-[#743249] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-white shadow-sm">
-              {product.tag}
-            </span>
-          )}
+        {/* Mobile static details — always visible, stacked under the image */}
+        <div className="md:hidden">
+          <ProductDetails
+            product={product}
+            rating={rating}
+            handleAdd={handleAdd}
+          />
         </div>
       </div>
+
+      {/* ------------------------------- RIGHT / IMAGE -------------------------------
+          On top on mobile (order-1), right column on desktop (order-2). */}
+      <div className="relative order-1 aspect-[4/3] w-full shrink-0 overflow-hidden md:order-2 md:aspect-auto md:h-full md:w-[44%]">
+        {/* Tapping the image opens the product detail page */}
+        <Link
+          href={detailHref}
+          aria-label={`View ${product.name}`}
+          className="absolute inset-0 z-10"
+        />
+        <motion.div variants={imageWrap} className="absolute inset-0">
+          <Image
+            src={product.image}
+            alt={product.name}
+            fill
+            sizes="(max-width: 768px) 100vw, 260px"
+            className="object-cover"
+          />
+        </motion.div>
+
+        {/* Dim scrim + overlay chrome — desktop hover reveal only */}
+        <motion.div
+          variants={dim}
+          className="absolute inset-0 hidden bg-gradient-to-t from-[#3b1622]/80 via-[#3b1622]/25 to-transparent md:block"
+        />
+
+        {/* Price badge — top right */}
+        <motion.span
+          variants={overlayItem}
+          className="absolute right-2 top-2 hidden rounded-full bg-white/95 px-3 py-1 text-sm font-bold text-[#743249] shadow-md md:block"
+        >
+          £{product.price.toFixed(2)}
+        </motion.span>
+
+        {/* Rating + actions — bottom of the image */}
+        <div className="absolute inset-x-0 bottom-0 z-20 hidden flex-col gap-2 p-3 md:flex">
+          <motion.div variants={overlayItem} className="flex items-center gap-1.5">
+            <StarRow value={rating} />
+            <span className="text-xs font-semibold text-white/95">{rating.toFixed(1)}</span>
+          </motion.div>
+          <motion.div
+            variants={overlayItem}
+            className="flex gap-2"
+            style={{ pointerEvents: open ? "auto" : "none" }}
+          >
+            <button
+              type="button"
+              onClick={handleAdd}
+              className="inline-flex flex-1 items-center justify-center gap-1 rounded-full bg-[#873853] px-2.5 py-2 text-[11px] font-bold uppercase tracking-wide text-white transition-transform hover:-translate-y-0.5"
+            >
+              <ShoppingCart className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Add to Cart</span>
+              <span className="sm:hidden">Cart</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleBuyNow}
+              className="inline-flex flex-1 items-center justify-center gap-1 rounded-full bg-white px-2.5 py-2 text-[11px] font-bold uppercase tracking-wide text-[#743249] transition-transform hover:-translate-y-0.5"
+            >
+              <Zap className="h-3.5 w-3.5" />
+              Buy Now
+            </button>
+          </motion.div>
+        </div>
+
+        {/* Category tag chip — resting state accent */}
+        {product.tag && (
+          <span className="absolute left-2 top-2 rounded-full bg-[#743249] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-white shadow-sm">
+            {product.tag}
+          </span>
+        )}
+      </div>
     </motion.article>
+  );
+}
+
+/* Shared details block — rendered as a staggered reveal on desktop hover
+   (`animated`) and as a static stack on mobile. */
+function ProductDetails({
+  product,
+  rating,
+  handleAdd,
+  animated = false,
+}: {
+  product: Product;
+  rating: number;
+  handleAdd: (e: React.MouseEvent) => void;
+  animated?: boolean;
+}) {
+  const Row = animated ? motion.div : "div";
+  const rowProps = animated ? { variants: line } : {};
+  return (
+    <>
+      <Row {...rowProps} className="text-[11px] font-bold uppercase tracking-widest text-[#9C616D]">
+        {product.category}
+      </Row>
+      <Row
+        {...rowProps}
+        className="mt-1 line-clamp-2 font-display text-xl font-bold leading-snug text-[#612437]"
+      >
+        {product.name}
+      </Row>
+      <Row {...rowProps} className="mt-2 flex items-center gap-2">
+        <StarRow value={rating} />
+        <span className="text-sm font-semibold text-[#743249]">{rating.toFixed(1)}</span>
+      </Row>
+      <Row {...rowProps} className="mt-2 font-display text-2xl font-bold text-[#743249]">
+        £{product.price.toFixed(2)}
+      </Row>
+      <Row
+        {...rowProps}
+        className="mt-1.5 line-clamp-2 text-sm leading-relaxed text-[#9C616D]"
+      >
+        {product.description}
+      </Row>
+      <Row {...rowProps} className="mt-3">
+        <button
+          type="button"
+          onClick={handleAdd}
+          className="inline-flex items-center gap-1.5 rounded-full bg-[#873853] px-4 py-2 text-sm font-semibold text-white shadow-[0_6px_16px_-6px_rgba(135,56,83,0.7)] transition-transform hover:-translate-y-0.5"
+        >
+          <ShoppingCart className="h-4 w-4" />
+          Add to Cart
+        </button>
+      </Row>
+    </>
   );
 }

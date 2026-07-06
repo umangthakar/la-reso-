@@ -174,14 +174,14 @@ function MenuSkeleton() {
       {Array.from({ length: 6 }).map((_, i) => (
         <div
           key={i}
-          className="flex h-[300px] w-full max-w-[560px] animate-pulse gap-3 rounded-[28px] bg-[#F9EEEA] p-4 md:h-[320px]"
+          className="flex w-full max-w-[560px] animate-pulse flex-col overflow-hidden rounded-[28px] bg-[#F9EEEA] md:h-[320px] md:flex-row"
         >
-          <div className="flex flex-1 flex-col justify-center gap-3 px-2">
+          <div className="order-2 flex flex-1 flex-col justify-center gap-3 p-5 md:order-1">
             <div className="h-3 w-1/3 rounded bg-white/60" />
             <div className="h-5 w-3/4 rounded bg-white/60" />
             <div className="h-4 w-1/4 rounded bg-white/60" />
           </div>
-          <div className="aspect-[3/4] h-full shrink-0 rounded-[22px] bg-white/60" />
+          <div className="order-1 aspect-[4/3] w-full shrink-0 bg-white/60 md:order-2 md:aspect-auto md:h-full md:w-[44%]" />
         </div>
       ))}
     </div>
