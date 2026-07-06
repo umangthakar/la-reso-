@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { motion, type Variants } from "framer-motion";
-import { Star, ShoppingCart, Zap } from "lucide-react";
+import { motion, AnimatePresence, type Variants } from "framer-motion";
+import { Star, ShoppingCart, Zap, X, ArrowRight, Leaf } from "lucide-react";
 import type { Product } from "@/lib/data";
 import { useCart } from "@/components/cart/cart-context";
 import { slugify } from "@/lib/slug";
@@ -124,8 +125,32 @@ const overlayItem: Variants = {
 export function AnimatedProductCard({ product }: { product: Product }) {
   const [hovered, setHovered] = useState(false);
   const [pinned, setPinned] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const open = hovered || pinned;
   const rating = ratingFor(product.id);
+
+  // Portal target only exists on the client.
+  useEffect(() => setMounted(true), []);
+
+  // Lock body scroll + close on Escape while the modal is open.
+  useEffect(() => {
+    if (!modalOpen) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setModalOpen(false);
+    document.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [modalOpen]);
+
+  const openModal = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setModalOpen(true);
+  };
 
   const router = useRouter();
   const { addItem, openCart } = useCart();
@@ -157,6 +182,7 @@ export function AnimatedProductCard({ product }: { product: Product }) {
   };
 
   return (
+    <>
     <motion.article
       variants={container}
       initial="closed"
@@ -203,7 +229,7 @@ export function AnimatedProductCard({ product }: { product: Product }) {
           <ProductDetails
             product={product}
             rating={rating}
-            handleAdd={handleAdd}
+            onReadMore={openModal}
             animated
           />
         </motion.div>
@@ -213,7 +239,7 @@ export function AnimatedProductCard({ product }: { product: Product }) {
           <ProductDetails
             product={product}
             rating={rating}
-            handleAdd={handleAdd}
+            onReadMore={openModal}
           />
         </div>
       </div>
@@ -290,6 +316,25 @@ export function AnimatedProductCard({ product }: { product: Product }) {
         )}
       </div>
     </motion.article>
+
+    {/* Read More modal — rendered in a portal so the card's overflow-hidden
+        never clips it. AnimatePresence stays mounted for the exit animation. */}
+    {mounted &&
+      createPortal(
+        <AnimatePresence>
+          {modalOpen && (
+            <ProductModal
+              product={product}
+              rating={rating}
+              onClose={() => setModalOpen(false)}
+              handleAdd={handleAdd}
+              handleBuyNow={handleBuyNow}
+            />
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
+    </>
   );
 }
 
@@ -298,12 +343,12 @@ export function AnimatedProductCard({ product }: { product: Product }) {
 function ProductDetails({
   product,
   rating,
-  handleAdd,
+  onReadMore,
   animated = false,
 }: {
   product: Product;
   rating: number;
-  handleAdd: (e: React.MouseEvent) => void;
+  onReadMore: (e: React.MouseEvent) => void;
   animated?: boolean;
 }) {
   const Row = animated ? motion.div : "div";
@@ -335,13 +380,150 @@ function ProductDetails({
       <Row {...rowProps} className="mt-3">
         <button
           type="button"
-          onClick={handleAdd}
+          onClick={onReadMore}
           className="inline-flex items-center gap-1.5 rounded-full bg-[#873853] px-4 py-2 text-sm font-semibold text-white shadow-[0_6px_16px_-6px_rgba(135,56,83,0.7)] transition-transform hover:-translate-y-0.5"
         >
-          <ShoppingCart className="h-4 w-4" />
-          Add to Cart
+          Read More
+          <ArrowRight className="h-4 w-4" />
         </button>
       </Row>
     </>
+  );
+}
+
+/* --------------------------- Read More modal --------------------------- *
+ * Full-screen sheet on mobile, centered 600px popup on desktop. Opens and
+ * closes with a Framer Motion fade + rise; the backdrop dims behind it.
+ * ---------------------------------------------------------------------- */
+function ProductModal({
+  product,
+  rating,
+  onClose,
+  handleAdd,
+  handleBuyNow,
+}: {
+  product: Product;
+  rating: number;
+  onClose: () => void;
+  handleAdd: (e: React.MouseEvent) => void;
+  handleBuyNow: (e: React.MouseEvent) => void;
+}) {
+  return (
+    <motion.div
+      className="fixed inset-0 z-[100] flex items-stretch justify-center sm:items-center sm:p-4"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.25 }}
+    >
+      {/* Dimming backdrop */}
+      <div
+        className="absolute inset-0 bg-[#3b1622]/60 backdrop-blur-sm"
+        onClick={onClose}
+        aria-hidden
+      />
+
+      {/* Panel */}
+      <motion.div
+        role="dialog"
+        aria-modal="true"
+        aria-label={product.name}
+        onClick={(e) => e.stopPropagation()}
+        className="relative z-10 flex h-[100dvh] w-full flex-col overflow-hidden bg-white shadow-2xl sm:h-auto sm:max-h-[90vh] sm:max-w-[600px] sm:rounded-[28px]"
+        initial={{ opacity: 0, y: 40, scale: 0.96 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 40, scale: 0.96 }}
+        transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+      >
+        {/* Large image */}
+        <div className="relative h-56 w-full shrink-0 sm:h-72">
+          <Image
+            src={product.image}
+            alt={product.name}
+            fill
+            sizes="(max-width: 640px) 100vw, 600px"
+            className="object-cover"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/25 to-transparent" />
+          {/* Close button — top right */}
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="absolute right-3 top-3 inline-flex h-9 w-9 items-center justify-center rounded-full bg-white/95 text-[#743249] shadow-md transition-transform hover:scale-105"
+          >
+            <X className="h-5 w-5" />
+          </button>
+          {product.tag && (
+            <span className="absolute left-3 top-3 rounded-full bg-[#743249] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-white shadow-sm">
+              {product.tag}
+            </span>
+          )}
+        </div>
+
+        {/* Scrollable body */}
+        <div className="flex-1 overflow-y-auto p-5 sm:p-6">
+          <span className="inline-block rounded-full bg-[#F9EEEA] px-3 py-1 text-[11px] font-bold uppercase tracking-widest text-[#9C616D]">
+            {product.category}
+          </span>
+          <h2 className="mt-3 font-display text-2xl font-bold leading-snug text-[#612437] sm:text-3xl">
+            {product.name}
+          </h2>
+
+          <div className="mt-2 flex items-center gap-3">
+            <div className="flex items-center gap-1.5">
+              <StarRow value={rating} />
+              <span className="text-sm font-semibold text-[#743249]">{rating.toFixed(1)}</span>
+            </div>
+            <span className="font-display text-2xl font-bold text-[#743249]">
+              £{product.price.toFixed(2)}
+            </span>
+          </div>
+
+          <p className="mt-4 text-sm leading-relaxed text-[#9C616D] sm:text-base">
+            {product.description}
+          </p>
+
+          {/* Ingredients & allergens */}
+          <div className="mt-5 rounded-[20px] bg-[#F9EEEA] p-4">
+            <div className="flex items-center gap-2 text-[#743249]">
+              <Leaf className="h-4 w-4" />
+              <h3 className="text-sm font-bold uppercase tracking-wide">
+                Ingredients &amp; Allergens
+              </h3>
+            </div>
+            <p className="mt-2 text-sm leading-relaxed text-[#9C616D]">
+              100% eggless &amp; vegetarian, freshly handcrafted. Made in a kitchen
+              that also handles <strong>wheat (gluten), dairy, soya</strong> and
+              <strong> tree nuts</strong>. Please let us know about any allergies
+              when ordering.
+            </p>
+          </div>
+        </div>
+
+        {/* Sticky action footer */}
+        <div className="flex shrink-0 gap-3 border-t border-[#F2DCD6] bg-white p-4 sm:p-5">
+          <button
+            type="button"
+            onClick={(e) => {
+              handleAdd(e);
+              onClose();
+            }}
+            className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-[#873853] px-4 py-3 text-sm font-semibold text-white shadow-[0_6px_16px_-6px_rgba(135,56,83,0.7)] transition-transform hover:-translate-y-0.5"
+          >
+            <ShoppingCart className="h-4 w-4" />
+            Add to Cart
+          </button>
+          <button
+            type="button"
+            onClick={handleBuyNow}
+            className="inline-flex flex-1 items-center justify-center gap-2 rounded-full border-2 border-[#873853] bg-white px-4 py-3 text-sm font-semibold text-[#743249] transition-transform hover:-translate-y-0.5"
+          >
+            <Zap className="h-4 w-4" />
+            Buy Now
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
   );
 }
