@@ -1,9 +1,7 @@
 import type { Metadata } from "next";
-import { Suspense } from "react";
 import { Fraunces, Nunito } from "next/font/google";
 import "./globals.css";
 import { Navbar } from "@/components/navbar";
-import { AnnouncementBar } from "@/components/announcement-bar";
 import { ConditionalFooter } from "@/components/conditional-footer";
 import { Providers } from "@/components/providers";
 
@@ -52,13 +50,6 @@ export default function RootLayout({
         <link rel="preload" as="video" type="video/mp4" href="/hero-animation.mp4" />
       </head>
       <body>
-        {/* The announcement bar fetches its own data (site_settings). Isolate it
-            in a Suspense boundary so a slow or failing lookup can never block or
-            break the rest of the layout — most importantly the splash screen on
-            "/", which must paint immediately. */}
-        <Suspense fallback={null}>
-          <AnnouncementBar />
-        </Suspense>
         <Providers>
           <Navbar />
           <main className="overflow-x-clip">{children}</main>
