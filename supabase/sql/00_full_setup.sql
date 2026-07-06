@@ -236,6 +236,7 @@ alter table public.site_settings add column if not exists delivery_days    jsonb
   '["monday","tuesday","wednesday","thursday","friday","saturday","sunday"]'::jsonb;
 alter table public.site_settings add column if not exists daily_order_cap  integer;
 alter table public.site_settings add column if not exists stripe_config    jsonb;
+ALTER TABLE site_settings ADD COLUMN IF NOT EXISTS categories jsonb DEFAULT '["Birthday Cakes","Cupcakes","Custom Cakes","Brownies","Cookies","Gift Boxes"]'::jsonb;
 
 -- ------------------------------------------------------------
 -- PROFILES  (customer accounts — one row per authenticated user)

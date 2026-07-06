@@ -78,7 +78,8 @@ async function saveCategories(
   if (result.error) throw new Error(result.error.message);
 }
 
-// GET — union of persisted list + product-derived categories, with counts.
+// GET — the admin-curated site_settings.categories list (source of truth),
+// in its stored order, each annotated with how many products use it.
 export async function GET(req: Request) {
   if (!isAuthedRequest(req)) {
     return NextResponse.json({ error: "Not authorised" }, { status: 401 });
@@ -90,17 +91,11 @@ export async function GET(req: Request) {
 
     const seen = new Set<string>();
     const ordered: { name: string; count: number }[] = [];
-    // Persisted (admin-ordered) first…
     for (const name of list) {
       if (seen.has(name.toLowerCase())) continue;
       seen.add(name.toLowerCase());
       ordered.push({ name, count: counts.get(name) ?? 0 });
     }
-    // …then any category that exists only because products use it, alpha.
-    const extras = Array.from(counts.keys())
-      .filter((name) => !seen.has(name.toLowerCase()))
-      .sort((a, b) => a.localeCompare(b));
-    for (const name of extras) ordered.push({ name, count: counts.get(name) ?? 0 });
 
     return NextResponse.json({ categories: ordered });
   } catch (e) {
