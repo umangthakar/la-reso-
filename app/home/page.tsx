@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { Phone } from "lucide-react";
 import { getPublicSettings } from "@/lib/site-settings-server";
 import { HomeSlider } from "@/components/home/home-slider";
 import { HomeProducts, type HomeProduct } from "@/components/home/home-products";
@@ -48,25 +47,12 @@ export default async function HomeLandingPage() {
     fetchHomeProducts(),
   ]);
 
-  const phone = settings.contact.phone.trim();
-  const phoneDigits = phone.replace(/\s+/g, "");
   const waDigits = settings.contact.whatsapp.replace(/[^0-9]/g, "");
   const waText = settings.whatsapp_bar.text || "For any question";
   const address = settings.contact.address.trim();
 
   return (
     <div className="pb-16">
-      {/* 2. CONTACT BAR — click to call */}
-      {phone && (
-        <a
-          href={`tel:${phoneDigits}`}
-          className="flex min-h-[44px] w-full items-center justify-center gap-2 bg-darkberry px-4 text-sm font-semibold text-blush-50 transition-colors hover:bg-[#4a1e30]"
-        >
-          <Phone className="h-4 w-4" />
-          <span>Call us: {phone}</span>
-        </a>
-      )}
-
       {/* 3. WHATSAPP BAR */}
       {waDigits && (
         <div className="w-full bg-[#873853] text-white">
