@@ -1,9 +1,7 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
 import { MenuGrid } from "@/components/menu-grid";
-import { Marquee } from "@/components/marquee";
 import { TrustBar } from "@/components/trust-bar";
-import { Testimonials } from "@/components/testimonials";
 import { OrderCTA } from "@/components/order-cta";
 import { getPublicSettings } from "@/lib/site-settings-server";
 
@@ -58,9 +56,7 @@ export default async function MenuPage() {
       </section>
 
       {/* Everything that used to live on the homepage now lives below the grid */}
-      <Marquee />
       <TrustBar />
-      <Testimonials />
       <OrderCTA />
     </>
   );

@@ -3,6 +3,8 @@ import { getPublicSettings } from "@/lib/site-settings-server";
 import { HomeSlider } from "@/components/home/home-slider";
 import { HomeProducts, type HomeProduct } from "@/components/home/home-products";
 import { WhatsappFloat } from "@/components/home/whatsapp-float";
+import { Marquee } from "@/components/marquee";
+import { Testimonials } from "@/components/testimonials";
 
 // Fetch settings + products fresh on every request so admin edits show
 // immediately with no redeploy.
@@ -89,6 +91,10 @@ export default async function HomeLandingPage() {
 
       {/* 6. PRODUCTS */}
       <HomeProducts products={products} />
+
+      {/* Moved from the Menu page — scrolling marquee + customer reviews */}
+      <Marquee />
+      <Testimonials />
 
       {/* 7. WHATSAPP FLOATING BUTTON */}
       <WhatsappFloat number={settings.contact.whatsapp} />
