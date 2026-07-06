@@ -4,18 +4,12 @@ import { useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { categories } from "@/lib/data";
 import type { Product } from "@/lib/data";
 import { createClient } from "@/utils/supabase/client";
 import { AnimatedProductCard } from "@/components/animated-product-card";
 import { useSiteSettings } from "@/lib/use-site-settings";
+import { slugify } from "@/lib/slug";
 import { cn } from "@/lib/utils";
-
-const slugToName: Record<string, string> = Object.fromEntries(
-  categories.map((c) => [c.slug, c.name])
-);
-
-const filters = ["All", ...categories.map((c) => c.name)];
 
 // Shown only when a product row has no image_url, so next/image never gets
 // an empty src. Uses the already-whitelisted Unsplash host.
@@ -50,14 +44,55 @@ export function MenuGrid() {
   const params = useSearchParams();
   const [active, setActive] = useState("All");
   const [products, setProducts] = useState<Product[]>([]);
+  const [categoryNames, setCategoryNames] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const { settings } = useSiteSettings();
   const hero = settings.hero_banner;
 
+  // Category filter tabs are fetched fresh from the DB (no-store) so admin
+  // add / rename / delete reflects on the menu immediately. Re-fetch on
+  // focus so editing in one tab updates the storefront in another.
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const res = await fetch("/api/categories", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = (await res.json()) as { categories?: string[] };
+        if (!cancelled && Array.isArray(data.categories)) {
+          setCategoryNames(data.categories);
+        }
+      } catch {
+        /* keep whatever we had */
+      }
+    }
+    load();
+    const onFocus = () => load();
+    window.addEventListener("focus", onFocus);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("focus", onFocus);
+    };
+  }, []);
+
+  const filters = ["All", ...categoryNames];
+
+  // Deep-link support: /menu?category=<slug> selects the matching tab. Slugs
+  // are derived from the live category names (same slugify as elsewhere).
   useEffect(() => {
     const slug = params.get("category");
-    if (slug && slugToName[slug]) setActive(slugToName[slug]);
-  }, [params]);
+    if (!slug) return;
+    const match = categoryNames.find((name) => slugify(name) === slug);
+    if (match) setActive(match);
+  }, [params, categoryNames]);
+
+  // If the active category disappears (renamed/deleted in admin), fall back
+  // to "All" so the grid never gets stuck on an empty, non-existent filter.
+  useEffect(() => {
+    if (active !== "All" && categoryNames.length > 0 && !categoryNames.includes(active)) {
+      setActive("All");
+    }
+  }, [categoryNames, active]);
 
   useEffect(() => {
     let cancelled = false;

@@ -32,7 +32,9 @@ const WINE = "#873853";
 const BERRY = "#5C2A41";
 const PAGE_SIZE = 20;
 
-const CATEGORIES = [
+// Fallback options shown in the product form only until the live category
+// list loads (or when none have been created yet).
+const DEFAULT_CATEGORIES = [
   "Birthday Cakes",
   "Cupcakes",
   "Custom Cakes",
@@ -93,10 +95,15 @@ export default function ProductsAdminPage() {
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [categoryNames, setCategoryNames] = useState<string[]>([]);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  // Options for the product form's Category dropdown: the live managed list,
+  // falling back to the defaults until it loads / while none exist.
+  const catOptions = categoryNames.length > 0 ? categoryNames : DEFAULT_CATEGORIES;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -116,9 +123,27 @@ export default function ProductsAdminPage() {
     }
   }, [page]);
 
+  // Live category names for the product form dropdown. Kept in sync with the
+  // Categories panel below via the onChanged callback.
+  const loadCategories = useCallback(async () => {
+    try {
+      const data = await adminGet<{ categories: { name: string; count: number }[] }>(
+        "/api/admin/products/categories",
+        { force: true },
+      );
+      setCategoryNames((data.categories || []).map((c) => c.name));
+    } catch {
+      /* leave the previous list in place */
+    }
+  }, []);
+
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    loadCategories();
+  }, [loadCategories]);
 
   function openAdd() {
     setForm(EMPTY_FORM);
@@ -331,7 +356,12 @@ export default function ProductsAdminPage() {
         </>
       )}
 
-      <CategoriesSection onRenamed={load} />
+      <CategoriesSection
+        onChanged={() => {
+          load();
+          loadCategories();
+        }}
+      />
 
       {showForm && (
         <div style={{ ...overlay, ...(isMobile ? { padding: 0 } : {}) }} onClick={closeForm}>
@@ -349,11 +379,11 @@ export default function ProductsAdminPage() {
               <label style={labelStyle}>Category</label>
               <select style={inputStyle} value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
                 <option value="">— Select a category —</option>
-                {CATEGORIES.map((c) => (
+                {catOptions.map((c) => (
                   <option key={c} value={c}>{c}</option>
                 ))}
                 {/* keep an existing custom category selectable */}
-                {form.category && !CATEGORIES.includes(form.category) && (
+                {form.category && !catOptions.includes(form.category) && (
                   <option value={form.category}>{form.category}</option>
                 )}
               </select>
@@ -573,22 +603,30 @@ function Toggle({ on, onClick }: { on: boolean; onClick: () => void }) {
 }
 
 // ------------------------------------------------------------
-// Categories sub-section — rename a category across all its products
+// Categories sub-section — full management: add an empty category,
+// rename one across all its products, and delete an unused one.
+// Every change calls onChanged() so the product table + form dropdown
+// (and, via /api/categories, the storefront menu tabs) stay in sync.
 // ------------------------------------------------------------
 type CategoryRow = { name: string; count: number };
 
-function CategoriesSection({ onRenamed }: { onRenamed: () => void }) {
+function CategoriesSection({ onChanged }: { onChanged: () => void }) {
   const [cats, setCats] = useState<CategoryRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [newName, setNewName] = useState("");
+  const [adding, setAdding] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await adminGet<{ categories: CategoryRow[] }>("/api/admin/products/categories");
+      const data = await adminGet<{ categories: CategoryRow[] }>(
+        "/api/admin/products/categories",
+        { force: true },
+      );
       setCats(data.categories || []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load categories");
@@ -618,9 +656,46 @@ function CategoriesSection({ onRenamed }: { onRenamed: () => void }) {
       await adminSend("/api/admin/products/categories", "POST", { oldName, newName: draft.trim() });
       setEditing(null);
       await load();
-      onRenamed(); // refresh the product table to show new category
+      onChanged();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Rename failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function add(e: React.FormEvent) {
+    e.preventDefault();
+    const name = newName.trim();
+    if (!name) return;
+    setAdding(true);
+    setError("");
+    try {
+      await adminSend("/api/admin/products/categories", "PUT", { name });
+      setNewName("");
+      await load();
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to add category");
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  async function remove(c: CategoryRow) {
+    if (c.count > 0) {
+      setError(`Cannot delete "${c.name}" — ${c.count} product${c.count === 1 ? "" : "s"} still use it. Move or delete them first.`);
+      return;
+    }
+    if (!window.confirm(`Delete the category "${c.name}"?`)) return;
+    setBusy(true);
+    setError("");
+    try {
+      await adminSend("/api/admin/products/categories", "DELETE", { name: c.name });
+      await load();
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Delete failed");
     } finally {
       setBusy(false);
     }
@@ -630,14 +705,27 @@ function CategoriesSection({ onRenamed }: { onRenamed: () => void }) {
     <div style={{ marginTop: 36 }}>
       <h2 style={{ color: WINE, fontSize: "1.25rem", fontWeight: 800, margin: 0 }}>Categories</h2>
       <p style={{ color: BERRY, opacity: 0.7, marginTop: 4, fontSize: "0.9rem" }}>
-        Rename a category to update every product that uses it.
+        Add a new category, rename one (updates every product using it), or delete an empty one.
       </p>
       {error && <p style={errorBox}>{error}</p>}
+
+      {/* Add a new (empty) category */}
+      <form onSubmit={add} style={{ display: "flex", gap: 10, marginTop: 14, maxWidth: 520, flexWrap: "wrap" }}>
+        <input
+          value={newName}
+          onChange={(e) => setNewName(e.target.value)}
+          placeholder="New category name"
+          style={{ ...inputStyle, flex: 1, minWidth: 180 }}
+        />
+        <button type="submit" disabled={adding || !newName.trim()} style={{ ...primaryBtn, opacity: adding || !newName.trim() ? 0.6 : 1 }}>
+          {adding ? "Adding…" : "Add Category"}
+        </button>
+      </form>
 
       {loading ? (
         <p style={{ color: BERRY, opacity: 0.7, marginTop: 12 }}>Loading categories…</p>
       ) : cats.length === 0 ? (
-        <p style={{ color: BERRY, opacity: 0.7, marginTop: 12 }}>No categories in use yet.</p>
+        <p style={{ color: BERRY, opacity: 0.7, marginTop: 12 }}>No categories yet. Add one above.</p>
       ) : (
         <div style={{ background: "white", borderRadius: 16, overflow: "hidden", marginTop: 12, boxShadow: "0 10px 30px rgba(135,56,83,0.08)", maxWidth: 520 }}>
           {cats.map((c, i) => (
@@ -670,6 +758,14 @@ function CategoriesSection({ onRenamed }: { onRenamed: () => void }) {
                   <span style={{ flex: 1, fontWeight: 600, color: BERRY }}>{c.name}</span>
                   <span style={{ color: BERRY, opacity: 0.6, fontSize: "0.85rem" }}>{c.count} product{c.count === 1 ? "" : "s"}</span>
                   <button onClick={() => start(c.name)} style={linkBtn}>Rename</button>
+                  <button
+                    onClick={() => remove(c)}
+                    disabled={busy}
+                    title={c.count > 0 ? "Only empty categories can be deleted" : "Delete category"}
+                    style={{ ...linkBtn, color: c.count > 0 ? "rgba(135,56,83,0.35)" : "#d9534f", cursor: c.count > 0 ? "not-allowed" : "pointer" }}
+                  >
+                    Delete
+                  </button>
                 </>
               )}
             </div>
