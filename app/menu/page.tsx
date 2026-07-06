@@ -6,6 +6,11 @@ import { TrustBar } from "@/components/trust-bar";
 import { Testimonials } from "@/components/testimonials";
 import { OrderCTA } from "@/components/order-cta";
 
+// Never statically cache the menu — hero banner + products must reflect admin
+// edits on the next request (no redeploy).
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export const metadata: Metadata = {
   title: "Menu — Le Rasa Bakery",
   description:

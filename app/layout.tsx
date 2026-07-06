@@ -7,6 +7,11 @@ import { AnnouncementBar } from "@/components/announcement-bar";
 import { ConditionalFooter } from "@/components/conditional-footer";
 import { Providers } from "@/components/providers";
 
+// Never statically cache any route — the announcement bar (and any other
+// site_settings-driven chrome) must reflect admin edits without a redeploy.
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 const fraunces = Fraunces({
   subsets: ["latin"],
   variable: "--font-fraunces",
