@@ -8,7 +8,12 @@ import { Menu, X, ShoppingBag, Cake, Phone, Star, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/use-auth";
+import { useSiteSettings } from "@/lib/use-site-settings";
 import { CartButton } from "@/components/cart/cart-button";
+
+// Shown until the phone number loads / when it's unset, matching the
+// original hardcoded value so nothing looks blank.
+const FALLBACK_PHONE = "+44 1234 567 890";
 
 const links = [
   { href: "/", label: "Home" },
@@ -22,7 +27,11 @@ export function Navbar() {
   const [scrolled, setScrolled] = useState(false);
   const pathname = usePathname();
   const { user, ready } = useAuth();
+  const { settings } = useSiteSettings();
   const initial = user?.name.trim().charAt(0).toUpperCase();
+
+  const phone = settings.phone.trim() || FALLBACK_PHONE;
+  const telHref = `tel:${phone.replace(/\s+/g, "")}`;
 
   // The home route ("/") is the full-screen splash entry animation, so the
   // navbar stays hidden there and slides into view on every other page.
@@ -50,11 +59,11 @@ export function Navbar() {
       <div className="bg-darkberry text-blush-50">
         <div className="container flex h-9 items-center justify-between gap-3 text-[11px] font-semibold sm:text-xs">
           <a
-            href="tel:+441234567890"
+            href={telHref}
             className="inline-flex items-center gap-1.5 transition-colors hover:text-dustyrose-light"
           >
             <Phone className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">+44 1234 567 890</span>
+            <span className="hidden sm:inline">{phone}</span>
             <span className="sm:hidden">Call us</span>
           </a>
           <span className="inline-flex items-center gap-1.5">

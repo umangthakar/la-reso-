@@ -11,14 +11,15 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/server";
 import { getCheckoutStripe } from "@/lib/stripe-checkout";
-import { deliveryFeeFor, round2, toPence } from "@/lib/pricing";
+import { resolveDeliveryFee, round2, toPence } from "@/lib/pricing";
 
 export const dynamic = "force-dynamic";
 
 type IncomingItem = { id: string; quantity: number };
+type DeliveryZone = { postcode_prefix?: string; fee?: number };
 
 export async function POST(req: Request) {
-  let body: { items?: IncomingItem[]; deliveryDate?: string };
+  let body: { items?: IncomingItem[]; deliveryDate?: string; postcode?: string };
   try {
     body = await req.json();
   } catch {
@@ -83,7 +84,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Could not price your basket." }, { status: 400 });
   }
 
-  const deliveryFee = deliveryFeeFor(subtotal);
+  // Authoritative, zone-aware delivery fee from the admin-configured zones.
+  const zonesRes = await supabase
+    .from("site_settings")
+    .select("delivery_zones")
+    .limit(1)
+    .maybeSingle();
+  const zones = Array.isArray(zonesRes.data?.delivery_zones)
+    ? (zonesRes.data!.delivery_zones as DeliveryZone[])
+    : [];
+
+  const deliveryFee = resolveDeliveryFee(subtotal, body.postcode, zones);
   const total = round2(subtotal + deliveryFee);
 
   try {

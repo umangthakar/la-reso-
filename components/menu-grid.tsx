@@ -8,6 +8,7 @@ import { categories } from "@/lib/data";
 import type { Product } from "@/lib/data";
 import { createClient } from "@/utils/supabase/client";
 import { AnimatedProductCard } from "@/components/animated-product-card";
+import { useSiteSettings } from "@/lib/use-site-settings";
 import { cn } from "@/lib/utils";
 
 const slugToName: Record<string, string> = Object.fromEntries(
@@ -15,15 +16,6 @@ const slugToName: Record<string, string> = Object.fromEntries(
 );
 
 const filters = ["All", ...categories.map((c) => c.name)];
-
-// Menu hero banner is editable from the admin panel (site_settings.hero_banner).
-// These are the original hardcoded values, used as a fallback until the DB row
-// has data.
-type HeroBanner = { enabled?: boolean; heading?: string; subtext?: string };
-const HERO_FALLBACK = {
-  heading: "Every Bite, Eggless & Divine",
-  subtext: "Handcrafted fresh daily — pick your craving",
-};
 
 // Shown only when a product row has no image_url, so next/image never gets
 // an empty src. Uses the already-whitelisted Unsplash host.
@@ -58,8 +50,9 @@ export function MenuGrid() {
   const params = useSearchParams();
   const [active, setActive] = useState("All");
   const [products, setProducts] = useState<Product[]>([]);
-  const [hero, setHero] = useState<HeroBanner | null>(null);
   const [loading, setLoading] = useState(true);
+  const { settings } = useSiteSettings();
+  const hero = settings.hero_banner;
 
   useEffect(() => {
     const slug = params.get("category");
@@ -70,17 +63,13 @@ export function MenuGrid() {
     let cancelled = false;
     (async () => {
       const db = createClient() as unknown as SupabaseClient;
-      const [{ data }, { data: settings }] = await Promise.all([
-        db
-          .from("products")
-          .select("id,name,description,price,image_url,category,badge,in_stock")
-          .eq("in_stock", true)
-          .order("created_at", { ascending: false }),
-        db.from("site_settings").select("hero_banner").limit(1).maybeSingle(),
-      ]);
+      const { data } = await db
+        .from("products")
+        .select("id,name,description,price,image_url,category,badge,in_stock")
+        .eq("in_stock", true)
+        .order("created_at", { ascending: false });
       if (cancelled) return;
       setProducts((data ?? []).map(toCard));
-      setHero((settings?.hero_banner as HeroBanner) ?? null);
       setLoading(false);
     })();
     return () => {
@@ -93,12 +82,12 @@ export function MenuGrid() {
       ? products
       : products.filter((p) => p.category === active);
 
-  // Hero banner content comes from site_settings.hero_banner (admin-editable);
-  // fall back to the original copy until the DB has data. Hidden only when the
-  // admin explicitly turns it off.
-  const heroVisible = hero?.enabled !== false;
-  const heroHeading = hero?.heading?.trim() || HERO_FALLBACK.heading;
-  const heroSubtext = hero?.subtext?.trim() || HERO_FALLBACK.subtext;
+  // Hero banner content comes from site_settings.hero_banner (admin-editable,
+  // fetched no-store). Defaults are already applied by useSiteSettings; hide
+  // only when the admin explicitly turns it off.
+  const heroVisible = hero.enabled !== false;
+  const heroHeading = hero.heading;
+  const heroSubtext = hero.subtext;
 
   return (
     <div>

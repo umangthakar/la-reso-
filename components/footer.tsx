@@ -1,8 +1,33 @@
+"use client";
+
 import Link from "next/link";
-import { Cake, Instagram, Facebook, Twitter, Mail, MapPin, Phone } from "lucide-react";
+import { Cake, Instagram, Facebook, Music2, Mail, MapPin, Phone } from "lucide-react";
 import { CardCarousel } from "@/components/ui/card-carousel";
+import { useSiteSettings } from "@/lib/use-site-settings";
+
+// Shown when the matching site_settings field is empty, so the footer never
+// looks blank (and matches the original hardcoded design).
+const FALLBACK = {
+  address: "14 Honey Lane, London, E1 6AN",
+  phone: "+44 1234 567 890",
+  email: "hello@lerasabakery.com",
+};
 
 export function Footer() {
+  const { settings } = useSiteSettings();
+
+  const address = settings.address.trim() || FALLBACK.address;
+  const phone = settings.phone.trim() || FALLBACK.phone;
+  const email = settings.email.trim() || FALLBACK.email;
+  const telHref = `tel:${phone.replace(/\s+/g, "")}`;
+
+  // Only render social icons whose URL is configured.
+  const socials = [
+    { Icon: Instagram, href: settings.instagram_url.trim() },
+    { Icon: Facebook, href: settings.facebook_url.trim() },
+    { Icon: Music2, href: settings.tiktok_url.trim() },
+  ].filter((s) => s.href !== "");
+
   return (
     <footer className="relative mt-10">
       {/* Instagram carousel — Swiper coverflow */}
@@ -15,7 +40,7 @@ export function Footer() {
               <p className="text-[#9C616D]">@lerasabakery — fresh bakes daily on Instagram</p>
             </div>
             <a
-              href="https://instagram.com/lerasabakery"
+              href={settings.instagram_url.trim() || "https://instagram.com/lerasabakery"}
               target="_blank"
               rel="noreferrer"
               className="flex items-center gap-2 rounded-full px-5 py-2 font-semibold text-white"
@@ -65,17 +90,21 @@ export function Footer() {
               The house of eggless desserts. Handcrafted cakes & treats baked
               fresh, so everyone gets a slice of the celebration.
             </p>
-            <div className="mt-5 flex justify-center gap-3 sm:justify-start">
-              {[Instagram, Facebook, Twitter].map((Icon, i) => (
-                <Link
-                  key={i}
-                  href="#"
-                  className="grid h-10 w-10 place-items-center rounded-full bg-blush-100/10 text-blush-50 transition-colors hover:bg-wine"
-                >
-                  <Icon className="h-4 w-4" />
-                </Link>
-              ))}
-            </div>
+            {socials.length > 0 && (
+              <div className="mt-5 flex justify-center gap-3 sm:justify-start">
+                {socials.map(({ Icon, href }, i) => (
+                  <a
+                    key={i}
+                    href={href}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="grid h-10 w-10 place-items-center rounded-full bg-blush-100/10 text-blush-50 transition-colors hover:bg-wine"
+                  >
+                    <Icon className="h-4 w-4" />
+                  </a>
+                ))}
+              </div>
+            )}
           </div>
 
           <div>
@@ -127,15 +156,19 @@ export function Footer() {
             <ul className="mt-4 space-y-3 text-sm text-blush-100/70">
               <li className="flex items-start justify-center gap-2.5 sm:justify-start">
                 <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-dustyrose" />
-                14 Honey Lane, London, E1 6AN
+                {address}
               </li>
               <li className="flex items-center justify-center gap-2.5 sm:justify-start">
                 <Phone className="h-4 w-4 shrink-0 text-dustyrose" />
-                +44 1234 567 890
+                <a href={telHref} className="transition-colors hover:text-dustyrose">
+                  {phone}
+                </a>
               </li>
               <li className="flex items-center justify-center gap-2.5 sm:justify-start">
                 <Mail className="h-4 w-4 shrink-0 text-dustyrose" />
-                hello@lerasabakery.com
+                <a href={`mailto:${email}`} className="transition-colors hover:text-dustyrose">
+                  {email}
+                </a>
               </li>
             </ul>
             <p className="mt-4 text-xs text-blush-100/60">

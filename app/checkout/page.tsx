@@ -22,9 +22,15 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { Check, ChevronLeft, Lock, Loader2, ShoppingBag } from "lucide-react";
 import { useCart } from "@/components/cart/cart-context";
 import { useAuth } from "@/lib/use-auth";
+import { useSiteSettings } from "@/lib/use-site-settings";
 import { createClient } from "@/utils/supabase/client";
 import { getStripePromise, stripeConfigured } from "@/lib/stripe-client";
-import { money } from "@/lib/pricing";
+import { money, round2, resolveDeliveryFee } from "@/lib/pricing";
+import {
+  firstDeliverableDate,
+  isDeliverableDate,
+  deliveryDaysLabel,
+} from "@/lib/delivery";
 
 const INPUT =
   "w-full rounded-2xl border border-dustyrose/50 bg-blush-50 px-4 py-3 text-darkberry placeholder:text-berry/60 shadow-clay-sm focus:border-wine focus:outline-none focus:ring-2 focus:ring-wine/30";
@@ -45,13 +51,6 @@ const STEPS = ["Contact", "Delivery", "Review", "Payment"] as const;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-/** Earliest selectable delivery date = today + 2 days (lead time). */
-function minDeliveryDate(): string {
-  const d = new Date();
-  d.setDate(d.getDate() + 2);
-  return d.toISOString().slice(0, 10);
-}
-
 /** Short, human order number from a DB uuid or a Stripe PaymentIntent id. */
 function toOrderNumber(id: string): string {
   return id.replace(/^pi_/, "").replace(/-/g, "").slice(0, 8).toUpperCase();
@@ -59,8 +58,17 @@ function toOrderNumber(id: string): string {
 
 export default function CheckoutPage() {
   const router = useRouter();
-  const { items, subtotal, deliveryFee, total, count, clearCart } = useCart();
+  const { items, subtotal, count, clearCart } = useCart();
   const { user, ready } = useAuth();
+  const { settings } = useSiteSettings();
+
+  // Admin-configured delivery rules (lead time, available days, blocked dates).
+  const deliveryRules = {
+    leadTimeDays: settings.lead_time_days,
+    deliveryDays: settings.delivery_days,
+    blockedDates: settings.blocked_dates,
+  };
+  const minDate = firstDeliverableDate(deliveryRules);
 
   const [step, setStep] = useState(1);
   const [form, setForm] = useState<Form>({
@@ -77,6 +85,20 @@ export default function CheckoutPage() {
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [intentError, setIntentError] = useState<string | null>(null);
   const [loadingIntent, setLoadingIntent] = useState(false);
+  // Authoritative amounts returned by the server when the PaymentIntent is
+  // created — used for the confirmation snapshot so it matches the charge.
+  const [charged, setCharged] = useState<
+    { subtotal: number; deliveryFee: number; total: number } | null
+  >(null);
+
+  // Zone-based delivery fee for the entered postcode (display only; the server
+  // re-computes it authoritatively so the charge always matches).
+  const deliveryFee = resolveDeliveryFee(
+    subtotal,
+    form.postcode,
+    settings.delivery_zones,
+  );
+  const total = round2(subtotal + deliveryFee);
 
   const set = (k: keyof Form, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -119,10 +141,20 @@ export default function CheckoutPage() {
 
   const step1Valid =
     form.name.trim() !== "" && EMAIL_RE.test(form.email) && form.phone.trim() !== "";
+  const dateChosenValid =
+    form.deliveryDate !== "" && isDeliverableDate(form.deliveryDate, deliveryRules);
+  const dateError =
+    form.deliveryDate !== "" && !dateChosenValid
+      ? `Sorry, we can't deliver on that date. We deliver ${deliveryDaysLabel(
+          settings.delivery_days,
+        )} with at least ${settings.lead_time_days} day${
+          settings.lead_time_days === 1 ? "" : "s"
+        }' notice.`
+      : "";
   const step2Valid =
     form.address.trim() !== "" &&
     form.postcode.trim() !== "" &&
-    form.deliveryDate !== "";
+    dateChosenValid;
 
   // Empty-cart guard (after hooks, so hook order stays stable).
   if (count === 0 && step < 4) {
@@ -155,11 +187,23 @@ export default function CheckoutPage() {
         body: JSON.stringify({
           items: items.map((i) => ({ id: i.id, quantity: i.quantity })),
           deliveryDate: form.deliveryDate,
+          postcode: form.postcode,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Could not start payment.");
       setClientSecret(data.clientSecret);
+      if (
+        typeof data.subtotal === "number" &&
+        typeof data.deliveryFee === "number" &&
+        typeof data.total === "number"
+      ) {
+        setCharged({
+          subtotal: data.subtotal,
+          deliveryFee: data.deliveryFee,
+          total: data.total,
+        });
+      }
       setStep(4);
     } catch (e) {
       setIntentError(e instanceof Error ? e.message : "Could not start payment.");
@@ -292,9 +336,17 @@ export default function CheckoutPage() {
                 </div>
                 <div>
                   <label className={LABEL} htmlFor="deliveryDate">Delivery date</label>
-                  <input id="deliveryDate" type="date" className={INPUT} min={minDeliveryDate()}
+                  <input id="deliveryDate" type="date" className={INPUT} min={minDate}
                     value={form.deliveryDate} onChange={(e) => set("deliveryDate", e.target.value)} />
-                  <p className="mt-1 text-xs text-berry">We need at least 2 days&apos; notice.</p>
+                  {dateError ? (
+                    <p className="mt-1 text-xs font-semibold text-red-600">{dateError}</p>
+                  ) : (
+                    <p className="mt-1 text-xs text-berry">
+                      We deliver {deliveryDaysLabel(settings.delivery_days)} with at least{" "}
+                      {settings.lead_time_days} day
+                      {settings.lead_time_days === 1 ? "" : "s"}&apos; notice.
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className={LABEL} htmlFor="instructions">Special instructions (optional)</label>
@@ -365,7 +417,7 @@ export default function CheckoutPage() {
                     options={{ clientSecret, appearance }}
                   >
                     <PaymentForm
-                      total={total}
+                      total={charged?.total ?? total}
                       onPaid={async (paymentIntentId) => {
                         // The payment already succeeded — from here on we NEVER
                         // surface an error to the customer. Persisting the order
@@ -404,7 +456,10 @@ export default function CheckoutPage() {
                           /* payment already went through — ignore save errors */
                         }
 
-                        // Snapshot the order for the confirmation screen.
+                        // Snapshot the order for the confirmation screen. Prefer
+                        // the server's authoritative amounts so it matches the
+                        // actual charge (zone-based delivery included).
+                        const amounts = charged ?? { subtotal, deliveryFee, total };
                         const snapshot = {
                           orderId,
                           orderNumber: toOrderNumber(orderId),
@@ -413,9 +468,9 @@ export default function CheckoutPage() {
                             quantity: i.quantity,
                             price: i.price,
                           })),
-                          subtotal,
-                          deliveryFee,
-                          total,
+                          subtotal: amounts.subtotal,
+                          deliveryFee: amounts.deliveryFee,
+                          total: amounts.total,
                           deliveryDate: form.deliveryDate,
                           customerName: form.name,
                           email: form.email,
