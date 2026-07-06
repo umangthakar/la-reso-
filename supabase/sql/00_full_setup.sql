@@ -195,6 +195,9 @@ create table if not exists public.site_settings (
   -- announcement bar: { "enabled": bool, "text": "..." }
   announcement      jsonb not null default '{"enabled": false, "text": ""}'::jsonb,
 
+  -- menu hero banner: { "enabled": bool, "heading": "...", "subtext": "..." }
+  hero_banner       jsonb not null default '{"enabled": true, "heading": "Every Bite, Eggless & Divine", "subtext": "Handcrafted fresh daily — pick your craving"}'::jsonb,
+
   -- delivery settings
   delivery_zones    jsonb   not null default '[]'::jsonb,
   lead_time_days    integer not null default 3,
@@ -224,6 +227,8 @@ alter table public.site_settings add column if not exists hero_image_url   text;
 alter table public.site_settings add column if not exists about_story      text;
 alter table public.site_settings add column if not exists about_image_url  text;
 alter table public.site_settings add column if not exists announcement     jsonb not null default '{"enabled": false, "text": ""}'::jsonb;
+-- menu hero banner: { "enabled": bool, "heading": "...", "subtext": "..." }
+alter table public.site_settings add column if not exists hero_banner      jsonb not null default '{"enabled": true, "heading": "Every Bite, Eggless & Divine", "subtext": "Handcrafted fresh daily — pick your craving"}'::jsonb;
 alter table public.site_settings add column if not exists delivery_zones   jsonb not null default '[]'::jsonb;
 alter table public.site_settings add column if not exists lead_time_days   integer not null default 3;
 alter table public.site_settings add column if not exists blocked_dates    jsonb not null default '[]'::jsonb;

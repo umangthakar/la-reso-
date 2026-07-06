@@ -16,6 +16,15 @@ const slugToName: Record<string, string> = Object.fromEntries(
 
 const filters = ["All", ...categories.map((c) => c.name)];
 
+// Menu hero banner is editable from the admin panel (site_settings.hero_banner).
+// These are the original hardcoded values, used as a fallback until the DB row
+// has data.
+type HeroBanner = { enabled?: boolean; heading?: string; subtext?: string };
+const HERO_FALLBACK = {
+  heading: "Every Bite, Eggless & Divine",
+  subtext: "Handcrafted fresh daily — pick your craving",
+};
+
 // Shown only when a product row has no image_url, so next/image never gets
 // an empty src. Uses the already-whitelisted Unsplash host.
 const FALLBACK_IMAGE =
@@ -49,6 +58,7 @@ export function MenuGrid() {
   const params = useSearchParams();
   const [active, setActive] = useState("All");
   const [products, setProducts] = useState<Product[]>([]);
+  const [hero, setHero] = useState<HeroBanner | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -60,13 +70,17 @@ export function MenuGrid() {
     let cancelled = false;
     (async () => {
       const db = createClient() as unknown as SupabaseClient;
-      const { data } = await db
-        .from("products")
-        .select("id,name,description,price,image_url,category,badge,in_stock")
-        .eq("in_stock", true)
-        .order("created_at", { ascending: false });
+      const [{ data }, { data: settings }] = await Promise.all([
+        db
+          .from("products")
+          .select("id,name,description,price,image_url,category,badge,in_stock")
+          .eq("in_stock", true)
+          .order("created_at", { ascending: false }),
+        db.from("site_settings").select("hero_banner").limit(1).maybeSingle(),
+      ]);
       if (cancelled) return;
       setProducts((data ?? []).map(toCard));
+      setHero((settings?.hero_banner as HeroBanner) ?? null);
       setLoading(false);
     })();
     return () => {
@@ -79,30 +93,37 @@ export function MenuGrid() {
       ? products
       : products.filter((p) => p.category === active);
 
+  // Hero banner content comes from site_settings.hero_banner (admin-editable);
+  // fall back to the original copy until the DB has data. Hidden only when the
+  // admin explicitly turns it off.
+  const heroVisible = hero?.enabled !== false;
+  const heroHeading = hero?.heading?.trim() || HERO_FALLBACK.heading;
+  const heroSubtext = hero?.subtext?.trim() || HERO_FALLBACK.subtext;
+
   return (
     <div>
       {/* Premium hero banner — sits at the top of the product grid */}
-      <motion.section
-        initial={{ opacity: 0, y: 30 }}
-        whileInView={{ opacity: 1, y: 0 }}
-        viewport={{ once: true, amount: 0.4 }}
-        transition={{ duration: 0.6, ease: "easeOut" }}
-        className="relative w-full overflow-hidden bg-[#F9EEEA] px-8 py-16"
-      >
-        {/* Decorative product-count watermark */}
-        <span className="pointer-events-none absolute right-6 top-1/2 hidden -translate-y-1/2 select-none font-display text-[200px] font-bold leading-none text-[#D5A4A4]/20 md:block">
-          {filtered.length}
-        </span>
+      {heroVisible && (
+        <motion.section
+          initial={{ opacity: 0, y: 30 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, amount: 0.4 }}
+          transition={{ duration: 0.6, ease: "easeOut" }}
+          className="relative w-full overflow-hidden bg-[#F9EEEA] px-8 py-16"
+        >
+          {/* Decorative product-count watermark */}
+          <span className="pointer-events-none absolute right-6 top-1/2 hidden -translate-y-1/2 select-none font-display text-[200px] font-bold leading-none text-[#D5A4A4]/20 md:block">
+            {filtered.length}
+          </span>
 
-        <div className="relative max-w-2xl">
-          <h2 className="font-display text-5xl font-bold leading-tight text-[#612437] md:text-7xl">
-            Every Bite, Eggless &amp; Divine
-          </h2>
-          <p className="mt-4 text-[#9C616D]">
-            Handcrafted fresh daily — pick your craving
-          </p>
-        </div>
-      </motion.section>
+          <div className="relative max-w-2xl">
+            <h2 className="font-display text-5xl font-bold leading-tight text-[#612437] md:text-7xl">
+              {heroHeading}
+            </h2>
+            <p className="mt-4 text-[#9C616D]">{heroSubtext}</p>
+          </div>
+        </motion.section>
+      )}
 
       {/* Thin divider before the cards begin */}
       <div className="mb-2 h-px w-full bg-[#D5A4A4]" />

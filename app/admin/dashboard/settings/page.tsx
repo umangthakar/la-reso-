@@ -19,6 +19,13 @@ const WINE = "#873853";
 const BERRY = "#5C2A41";
 
 type Announcement = { enabled: boolean; text: string };
+type HeroBanner = { enabled: boolean; heading: string; subtext: string };
+
+const HERO_DEFAULT: HeroBanner = {
+  enabled: true,
+  heading: "Every Bite, Eggless & Divine",
+  subtext: "Handcrafted fresh daily — pick your craving",
+};
 
 type Settings = {
   phone: string;
@@ -26,6 +33,7 @@ type Settings = {
   whatsapp: string;
   address: string;
   announcement: Announcement;
+  hero_banner: HeroBanner;
   instagram_url: string;
   facebook_url: string;
   tiktok_url: string;
@@ -42,6 +50,7 @@ const EMPTY: Settings = {
   whatsapp: "",
   address: "",
   announcement: { enabled: false, text: "" },
+  hero_banner: HERO_DEFAULT,
   instagram_url: "",
   facebook_url: "",
   tiktok_url: "",
@@ -68,6 +77,7 @@ export default function SettingsAdminPage() {
       );
       const d = data.settings ?? {};
       const ann = (d.announcement ?? {}) as Partial<Announcement>;
+      const hb = (d.hero_banner ?? {}) as Partial<HeroBanner>;
       setS({
         ...EMPTY,
         ...Object.fromEntries(
@@ -76,6 +86,11 @@ export default function SettingsAdminPage() {
         announcement: {
           enabled: Boolean(ann.enabled),
           text: ann.text ?? "",
+        },
+        hero_banner: {
+          enabled: hb.enabled ?? HERO_DEFAULT.enabled,
+          heading: hb.heading ?? HERO_DEFAULT.heading,
+          subtext: hb.subtext ?? HERO_DEFAULT.subtext,
         },
       } as Settings);
     } catch (e) {
@@ -168,6 +183,42 @@ export default function SettingsAdminPage() {
           />
         </Field>
         <p style={hint}>When on, this shows as a bar across the top of the whole site.</p>
+      </SectionForm>
+
+      {/* 2b. MENU HERO BANNER */}
+      <SectionForm
+        title="Hero Banner"
+        saved={savedSection === "hero_banner"}
+        onSave={() => saveSection("hero_banner", ["hero_banner"])}
+      >
+        <label style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14, cursor: "pointer" }}>
+          <Toggle
+            on={s.hero_banner.enabled}
+            onClick={() =>
+              set("hero_banner", { ...s.hero_banner, enabled: !s.hero_banner.enabled })
+            }
+          />
+          <span style={{ fontWeight: 600, color: BERRY }}>
+            {s.hero_banner.enabled ? "Banner is visible" : "Banner is hidden"}
+          </span>
+        </label>
+        <Field label="Main heading">
+          <input
+            style={inputStyle}
+            value={s.hero_banner.heading}
+            onChange={(e) => set("hero_banner", { ...s.hero_banner, heading: e.target.value })}
+            placeholder="Every Bite, Eggless & Divine"
+          />
+        </Field>
+        <Field label="Subtext">
+          <input
+            style={inputStyle}
+            value={s.hero_banner.subtext}
+            onChange={(e) => set("hero_banner", { ...s.hero_banner, subtext: e.target.value })}
+            placeholder="Handcrafted fresh daily — pick your craving"
+          />
+        </Field>
+        <p style={hint}>This is the large banner at the top of the Menu page.</p>
       </SectionForm>
 
       {/* 3. SOCIAL MEDIA */}
