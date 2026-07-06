@@ -498,6 +498,17 @@ create policy "Public read site-assets"
 insert into public.site_settings (id) values (1)
 on conflict (id) do nothing;
 
+-- Clear the old hardcoded placeholder WhatsApp number so the bar stays hidden
+-- until a real number is configured in the admin panel. Guarded so it only
+-- touches the placeholder — a real number set later is never overwritten.
+update public.site_settings
+set whatsapp_bar = jsonb_build_object(
+  'enabled', false,
+  'text',    'For any question',
+  'number',  ''
+)
+where whatsapp_bar ->> 'number' = '441234567890';
+
 -- Starter delivery zones (only if none exist) so the analytics
 -- zone breakdown has labels.
 insert into public.delivery_zones (zone_name, postcode_pattern, price)
