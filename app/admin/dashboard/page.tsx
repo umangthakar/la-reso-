@@ -16,10 +16,10 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { adminGet } from "@/lib/admin-api";
 
-// Never statically cache — the summary cards must reflect the latest orders
-// on every visit.
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+// NOTE: this is a Client Component, so it must NOT export route segment config
+// (`dynamic`/`revalidate`) — doing so 500s the route ("Invalid revalidate
+// value"). Freshness is guaranteed instead by the force:true fetch below
+// (bypasses the in-memory cache) plus cache:"no-store" in adminGet.
 
 const WINE = "#873853";
 const BERRY = "#5C2A41";

@@ -17,9 +17,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { adminGet, adminSend } from "@/lib/admin-api";
 import { useIsMobile } from "@/lib/use-is-mobile";
 
-// Never statically cache this route — orders must always render live data.
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+// NOTE: Client Component — must NOT export route segment config
+// (`dynamic`/`revalidate`); that 500s the route. Live data is guaranteed by
+// the force:true refetch after each status change + cache:"no-store" in adminGet.
 
 const WINE = "#873853";
 const BERRY = "#5C2A41";
