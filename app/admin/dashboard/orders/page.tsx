@@ -13,9 +13,10 @@
 // orders with no line items or totals in the database.
 // ============================================================
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { adminGet, adminSend } from "@/lib/admin-api";
 import { useIsMobile } from "@/lib/use-is-mobile";
+import { useOrdersLive } from "@/lib/supabase/hooks/use-orders-live";
 
 // NOTE: Client Component — must NOT export route segment config
 // (`dynamic`/`revalidate`); that 500s the route. Live data is guaranteed by
@@ -104,23 +105,53 @@ export default function OrdersAdminPage() {
   const [selected, setSelected] = useState<Order | null>(null);
   const [updating, setUpdating] = useState(false);
 
+  // Live "new order" toast + detection. knownIdsRef holds the ids we've
+  // already shown so a refetch only toasts genuinely new orders (null until
+  // the first load completes, so the initial batch never toasts).
+  const [toast, setToast] = useState<string | null>(null);
+  const knownIdsRef = useRef<Set<string> | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showToast = useCallback((msg: string) => {
+    setToast(msg);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToast(null), 4500);
+  }, []);
+
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setLoading(true);
     setError("");
     try {
       // force:true bypasses the in-memory GET cache so we always get live data.
       const data = await adminGet<{ orders: Order[] }>("/api/admin/orders", { force: true });
-      setOrders(data.orders || []);
+      const incoming = data.orders || [];
+      // Toast for orders we haven't seen before (skip the very first load).
+      if (knownIdsRef.current) {
+        const fresh = incoming.filter((o) => !knownIdsRef.current!.has(o.id));
+        if (fresh.length > 0) {
+          showToast(fresh.length === 1 ? "🔔 New order received!" : `🔔 ${fresh.length} new orders received!`);
+        }
+      }
+      knownIdsRef.current = new Set(incoming.map((o) => o.id));
+      setOrders(incoming);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load orders");
     } finally {
       if (!opts?.silent) setLoading(false);
     }
-  }, []);
+  }, [showToast]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  // Refetch (silently) whenever the orders table changes — new order placed,
+  // status updated elsewhere, etc. See useOrdersLive for how the signal is
+  // delivered (broadcast trigger + poll fallback; postgres_changes if allowed).
+  useOrdersLive(useCallback(() => load({ silent: true }), [load]));
+
+  // Clear the toast timer on unmount.
+  useEffect(() => () => { if (toastTimerRef.current) clearTimeout(toastTimerRef.current); }, []);
 
   const filtered = useMemo(() => {
     return orders.filter((o) => {
@@ -223,6 +254,12 @@ export default function OrdersAdminPage() {
 
   return (
     <div>
+      {/* Live "new order" toast */}
+      <style>{`@keyframes lr-toast-in { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: none; } }`}</style>
+      {toast && (
+        <div role="status" aria-live="polite" style={toastStyle}>{toast}</div>
+      )}
+
       <h1 style={{ color: WINE, fontSize: "1.8rem", fontWeight: 800, marginTop: 0 }}>Orders</h1>
       <p style={{ color: BERRY, opacity: 0.75, marginTop: 4 }}>
         Click a row to view full details and update the status.
@@ -449,6 +486,7 @@ const primaryBtn: React.CSSProperties = { padding: "11px 18px", borderRadius: 10
 const secondaryBtn: React.CSSProperties = { padding: "9px 16px", borderRadius: 10, border: `1px solid ${WINE}`, background: "transparent", color: WINE, fontWeight: 700, cursor: "pointer" };
 const linkBtn: React.CSSProperties = { background: "none", border: "none", color: WINE, fontWeight: 700, cursor: "pointer", marginLeft: 12, fontSize: "0.9rem" };
 const errorBox: React.CSSProperties = { background: "#fde8e8", color: "#b03030", padding: "10px 14px", borderRadius: 10, marginTop: 16 };
+const toastStyle: React.CSSProperties = { position: "fixed", top: 20, right: 20, zIndex: 100, background: WINE, color: "white", padding: "12px 18px", borderRadius: 12, fontWeight: 700, fontSize: "0.95rem", boxShadow: "0 12px 30px rgba(135,56,83,0.35)", animation: "lr-toast-in 0.25s ease-out" };
 const drawerOverlay: React.CSSProperties = { position: "fixed", inset: 0, background: "rgba(60,20,40,0.45)", zIndex: 50, display: "flex", justifyContent: "flex-end" };
 const drawer: React.CSSProperties = { width: "100%", maxWidth: 440, height: "100%", background: "white", padding: "1.75rem", overflowY: "auto", boxShadow: "-10px 0 40px rgba(60,20,40,0.2)" };
 const divider: React.CSSProperties = { height: 1, background: "rgba(135,56,83,0.12)", margin: "18px 0 4px" };

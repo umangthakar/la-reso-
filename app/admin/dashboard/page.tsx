@@ -12,9 +12,10 @@
 // API so the buckets match the user's timezone.
 // ============================================================
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { adminGet } from "@/lib/admin-api";
+import { useOrdersLive } from "@/lib/supabase/hooks/use-orders-live";
 
 // NOTE: this is a Client Component, so it must NOT export route segment config
 // (`dynamic`/`revalidate`) — doing so 500s the route ("Invalid revalidate
@@ -59,25 +60,51 @@ export default function DashboardHome() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const qs = new URLSearchParams({
-          today: String(startOfToday()),
-          week: String(startOfWeek()),
-          month: String(startOfMonth()),
-        });
-        // force:true bypasses the in-memory GET cache so the cards always show
-        // the latest orders on every visit (not a copy up to 60s old).
-        const d = await adminGet<Payload>(`/api/admin/dashboard?${qs.toString()}`, { force: true });
-        setData(d);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Failed to load dashboard stats");
-      } finally {
-        setLoading(false);
-      }
-    })();
+  // Live "new order" toast. prevTodayRef tracks the last-seen ordersToday count
+  // so a realtime refetch can tell when a fresh order lands (null until first load).
+  const [toast, setToast] = useState<string | null>(null);
+  const prevTodayRef = useRef<number | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showToast = useCallback((msg: string) => {
+    setToast(msg);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToast(null), 4500);
   }, []);
+
+  const load = useCallback(async () => {
+    try {
+      const qs = new URLSearchParams({
+        today: String(startOfToday()),
+        week: String(startOfWeek()),
+        month: String(startOfMonth()),
+      });
+      // force:true bypasses the in-memory GET cache so the cards always show
+      // the latest orders on every visit (not a copy up to 60s old).
+      const d = await adminGet<Payload>(`/api/admin/dashboard?${qs.toString()}`, { force: true });
+      // Toast when today's order count rises (skip the very first load).
+      if (prevTodayRef.current !== null && d.ordersToday > prevTodayRef.current) {
+        const diff = d.ordersToday - prevTodayRef.current;
+        showToast(diff === 1 ? "🔔 New order received!" : `🔔 ${diff} new orders received!`);
+      }
+      prevTodayRef.current = d.ordersToday;
+      setData(d);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load dashboard stats");
+    } finally {
+      setLoading(false);
+    }
+  }, [showToast]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  // Update the summary cards in real time whenever orders change.
+  useOrdersLive(load);
+
+  // Clear the toast timer on unmount.
+  useEffect(() => () => { if (toastTimerRef.current) clearTimeout(toastTimerRef.current); }, []);
 
   const ordersToday = data?.ordersToday ?? 0;
   const revenueThisWeek = data?.revenueThisWeek ?? 0;
@@ -98,6 +125,12 @@ export default function DashboardHome() {
 
   return (
     <div>
+      {/* Live "new order" toast */}
+      <style>{`@keyframes lr-toast-in { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: none; } }`}</style>
+      {toast && (
+        <div role="status" aria-live="polite" style={toastStyle}>{toast}</div>
+      )}
+
       <h1 style={{ color: WINE, fontSize: "1.8rem", fontWeight: 800, marginTop: 0 }}>Dashboard</h1>
       <p style={{ color: BERRY, opacity: 0.75, marginTop: 4 }}>An overview of your bakery.</p>
 
@@ -155,3 +188,5 @@ export default function DashboardHome() {
     </div>
   );
 }
+
+const toastStyle: React.CSSProperties = { position: "fixed", top: 20, right: 20, zIndex: 100, background: WINE, color: "white", padding: "12px 18px", borderRadius: 12, fontWeight: 700, fontSize: "0.95rem", boxShadow: "0 12px 30px rgba(135,56,83,0.35)", animation: "lr-toast-in 0.25s ease-out" };
