@@ -71,14 +71,16 @@ const container: Variants = {
   open: {
     scale: 1.03,
     boxShadow: "0 24px 60px -18px rgba(135, 56, 83, 0.55)",
-    transition: { type: "spring", stiffness: 220, damping: 24 },
+    // Blueprint — Scale: 0.8s
+    transition: { duration: 0.8, ease: [0.22, 1, 0.36, 1] },
   },
 };
 
 // The details panel slides in from the left and orchestrates the
 // staggered reveal of its own children.
 const detailsPanel: Variants = {
-  closed: { x: 24, opacity: 0 },
+  // Slides in from the left (Blueprint — Slide In: 0.6s)
+  closed: { x: -40, opacity: 0 },
   open: {
     x: 0,
     opacity: 1,
@@ -104,7 +106,8 @@ const collapsedLabel: Variants = {
 
 const imageWrap: Variants = {
   closed: { scale: 1 },
-  open: { scale: 1.06, transition: { duration: 0.8, ease: [0.22, 1, 0.36, 1] } },
+  // Blueprint — Zoom: 0.6s
+  open: { scale: 1.08, transition: { duration: 0.6, ease: [0.22, 1, 0.36, 1] } },
 };
 
 const dim: Variants = {
@@ -189,7 +192,7 @@ export function AnimatedProductCard({ product }: { product: Product }) {
           {/* Details panel — slides in & overhangs the container on open */}
           <motion.div
             variants={detailsPanel}
-            className="pointer-events-none absolute -left-3 top-1/2 z-20 w-[112%] -translate-y-1/2 rounded-[22px] bg-white/95 p-4 shadow-[0_18px_45px_-20px_rgba(116,50,73,0.55)] backdrop-blur-sm md:-left-4 md:p-5"
+            className="pointer-events-none absolute -left-5 top-1/2 z-20 w-[118%] -translate-y-1/2 rounded-[22px] bg-white/95 p-4 shadow-[0_18px_45px_-20px_rgba(116,50,73,0.55)] backdrop-blur-sm md:-left-9 md:p-5"
             style={{ pointerEvents: open ? "auto" : "none" }}
           >
             <motion.span
