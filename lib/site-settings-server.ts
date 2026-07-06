@@ -20,27 +20,47 @@ const SUPABASE_ANON_KEY =
   process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
+// Fetch the singleton row for a given PostgREST `select`. Returns the row on
+// success, `null` when there's no row, or `undefined` when the request itself
+// failed (e.g. a selected column doesn't exist → PostgREST 400). Always
+// no-store so admin edits reflect on the very next request.
+async function fetchSettingsRow(
+  select: string,
+): Promise<Record<string, unknown> | null | undefined> {
+  const res = await fetch(
+    `${SUPABASE_URL}/rest/v1/site_settings?select=${select}&limit=1`,
+    {
+      headers: {
+        apikey: SUPABASE_ANON_KEY as string,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      },
+      cache: "no-store",
+    },
+  );
+  if (!res.ok) return undefined;
+  const rows = (await res.json()) as Record<string, unknown>[];
+  return rows?.[0] ?? null;
+}
+
 /**
  * Read the public site settings, always fresh (never cached). Returns
  * DEFAULT_SETTINGS on any failure so callers never have to handle nulls.
+ *
+ * Resilient to schema drift: if the explicit public-column select fails
+ * because the live DB is missing a newer column (e.g. hero_banner or
+ * whatsapp_bar hasn't been migrated yet), it falls back to selecting the
+ * whole row so the columns that DO exist still load, instead of every
+ * setting silently collapsing to defaults. normaliseSettings only ever
+ * returns public fields, so secret columns never leave this function.
  */
 export async function getPublicSettings(): Promise<PublicSettings> {
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return DEFAULT_SETTINGS;
   try {
-    const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/site_settings?select=${PUBLIC_SETTINGS_SELECT}&limit=1`,
-      {
-        headers: {
-          apikey: SUPABASE_ANON_KEY,
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-        },
-        // Never cache — admin edits must reflect on the next request.
-        cache: "no-store",
-      },
-    );
-    if (!res.ok) return DEFAULT_SETTINGS;
-    const rows = (await res.json()) as Record<string, unknown>[];
-    return normaliseSettings(rows?.[0] ?? null);
+    let row = await fetchSettingsRow(PUBLIC_SETTINGS_SELECT);
+    if (row === undefined) {
+      row = await fetchSettingsRow("*");
+    }
+    return normaliseSettings(row ?? null);
   } catch {
     return DEFAULT_SETTINGS;
   }
