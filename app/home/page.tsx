@@ -27,7 +27,7 @@ async function fetchHomeProducts(): Promise<HomeProduct[]> {
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return [];
   try {
     const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/products?select=id,name,price,image_url,category,badge&visible=eq.true&order=sort_order.asc&limit=6`,
+      `${SUPABASE_URL}/rest/v1/products?select=id,name,price,image_url,category,badge,description&visible=eq.true&order=sort_order.asc&limit=6`,
       {
         headers: {
           apikey: SUPABASE_ANON_KEY,
