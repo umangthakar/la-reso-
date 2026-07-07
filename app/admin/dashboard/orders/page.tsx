@@ -175,6 +175,7 @@ export default function OrdersAdminPage() {
   const pageItems = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   async function updateStatus(order: Order, status: string) {
+    const prevStatus = order.status; // captured so we can revert if the save fails
     setUpdating(true);
     setError("");
     // Optimistic update for an instant UI response…
@@ -187,8 +188,10 @@ export default function OrdersAdminPage() {
       // the GET cache; force:true guarantees a fresh fetch regardless.
       await load({ silent: true });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to update status");
-      await load({ silent: true });
+      // Save failed — revert the optimistic change back to the previous status.
+      setOrders((prev) => prev.map((o) => (o.id === order.id ? { ...o, status: prevStatus } : o)));
+      setSelected((s) => (s && s.id === order.id ? { ...s, status: prevStatus } : s));
+      setError(e instanceof Error ? e.message : "Failed to update status — change reverted.");
     } finally {
       setUpdating(false);
     }

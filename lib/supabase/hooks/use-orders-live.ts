@@ -24,6 +24,8 @@
 //      Broadcast is NOT row-RLS-filtered, so this is the reliable instant path.
 //   3. a visibility-aware poll — guarantees new orders still appear within
 //      `pollMs` even before that SQL migration is run, and as a safety net.
+//      Defaults to a fast 3s so the admin recovers from any missed realtime
+//      event (or a slow/failed subscription) almost immediately.
 //
 // The callback is debounced so a burst of events causes a single refetch.
 // ============================================================
@@ -40,7 +42,9 @@ type Options = {
 };
 
 export function useOrdersLive(onChange: () => void, options: Options = {}): void {
-  const { pollMs = 20_000 } = options;
+  // 3s fallback: if the realtime subscription is slow, drops an event, or the
+  // broadcast trigger isn't installed, the admin still catches up within 3s.
+  const { pollMs = 3_000 } = options;
 
   // Keep the latest callback without re-subscribing on every render.
   const onChangeRef = useRef(onChange);
