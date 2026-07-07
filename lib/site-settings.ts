@@ -165,6 +165,31 @@ function str(v: unknown): string {
   return typeof v === "string" ? v : "";
 }
 
+// Instagram is stored as a single value (site_settings.instagram_url) that the
+// admin can enter either as a handle ("@lerasabakery") or a full URL. These
+// helpers derive the two shapes the UI needs so every Instagram link/label
+// across the site reads from that one field.
+
+/** Full Instagram profile URL from a handle or URL. Empty input -> "". */
+export function instagramUrl(value: string): string {
+  const v = (value ?? "").trim();
+  if (!v) return "";
+  if (/^https?:\/\//i.test(v)) return v;
+  const handle = v.replace(/^@/, "").replace(/^instagram\.com\//i, "");
+  return handle ? `https://instagram.com/${handle}` : "";
+}
+
+/** Display "@handle" from a handle or URL. Empty input -> "". */
+export function instagramHandle(value: string): string {
+  const v = (value ?? "").trim();
+  if (!v) return "";
+  if (/^https?:\/\//i.test(v)) {
+    const m = v.replace(/\/+$/, "").match(/instagram\.com\/([^/?#]+)/i);
+    return m ? `@${m[1]}` : "";
+  }
+  return `@${v.replace(/^@/, "")}`;
+}
+
 /** Normalise a raw site_settings row into a fully-populated PublicSettings. */
 export function normaliseSettings(
   raw: Record<string, unknown> | null,

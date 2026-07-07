@@ -234,7 +234,7 @@ export default function SettingsAdminPage() {
         title="Contact Details"
         saveLabel="Save All"
         saved={savedSection === "contact"}
-        onSave={() => saveSection("contact", ["contact"])}
+        onSave={() => saveSection("contact", ["contact", "instagram_url"])}
       >
         <Field label="Phone number">
           <input
@@ -269,9 +269,18 @@ export default function SettingsAdminPage() {
             placeholder="Shop address"
           />
         </Field>
+        <Field label="Instagram">
+          <input
+            style={inputStyle}
+            value={s.instagram_url}
+            onChange={(e) => set("instagram_url", e.target.value)}
+            placeholder="@lerasabakery or https://instagram.com/lerasabakery"
+          />
+        </Field>
         <p style={hint}>
           These details feed the whole site — top bar, footer, contact page and the
-          WhatsApp bar. Saving once updates everywhere instantly.
+          WhatsApp bar. The Instagram link powers the footer icon, the “Follow us”
+          button and the contact page. Saving once updates everywhere instantly.
         </p>
       </SectionForm>
 
@@ -352,21 +361,19 @@ export default function SettingsAdminPage() {
         </p>
       </SectionForm>
 
-      {/* 3. SOCIAL MEDIA */}
+      {/* 3. SOCIAL MEDIA (Instagram lives in Contact Details above) */}
       <SectionForm
         title="Social media"
         saved={savedSection === "social"}
-        onSave={() => saveSection("social", ["instagram_url", "facebook_url", "tiktok_url"])}
+        onSave={() => saveSection("social", ["facebook_url", "tiktok_url"])}
       >
-        <Field label="Instagram URL">
-          <input style={inputStyle} value={s.instagram_url} onChange={(e) => set("instagram_url", e.target.value)} placeholder="https://instagram.com/..." />
-        </Field>
         <Field label="Facebook URL">
           <input style={inputStyle} value={s.facebook_url} onChange={(e) => set("facebook_url", e.target.value)} placeholder="https://facebook.com/..." />
         </Field>
         <Field label="TikTok URL">
           <input style={inputStyle} value={s.tiktok_url} onChange={(e) => set("tiktok_url", e.target.value)} placeholder="https://tiktok.com/@..." />
         </Field>
+        <p style={hint}>Instagram is managed in <strong>Contact Details</strong> above.</p>
       </SectionForm>
 
       {/* 4. HOMEPAGE */}

@@ -4,6 +4,7 @@ import { PageHero } from "@/components/page-hero";
 import { ContactForm } from "@/components/contact-form";
 import { Reveal } from "@/components/motion";
 import { getPublicSettings } from "@/lib/site-settings-server";
+import { instagramUrl, instagramHandle } from "@/lib/site-settings";
 
 // Re-fetch settings server-side on every request (getPublicSettings is
 // no-store) so the contact phone always reflects the admin value.
@@ -35,10 +36,14 @@ const faqs = [
 ];
 
 export default async function ContactPage() {
-  const { contact } = await getPublicSettings();
+  const settings = await getPublicSettings();
+  const { contact } = settings;
   const phone = contact.phone.trim();
   const email = contact.email.trim();
   const address = contact.address.trim();
+  // Instagram from the single source (settings.instagram_url) → link + @handle.
+  const igUrl = instagramUrl(settings.instagram_url);
+  const igHandle = instagramHandle(settings.instagram_url);
 
   // All contact info comes from the unified Contact Details (site_settings.contact).
   // Each row only appears when its value is set — no hardcoded contact info.
@@ -83,16 +88,21 @@ export default async function ContactPage() {
             </Reveal>
 
             <Reveal delay={0.1}>
-              <div className="overflow-hidden rounded-clay bg-gradient-to-br from-wine to-darkberry p-7 text-blush-50 shadow-clay-sm">
+              <a
+                href={igUrl || undefined}
+                target={igUrl ? "_blank" : undefined}
+                rel={igUrl ? "noreferrer" : undefined}
+                className="block overflow-hidden rounded-clay bg-gradient-to-br from-wine to-darkberry p-7 text-blush-50 shadow-clay-sm transition-transform hover:-translate-y-0.5"
+              >
                 <Instagram className="h-7 w-7" />
                 <h3 className="mt-3 font-display text-xl font-semibold">
                   Prefer to DM us?
                 </h3>
                 <p className="mt-1.5 text-sm text-blush-100/85">
-                  Slide into our inbox @lerasabakery for quick questions and a
-                  daily dose of fresh bakes.
+                  Slide into our inbox {igHandle || "on Instagram"} for quick
+                  questions and a daily dose of fresh bakes.
                 </p>
-              </div>
+              </a>
             </Reveal>
 
             <Reveal delay={0.15}>

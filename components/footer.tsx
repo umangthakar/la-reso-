@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Cake, Instagram, Facebook, Music2, Mail, MapPin, Phone } from "lucide-react";
 import { CardCarousel } from "@/components/ui/card-carousel";
 import { useSiteSettings } from "@/lib/use-site-settings";
+import { instagramUrl, instagramHandle } from "@/lib/site-settings";
 
 // Shown when the matching site_settings field is empty, so the footer never
 // looks blank. Phone is intentionally NOT defaulted — it comes solely from
@@ -21,9 +22,13 @@ export function Footer() {
   const email = settings.contact.email.trim() || FALLBACK.email;
   const telHref = phone ? `tel:${phone.replace(/\s+/g, "")}` : "";
 
+  // Instagram: one source of truth (settings.instagram_url) → full URL + @handle.
+  const igUrl = instagramUrl(settings.instagram_url);
+  const igHandle = instagramHandle(settings.instagram_url);
+
   // Only render social icons whose URL is configured.
   const socials = [
-    { Icon: Instagram, href: settings.instagram_url.trim() },
+    { Icon: Instagram, href: igUrl },
     { Icon: Facebook, href: settings.facebook_url.trim() },
     { Icon: Music2, href: settings.tiktok_url.trim() },
   ].filter((s) => s.href !== "");
@@ -37,17 +42,21 @@ export function Footer() {
           <div className="mb-8 flex items-center justify-between">
             <div>
               <h2 className="text-2xl font-bold text-[#612437]">Follow the sweetness</h2>
-              <p className="text-[#9C616D]">@lerasabakery — fresh bakes daily on Instagram</p>
+              <p className="text-[#9C616D]">
+                {igHandle ? `${igHandle} — ` : ""}fresh bakes daily on Instagram
+              </p>
             </div>
-            <a
-              href={settings.instagram_url.trim() || "https://instagram.com/lerasabakery"}
-              target="_blank"
-              rel="noreferrer"
-              className="flex items-center gap-2 rounded-full px-5 py-2 font-semibold text-white"
-              style={{ background: "#873853" }}
-            >
-              Follow us
-            </a>
+            {igUrl && (
+              <a
+                href={igUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-2 rounded-full px-5 py-2 font-semibold text-white"
+                style={{ background: "#873853" }}
+              >
+                Follow us
+              </a>
+            )}
           </div>
 
           {/* Carousel */}
