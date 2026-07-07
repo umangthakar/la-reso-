@@ -54,6 +54,16 @@ export function createAdminClient(): SupabaseClient<Database> {
       persistSession: false,
       autoRefreshToken: false,
     },
+    // Force every REST request through with `no-store`. Next.js/Vercel caches
+    // fetch() GET responses in its Data Cache by default, and supabase-js sets
+    // no cache option — so without this an admin read (e.g. the orders list)
+    // can be frozen for hours: a server-side insert can't invalidate that
+    // cache, so new orders only appear after it evicts/redeploys. no-store
+    // guarantees the admin always reads live data. (Belt-and-suspenders with
+    // each route's `dynamic = "force-dynamic"`.)
+    global: {
+      fetch: (input, init) => fetch(input, { ...init, cache: "no-store" }),
+    },
     // supabase-js's bundled realtime-js requires a WebSocket constructor at
     // client construction time. Node < 22 has no global WebSocket, so without
     // this every admin route 500s on construction. We only ever use the REST
