@@ -283,19 +283,18 @@ export function SplashScreen({ onComplete }: { onComplete: () => void }) {
 
           {/* Centered logo & tagline */}
           <div className="relative flex h-full flex-col items-center justify-center text-center">
-            {settings.logo ? (
-              // Uploaded logo (site_settings.logo) replaces the wordmark.
+            {settings.logo && (
+              // Uploaded logo shown ABOVE the wordmark; the name stays visible.
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={settings.logo}
                 alt="Le Rasa"
-                className="h-24 w-auto object-contain md:h-40"
+                className="mb-4 h-20 w-auto object-contain md:h-28"
               />
-            ) : (
-              <h1 className="font-display text-5xl leading-none text-[#612437] sm:text-6xl md:text-8xl">
-                Le Rasa
-              </h1>
             )}
+            <h1 className="font-display text-5xl leading-none text-[#612437] sm:text-6xl md:text-8xl">
+              Le Rasa
+            </h1>
             <p className="mt-4 text-xs font-semibold uppercase tracking-widest text-[#873853] md:text-sm">
               Eggless Bakery
             </p>

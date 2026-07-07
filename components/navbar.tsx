@@ -85,29 +85,28 @@ export function Navbar() {
       >
         <nav className="container flex items-center justify-between py-3">
           <Link href="/" className="flex items-center gap-2.5">
-            {settings.logo ? (
-              // Uploaded logo (site_settings.logo) replaces the wordmark everywhere.
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={settings.logo}
-                alt="Le Rasa"
-                className="h-10 w-auto object-contain"
-              />
-            ) : (
-              <>
-                <span className="grid h-10 w-10 place-items-center rounded-2xl bg-wine text-blush-50 shadow-clay-sm">
-                  <Cake className="h-5 w-5" />
-                </span>
-                <span className="flex flex-col leading-none">
-                  <span className="font-display text-lg font-semibold text-darkberry">
-                    Le Rasa
-                  </span>
-                  <span className="text-[10px] font-bold uppercase tracking-[0.22em] text-wine-dark">
-                    Eggless Bakery
-                  </span>
-                </span>
-              </>
-            )}
+            <span className="grid h-10 w-10 place-items-center overflow-hidden rounded-2xl bg-wine text-blush-50 shadow-clay-sm">
+              {settings.logo ? (
+                // Uploaded logo (site_settings.logo) sits INSIDE the fixed
+                // container; the wordmark beside it always stays visible.
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={settings.logo}
+                  alt="Le Rasa"
+                  className="h-full w-full object-contain"
+                />
+              ) : (
+                <Cake className="h-5 w-5" />
+              )}
+            </span>
+            <span className="flex flex-col leading-none">
+              <span className="font-display text-lg font-semibold text-darkberry">
+                Le Rasa
+              </span>
+              <span className="text-[10px] font-bold uppercase tracking-[0.22em] text-wine-dark">
+                Eggless Bakery
+              </span>
+            </span>
           </Link>
 
           <div className="hidden items-center gap-1 md:flex">
