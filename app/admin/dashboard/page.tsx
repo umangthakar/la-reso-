@@ -2,9 +2,11 @@
 
 // ============================================================
 // Le Rasa Bakery — Dashboard overview
-// At-a-glance stats from the dashboard admin API, which computes them
-// with COUNT/SUM aggregates server-side (no full table pulled down):
-//   - Total orders today
+// At-a-glance stats from the SHARED /api/admin/stats endpoint — the same
+// source the Orders and Analytics pages read, so the counts can never
+// disagree. It returns the canonical orders array plus these headline
+// numbers, all derived from that one array:
+//   - Total orders
 //   - Revenue this week
 //   - Pending orders (received or preparing)
 //   - Top selling product this month
@@ -25,11 +27,17 @@ import { useOrdersLive } from "@/lib/supabase/hooks/use-orders-live";
 const WINE = "#873853";
 const BERRY = "#5C2A41";
 
-type Payload = {
-  ordersToday: number;
+// Only the `stats` block + schemaReady are needed here; the endpoint also
+// returns orders/items/zones for the Orders and Analytics pages.
+type Stats = {
+  totalOrders: number;
   pendingOrders: number;
+  ordersToday: number;
   revenueThisWeek: number;
   topProduct: { name: string; units: number } | null;
+};
+type Payload = {
+  stats: Stats;
   schemaReady: boolean;
 };
 
@@ -81,13 +89,13 @@ export default function DashboardHome() {
       });
       // force:true bypasses the in-memory GET cache so the cards always show
       // the latest orders on every visit (not a copy up to 60s old).
-      const d = await adminGet<Payload>(`/api/admin/dashboard?${qs.toString()}`, { force: true });
+      const d = await adminGet<Payload>(`/api/admin/stats?${qs.toString()}`, { force: true });
       // Toast when today's order count rises (skip the very first load).
-      if (prevTodayRef.current !== null && d.ordersToday > prevTodayRef.current) {
-        const diff = d.ordersToday - prevTodayRef.current;
+      if (prevTodayRef.current !== null && d.stats.ordersToday > prevTodayRef.current) {
+        const diff = d.stats.ordersToday - prevTodayRef.current;
         showToast(diff === 1 ? "🔔 New order received!" : `🔔 ${diff} new orders received!`);
       }
-      prevTodayRef.current = d.ordersToday;
+      prevTodayRef.current = d.stats.ordersToday;
       setData(d);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load dashboard stats");
@@ -106,13 +114,13 @@ export default function DashboardHome() {
   // Clear the toast timer on unmount.
   useEffect(() => () => { if (toastTimerRef.current) clearTimeout(toastTimerRef.current); }, []);
 
-  const ordersToday = data?.ordersToday ?? 0;
-  const revenueThisWeek = data?.revenueThisWeek ?? 0;
-  const pendingOrders = data?.pendingOrders ?? 0;
-  const topProduct = data?.topProduct ?? null;
+  const totalOrders = data?.stats.totalOrders ?? 0;
+  const revenueThisWeek = data?.stats.revenueThisWeek ?? 0;
+  const pendingOrders = data?.stats.pendingOrders ?? 0;
+  const topProduct = data?.stats.topProduct ?? null;
 
   const stats = [
-    { label: "Orders today", value: String(ordersToday), href: "/admin/dashboard/orders" },
+    { label: "Total orders", value: String(totalOrders), href: "/admin/dashboard/orders" },
     { label: "Revenue this week", value: gbp.format(revenueThisWeek), href: "/admin/dashboard/analytics" },
     { label: "Pending orders", value: String(pendingOrders), href: "/admin/dashboard/orders" },
     {

@@ -123,7 +123,9 @@ export default function OrdersAdminPage() {
     setError("");
     try {
       // force:true bypasses the in-memory GET cache so we always get live data.
-      const data = await adminGet<{ orders: Order[] }>("/api/admin/orders", { force: true });
+      // Reads the SHARED /api/admin/stats source (same orders the Dashboard and
+      // Analytics pages use) so this table's count always matches theirs.
+      const data = await adminGet<{ orders: Order[] }>("/api/admin/stats", { force: true });
       const incoming = data.orders || [];
       // Toast for orders we haven't seen before (skip the very first load).
       if (knownIdsRef.current) {

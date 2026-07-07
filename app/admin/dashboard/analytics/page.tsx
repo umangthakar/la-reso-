@@ -12,7 +12,7 @@
 // notice; the volume metrics still work from the base columns.
 // ============================================================
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ResponsiveContainer,
   LineChart,
@@ -26,6 +26,7 @@ import {
 } from "recharts";
 import { adminGet } from "@/lib/admin-api";
 import { useIsMobile } from "@/lib/use-is-mobile";
+import { useOrdersLive } from "@/lib/supabase/hooks/use-orders-live";
 
 const WINE = "#873853";
 const BERRY = "#5C2A41";
@@ -103,21 +104,31 @@ export default function AnalyticsPage() {
   const [data, setData] = useState<Payload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [range, setRange] = useState<RangeKey>("30");
+  // Default to "all" so the headline Total Orders / Revenue match the
+  // Dashboard's all-time figures on load; the selector still narrows the view.
+  const [range, setRange] = useState<RangeKey>("all");
   const [granularity, setGranularity] = useState<Granularity>("daily");
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const d = await adminGet<Payload>("/api/admin/analytics");
-        setData(d);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Failed to load analytics");
-      } finally {
-        setLoading(false);
-      }
-    })();
+  // Reads the SHARED /api/admin/stats source (same orders/items/zones the
+  // Dashboard and Orders pages use) so counts here always match theirs.
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
+    try {
+      const d = await adminGet<Payload>("/api/admin/stats", { force: true });
+      setData(d);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load analytics");
+    } finally {
+      if (!opts?.silent) setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  // Live-refresh whenever the orders table changes, so Analytics updates in
+  // step with the Dashboard and Orders pages (no manual refresh).
+  useOrdersLive(useCallback(() => load({ silent: true }), [load]));
 
   const days = RANGES.find((r) => r.key === range)?.days ?? null;
   const start = useMemo(() => rangeStart(days), [days]);
