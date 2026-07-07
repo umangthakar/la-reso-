@@ -20,6 +20,7 @@ export const dynamic = "force-dynamic";
 const WRITABLE = [
   "site_name",
   "tagline",
+  "logo",
   "contact",
   "phone",
   "email",

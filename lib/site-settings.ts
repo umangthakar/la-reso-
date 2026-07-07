@@ -51,6 +51,7 @@ export type DeliveryZone = {
 
 export type PublicSettings = {
   contact: Contact;
+  logo: string;
   instagram_url: string;
   facebook_url: string;
   tiktok_url: string;
@@ -140,6 +141,7 @@ function normaliseBanner(v: unknown): RotatingBanner {
 // empty or a column has not been added yet.
 export const DEFAULT_SETTINGS: PublicSettings = {
   contact: CONTACT_DEFAULT,
+  logo: "",
   instagram_url: "",
   facebook_url: "",
   tiktok_url: "",
@@ -159,7 +161,7 @@ export const DEFAULT_SETTINGS: PublicSettings = {
 // `contact` is the unified contact jsonb; phone/email/address/whatsapp are the
 // legacy columns still read as a fallback until `contact` is populated.
 export const PUBLIC_SETTINGS_SELECT =
-  "contact,phone,email,address,whatsapp,instagram_url,facebook_url,tiktok_url,announcement,hero_banner,rotating_banners,whatsapp_bar,about_story,about_image_url,home_slider,delivery_zones,lead_time_days,blocked_dates,delivery_days";
+  "contact,logo,phone,email,address,whatsapp,instagram_url,facebook_url,tiktok_url,announcement,hero_banner,rotating_banners,whatsapp_bar,about_story,about_image_url,home_slider,delivery_zones,lead_time_days,blocked_dates,delivery_days";
 
 function str(v: unknown): string {
   return typeof v === "string" ? v : "";
@@ -209,6 +211,7 @@ export function normaliseSettings(
       email: str(c.email) || str(r.email),
       address: str(c.address) || str(r.address),
     },
+    logo: str(r.logo),
     instagram_url: str(r.instagram_url),
     facebook_url: str(r.facebook_url),
     tiktok_url: str(r.tiktok_url),

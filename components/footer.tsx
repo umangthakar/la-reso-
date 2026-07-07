@@ -83,17 +83,29 @@ export function Footer() {
         <div className="container grid gap-10 py-10 text-center sm:grid-cols-2 sm:py-14 sm:text-left lg:grid-cols-4">
           <div className="sm:col-span-2 lg:col-span-1">
             <Link href="/" className="flex items-center justify-center gap-2.5 sm:justify-start">
-              <span className="grid h-10 w-10 place-items-center rounded-2xl bg-wine text-blush-50">
-                <Cake className="h-5 w-5" />
-              </span>
-              <span className="flex flex-col leading-none">
-                <span className="font-display text-lg font-semibold text-blush-50">
-                  Le Rasa
-                </span>
-                <span className="text-[10px] font-bold uppercase tracking-[0.22em] text-dustyrose">
-                  Eggless Bakery
-                </span>
-              </span>
+              {settings.logo ? (
+                // Uploaded logo (site_settings.logo) — same source as the navbar.
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={settings.logo}
+                  alt="Le Rasa"
+                  className="h-11 w-auto object-contain"
+                />
+              ) : (
+                <>
+                  <span className="grid h-10 w-10 place-items-center rounded-2xl bg-wine text-blush-50">
+                    <Cake className="h-5 w-5" />
+                  </span>
+                  <span className="flex flex-col leading-none">
+                    <span className="font-display text-lg font-semibold text-blush-50">
+                      Le Rasa
+                    </span>
+                    <span className="text-[10px] font-bold uppercase tracking-[0.22em] text-dustyrose">
+                      Eggless Bakery
+                    </span>
+                  </span>
+                </>
+              )}
             </Link>
             <p className="mx-auto mt-4 max-w-xs text-sm text-blush-100/70 sm:mx-0">
               The house of eggless desserts. Handcrafted cakes & treats baked

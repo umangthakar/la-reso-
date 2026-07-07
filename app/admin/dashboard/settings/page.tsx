@@ -89,6 +89,7 @@ const WHATSAPP_BAR_DEFAULT: WhatsappBar = {
 
 type Settings = {
   contact: Contact;
+  logo: string;
   announcement: Announcement;
   hero_banner: HeroBanner;
   rotating_banners: RotatingBanner[];
@@ -106,6 +107,7 @@ type Settings = {
 
 const EMPTY: Settings = {
   contact: CONTACT_DEFAULT,
+  logo: "",
   announcement: { enabled: false, text: "" },
   hero_banner: HERO_DEFAULT,
   rotating_banners: DEFAULT_ROTATING_BANNERS,
@@ -228,6 +230,26 @@ export default function SettingsAdminPage() {
     <div style={{ maxWidth: 640 }}>
       <Header />
       {error && <p style={errorBox}>{error}</p>}
+
+      {/* 0. LOGO — brand mark shown in the navbar, footer and splash */}
+      <SectionForm
+        title="Logo"
+        saved={savedSection === "logo"}
+        onSave={() => saveSection("logo", ["logo"])}
+      >
+        <Field label="Site logo">
+          <ImageUpload
+            url={s.logo}
+            onChange={(url) => set("logo", url)}
+            onError={setError}
+          />
+        </Field>
+        <p style={hint}>
+          Shown in the navbar (top-left), the footer and the splash screen. Use a
+          transparent PNG. Leave empty to fall back to the “Le Rasa” wordmark.
+          Saving updates every page instantly.
+        </p>
+      </SectionForm>
 
       {/* 1. CONTACT DETAILS — single source of truth, saved together */}
       <SectionForm

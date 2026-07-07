@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
+import { useSiteSettings } from "@/lib/use-site-settings";
 
 const FRAME_COUNT = 240;
 const FRAME_WIDTH = 1280;
@@ -22,6 +23,7 @@ function framePath(index: number) {
  * to /menu.
  */
 export function SplashScreen({ onComplete }: { onComplete: () => void }) {
+  const { settings } = useSiteSettings();
   const sectionRef = useRef<HTMLElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -281,9 +283,19 @@ export function SplashScreen({ onComplete }: { onComplete: () => void }) {
 
           {/* Centered logo & tagline */}
           <div className="relative flex h-full flex-col items-center justify-center text-center">
-            <h1 className="font-display text-5xl leading-none text-[#612437] sm:text-6xl md:text-8xl">
-              Le Rasa
-            </h1>
+            {settings.logo ? (
+              // Uploaded logo (site_settings.logo) replaces the wordmark.
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={settings.logo}
+                alt="Le Rasa"
+                className="h-24 w-auto object-contain md:h-40"
+              />
+            ) : (
+              <h1 className="font-display text-5xl leading-none text-[#612437] sm:text-6xl md:text-8xl">
+                Le Rasa
+              </h1>
+            )}
             <p className="mt-4 text-xs font-semibold uppercase tracking-widest text-[#873853] md:text-sm">
               Eggless Bakery
             </p>
