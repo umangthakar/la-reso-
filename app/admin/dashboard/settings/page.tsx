@@ -44,6 +44,7 @@ type RotatingBanner = {
   subtext: string;
   cta_text: string;
   cta_link: string;
+  watermark_text: string;
   enabled: boolean;
 };
 
@@ -63,6 +64,7 @@ const DEFAULT_ROTATING_BANNERS: RotatingBanner[] = [
     subtext: "Birthdays, weddings, anniversaries — we craft the perfect eggless cake for your event",
     cta_text: "Order Custom Cake",
     cta_link: "/contact",
+    watermark_text: "",
     enabled: true,
   },
   {
@@ -71,6 +73,7 @@ const DEFAULT_ROTATING_BANNERS: RotatingBanner[] = [
     subtext: "Free delivery on orders over £60",
     cta_text: "Shop Now",
     cta_link: "/menu",
+    watermark_text: "",
     enabled: true,
   },
 ];
@@ -158,6 +161,7 @@ export default function SettingsAdminPage() {
             subtext: typeof b?.subtext === "string" ? b.subtext : "",
             cta_text: typeof b?.cta_text === "string" ? b.cta_text : "",
             cta_link: typeof b?.cta_link === "string" ? b.cta_link : "",
+            watermark_text: typeof b?.watermark_text === "string" ? b.watermark_text : "",
             enabled: b?.enabled !== false,
           }))
         : DEFAULT_ROTATING_BANNERS;
@@ -592,7 +596,7 @@ function RotatingBannersSection({
   function add() {
     onChange([
       ...banners,
-      { type: "offer", heading: "", subtext: "", cta_text: "", cta_link: "", enabled: true },
+      { type: "offer", heading: "", subtext: "", cta_text: "", cta_link: "", watermark_text: "", enabled: true },
     ]);
     setIds((prev) => [...prev, nextBid()]);
   }
@@ -742,6 +746,12 @@ function SortableBannerRow({
           placeholder="Button link (e.g. /contact)"
         />
       </div>
+      <input
+        style={{ ...inputStyle, marginTop: 8 }}
+        value={banner.watermark_text}
+        onChange={(e) => onUpdate({ watermark_text: e.target.value })}
+        placeholder="Large watermark text (e.g. 30%, 50%, FREE, Buy 1 Get 1 — leave blank to show product count)"
+      />
     </div>
   );
 }
