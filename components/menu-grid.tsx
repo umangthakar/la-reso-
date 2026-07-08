@@ -125,7 +125,7 @@ export function MenuGrid() {
   return (
     <div>
       {/* Auto-rotating banner — sits at the top of the product grid */}
-      <RotatingBanners banners={banners} />
+      <RotatingBanners banners={banners} count={filtered.length} />
 
       {/* Thin divider before the cards begin */}
       <div className="mb-2 h-px w-full bg-[#D5A4A4]" />
