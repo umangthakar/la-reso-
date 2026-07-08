@@ -46,7 +46,7 @@ export function RotatingBanners({
   return (
     <section className="relative w-full overflow-hidden bg-[#F9EEEA] px-8 py-16">
       {/* Decorative product-count watermark (unchanged from the hero) */}
-      <span className="pointer-events-none absolute right-6 top-1/2 hidden -translate-y-1/2 select-none font-display text-[200px] font-bold leading-none text-[#D5A4A4]/20 md:block">
+      <span className="pointer-events-none absolute right-6 top-1/2 hidden -translate-y-1/2 select-none font-display text-[200px] font-black tracking-tight leading-none text-[#7A2E4D]/15 md:block">
         {current.watermark_text || count}
       </span>
 
