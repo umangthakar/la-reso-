@@ -25,8 +25,6 @@ export async function GET(req: Request) {
   if (!isAuthedRequest(req)) {
     return NextResponse.json({ error: "Not authorised" }, { status: 401 });
   }
-  const supabase = adminDb();
-
   // Pagination — 20 per page by default so the table never loads the whole
   // catalogue at once. `count: exact` gives the total for the pager.
   const url = new URL(req.url);
@@ -35,50 +33,69 @@ export async function GET(req: Request) {
   const from = (page - 1) * pageSize;
   const to = from + pageSize - 1;
 
-  // Prefer manual sort_order; fall back to created_at if the migration
-  // hasn't been run yet, so the panel still works before columns exist.
-  let { data, error, count } = await supabase
-    .from("products")
-    .select(PRODUCT_COLS, { count: "exact" })
-    .order("sort_order", { ascending: true })
-    .range(from, to);
+  // Wrap the whole DB interaction so a client-level throw (e.g. the Supabase
+  // host being unreachable — `TypeError: fetch failed`) returns a clean JSON
+  // 500 instead of an unhandled raw stack trace.
+  try {
+    const supabase = adminDb();
 
-  if (error) {
-    ({ data, error, count } = await supabase
+    // Prefer manual sort_order; fall back to created_at if the migration
+    // hasn't been run yet, so the panel still works before columns exist.
+    let { data, error, count } = await supabase
       .from("products")
       .select(PRODUCT_COLS, { count: "exact" })
-      .order("created_at", { ascending: false })
-      .range(from, to));
-  }
+      .order("sort_order", { ascending: true })
+      .range(from, to);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ products: data, total: count ?? 0 });
+    if (error) {
+      ({ data, error, count } = await supabase
+        .from("products")
+        .select(PRODUCT_COLS, { count: "exact" })
+        .order("created_at", { ascending: false })
+        .range(from, to));
+    }
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ products: data, total: count ?? 0 });
+  } catch (e) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "Failed to load products" },
+      { status: 500 },
+    );
+  }
 }
 
 export async function POST(req: Request) {
   if (!isAuthedRequest(req)) {
     return NextResponse.json({ error: "Not authorised" }, { status: 401 });
   }
-  const body = await req.json();
-  const supabase = adminDb();
+  try {
+    const body = await req.json();
+    const supabase = adminDb();
 
-  const { data, error } = await supabase
-    .from("products")
-    .insert({
-      name: body.name,
-      category: body.category || null,
-      description: body.description || null,
-      price: Number(body.price) || 0,
-      badge: body.badge || null,
-      image_url: body.image_url || null,
-      in_stock: body.in_stock ?? true,
-      visible: body.visible ?? true,
-      allergens: body.allergens || null,
-      sort_order: Number(body.sort_order) || 0,
-    })
-    .select("id")
-    .single();
+    const { data, error } = await supabase
+      .from("products")
+      .insert({
+        name: body.name,
+        category: body.category || null,
+        description: body.description || null,
+        price: Number(body.price) || 0,
+        badge: body.badge || null,
+        image_url: body.image_url || null,
+        in_stock: body.in_stock ?? true,
+        visible: body.visible ?? true,
+        allergens: body.allergens || null,
+        sort_order: Number(body.sort_order) || 0,
+      })
+      .select("id")
+      .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ product: data });
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ product: data });
+  } catch (e) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "Failed to create product" },
+      { status: 500 },
+    );
+  }
 }
