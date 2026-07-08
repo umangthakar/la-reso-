@@ -14,10 +14,11 @@ const ROTATE_MS = 5000;
 
 export function RotatingBanners({
   banners,
-  count,
 }: {
   banners: RotatingBanner[];
-  count: number;
+  // Still accepted (menu-grid passes it) but no longer rendered — the large
+  // decorative number was removed from the hero banner.
+  count?: number;
 }) {
   // Only enabled banners rotate; if none are enabled fall back to the first
   // default banner so the Menu page never looks empty.
@@ -45,11 +46,6 @@ export function RotatingBanners({
 
   return (
     <section className="relative w-full overflow-hidden bg-[#F9EEEA] px-8 py-16">
-      {/* Decorative product-count watermark (unchanged from the hero) */}
-      <span className="pointer-events-none absolute right-6 top-1/2 hidden -translate-y-1/2 select-none font-display text-[200px] font-bold leading-none text-[#D5A4A4]/20 md:block">
-        {count}
-      </span>
-
       {/* Rotating content — cross-fades between banners. Fixed min-height so
           the banner keeps the same height as the old hero (no layout jump). */}
       <div className="relative min-h-[210px] max-w-2xl md:min-h-[240px]">
