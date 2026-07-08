@@ -85,7 +85,7 @@ export function Navbar() {
       >
         <nav className="container flex items-center justify-between py-3">
           <Link href="/" className="flex items-center gap-2.5">
-            <span className="grid h-10 w-10 place-items-center overflow-hidden rounded-2xl border-2 border-white/90 bg-[#F8F2EE] p-2 text-wine-dark shadow-[0_10px_30px_rgba(107,31,58,0.15)]">
+            <span className="grid h-10 w-10 place-items-center overflow-hidden rounded-2xl border-2 border-white/90 bg-[#F8F2EE] p-0.5 text-wine-dark shadow-[0_10px_30px_rgba(107,31,58,0.15)]">
               {settings.logo ? (
                 // Uploaded logo (site_settings.logo) sits INSIDE the fixed
                 // container; the wordmark beside it always stays visible.
