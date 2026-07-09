@@ -14,11 +14,20 @@
 // ============================================================
 
 import { useEffect, useState } from "react";
-import type { Offer } from "@/lib/offers";
+import type { Offer, OfferDisplay } from "@/lib/offers";
 
-export type ActiveOffers = { primary: Offer | null; stackable: Offer[] };
+/**
+ * `primary` / `stackable` drive PRICING (never coupons).
+ * `display` drives the banner + home popup, and may be a coupon offer the admin
+ * has given storefront copy to. Keep the two apart — see /api/offers/active.
+ */
+export type ActiveOffers = {
+  primary: Offer | null;
+  stackable: Offer[];
+  display: OfferDisplay | null;
+};
 
-const EMPTY: ActiveOffers = { primary: null, stackable: [] };
+const EMPTY: ActiveOffers = { primary: null, stackable: [], display: null };
 
 let cache: ActiveOffers = EMPTY;
 let loaded = false;
@@ -39,6 +48,7 @@ function fetchActive(): Promise<void> {
         cache = {
           primary: data.primary ?? null,
           stackable: Array.isArray(data.stackable) ? data.stackable : [],
+          display: data.display ?? null,
         };
         loaded = true;
         notify();

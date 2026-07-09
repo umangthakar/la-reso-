@@ -14,7 +14,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { adminGet, adminSend, adminUpload } from "@/lib/admin-api";
 import { useIsMobile } from "@/lib/use-is-mobile";
-import { offerFromRow } from "@/lib/offers";
+import { offerFromRow, offerHeroText } from "@/lib/offers";
 
 const WINE = "#873853";
 const BERRY = "#5C2A41";
@@ -71,7 +71,17 @@ type FormState = {
   cta_text: string;
   cta_link: string;
   banner_image_url: string;
+  hero_display_mode: "text" | "image";
+  hero_image_url: string;
+  popup_title: string;
+  popup_description: string;
+  popup_image_url: string;
+  popup_cta_text: string;
+  popup_cta_link: string;
 };
+
+/** The three image fields, so one upload handler serves all of them. */
+type ImageField = "banner_image_url" | "hero_image_url" | "popup_image_url";
 
 const EMPTY_FORM: FormState = {
   name: "",
@@ -112,9 +122,49 @@ const EMPTY_FORM: FormState = {
   cta_text: "",
   cta_link: "",
   banner_image_url: "",
+  hero_display_mode: "text",
+  hero_image_url: "",
+  popup_title: "",
+  popup_description: "",
+  popup_image_url: "",
+  popup_cta_text: "",
+  popup_cta_link: "",
 };
 
 const numStr = (v: unknown): string => (v === null || v === undefined ? "" : String(v));
+
+/** A worked example of a banner title for the offer type being authored. */
+function bannerTitlePlaceholder(type: OfferType): string {
+  switch (type) {
+    case "percentage": return "e.g. 30% Off All Birthday Cakes";
+    case "fixed_amount": return "e.g. £10 Off Orders Above £50";
+    case "buy_x_get_y": return "e.g. Buy 1 Get 1 Free";
+    case "free_delivery": return "e.g. Free Delivery Over £40";
+    case "coupon": return "e.g. Use Code SAVE20 At Checkout";
+    case "custom":
+    default: return "e.g. Christmas Special";
+  }
+}
+
+/**
+ * Exactly the hero text the storefront will derive if the field is left blank.
+ * Runs the REAL offerHeroText() over the in-progress form (with the explicit
+ * highlight deliberately omitted) so this hint can never drift from what the
+ * banner actually renders.
+ */
+function heroTextPlaceholder(form: FormState): string {
+  return offerHeroText(
+    offerFromRow({
+      name: form.name,
+      type: form.type,
+      percentage_value: form.percentage_value,
+      fixed_amount_value: form.fixed_amount_value,
+      buy_x_quantity: form.buy_x_quantity,
+      get_y_quantity: form.get_y_quantity,
+      get_y_discount_percent: form.get_y_discount_percent,
+    }),
+  );
+}
 
 export default function OfferFormPage() {
   const router = useRouter();
@@ -208,6 +258,13 @@ export default function OfferFormPage() {
         cta_text: o.cta_text ?? "",
         cta_link: o.cta_link ?? "",
         banner_image_url: o.banner_image_url ?? "",
+        hero_display_mode: o.hero_display_mode === "image" ? "image" : "text",
+        hero_image_url: o.hero_image_url ?? "",
+        popup_title: o.popup_title ?? "",
+        popup_description: o.popup_description ?? "",
+        popup_image_url: o.popup_image_url ?? "",
+        popup_cta_text: o.popup_cta_text ?? "",
+        popup_cta_link: o.popup_cta_link ?? "",
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load offer");
@@ -229,19 +286,22 @@ export default function OfferFormPage() {
     }));
   }
 
-  async function handleBanner(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploading(true);
-    setError("");
-    try {
-      const { url } = await adminUpload(file, "/api/admin/site-assets/upload");
-      set("banner_image_url", url);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Upload failed");
-    } finally {
-      setUploading(false);
-    }
+  /** Upload into any of the three image fields (background / hero / popup). */
+  function handleImage(field: ImageField) {
+    return async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      setUploading(true);
+      setError("");
+      try {
+        const { url } = await adminUpload(file, "/api/admin/site-assets/upload");
+        set(field, url);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Upload failed");
+      } finally {
+        setUploading(false);
+      }
+    };
   }
 
   // Mirror (not replace) the server-side validation for a fast message.
@@ -330,6 +390,13 @@ export default function OfferFormPage() {
       cta_text: form.cta_text,
       cta_link: form.cta_link,
       banner_image_url: form.banner_image_url,
+      hero_display_mode: form.hero_display_mode,
+      hero_image_url: form.hero_image_url,
+      popup_title: form.popup_title,
+      popup_description: form.popup_description,
+      popup_image_url: form.popup_image_url,
+      popup_cta_text: form.popup_cta_text,
+      popup_cta_link: form.popup_cta_link,
       categoryRules,
       productRules,
       emails,
@@ -620,24 +687,17 @@ export default function OfferFormPage() {
           </p>
         </Section>
 
-        {/* STOREFRONT CONTENT ------------------------------------------ */}
+        {/* STOREFRONT CONTENT — BANNER --------------------------------- */}
         <Section title="Storefront content">
           <Field label="Announcement bar text">
             <input style={inputStyle} value={form.announcement_text} onChange={(e) => set("announcement_text", e.target.value)} placeholder="Overrides the top bar while active" />
           </Field>
-          <Field label="Banner heading">
-            <input style={inputStyle} value={form.hero_heading} onChange={(e) => set("hero_heading", e.target.value)} />
+          <Field label="Banner title">
+            <input style={inputStyle} value={form.hero_heading} onChange={(e) => set("hero_heading", e.target.value)} placeholder={bannerTitlePlaceholder(form.type)} />
           </Field>
-          <Field label="Banner subtext">
-            <input style={inputStyle} value={form.hero_subtext} onChange={(e) => set("hero_subtext", e.target.value)} />
+          <Field label="Banner description">
+            <input style={inputStyle} value={form.hero_subtext} onChange={(e) => set("hero_subtext", e.target.value)} placeholder="e.g. On all Birthday Cakes" />
           </Field>
-          <Field label="Large watermark highlight">
-            <input style={inputStyle} value={form.hero_highlight_text} onChange={(e) => set("hero_highlight_text", e.target.value)} placeholder="30%, 50%, FREE, BUY 1 GET 1…" />
-          </Field>
-          <p style={hintStyle}>
-            Large watermark shown on the Special Offer banner — e.g. 30%, 50%, FREE, BUY 1 GET 1. Leave blank
-            to show the product count instead.
-          </p>
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
             <div style={{ flex: 1, minWidth: 160 }}>
               <label style={labelStyle}>Call-to-action text</label>
@@ -648,12 +708,86 @@ export default function OfferFormPage() {
               <input style={inputStyle} value={form.cta_link} onChange={(e) => set("cta_link", e.target.value)} placeholder="/menu" />
             </div>
           </div>
-          <Field label="Banner image (optional)">
+          <Field label="Background image (optional)">
             {form.banner_image_url && (
               /* eslint-disable-next-line @next/next/no-img-element */
-              <img src={form.banner_image_url} alt="banner preview" style={{ width: "100%", maxWidth: 320, borderRadius: 10, display: "block", marginBottom: 8 }} />
+              <img src={form.banner_image_url} alt="background preview" style={{ width: "100%", maxWidth: 320, borderRadius: 10, display: "block", marginBottom: 8 }} />
             )}
-            <input type="file" accept="image/*" onChange={handleBanner} disabled={uploading} />
+            <input type="file" accept="image/*" onChange={handleImage("banner_image_url")} disabled={uploading} />
+            {uploading && <span style={{ color: BERRY, opacity: 0.7, marginLeft: 8 }}>Uploading…</span>}
+          </Field>
+        </Section>
+
+        {/* BANNER RIGHT SIDE ------------------------------------------- */}
+        <Section title="Banner right side">
+          <Field label="Display mode">
+            <select style={inputStyle} value={form.hero_display_mode} onChange={(e) => set("hero_display_mode", e.target.value as FormState["hero_display_mode"])}>
+              <option value="text">Hero text</option>
+              <option value="image">Hero image</option>
+            </select>
+          </Field>
+
+          {form.hero_display_mode === "text" ? (
+            <>
+              <Field label="Hero text">
+                <input style={inputStyle} value={form.hero_highlight_text} onChange={(e) => set("hero_highlight_text", e.target.value)} placeholder={heroTextPlaceholder(form)} />
+              </Field>
+              <p style={hintStyle}>
+                The large promotional text on the right of the banner — e.g. 30% OFF, £10 OFF, BUY 1 GET 1
+                FREE, FREE DELIVERY, SAVE20, CHRISTMAS SALE. Leave blank and it is derived from this offer’s
+                type and values ({heroTextPlaceholder(form) || "the product count"}).
+              </p>
+              {form.type === "coupon" && (
+                <p style={{ ...hintStyle, color: "#9a6212", opacity: 1 }}>
+                  Coupon codes are never published automatically. To show this code on the banner, type it in
+                  above.
+                </p>
+              )}
+            </>
+          ) : (
+            <Field label="Hero image">
+              {form.hero_image_url && (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img src={form.hero_image_url} alt="hero preview" style={{ width: "100%", maxWidth: 240, borderRadius: 10, display: "block", marginBottom: 8 }} />
+              )}
+              <input type="file" accept="image/*" onChange={handleImage("hero_image_url")} disabled={uploading} />
+              {uploading && <span style={{ color: BERRY, opacity: 0.7, marginLeft: 8 }}>Uploading…</span>}
+              <p style={{ ...hintStyle, marginTop: 8 }}>
+                Shown instead of the hero text, which is hidden completely. Without an image the banner falls
+                back to hero text.
+              </p>
+            </Field>
+          )}
+        </Section>
+
+        {/* HOME PAGE POPUP --------------------------------------------- */}
+        <Section title="Home page popup">
+          <p style={hintStyle}>
+            Shown once per visit on the home page while this offer is active. Every field is optional — blank
+            fields reuse the banner content above.
+          </p>
+          <Field label="Popup title">
+            <input style={inputStyle} value={form.popup_title} onChange={(e) => set("popup_title", e.target.value)} placeholder={form.hero_heading.trim() || form.name.trim() || "Banner title"} />
+          </Field>
+          <Field label="Popup description">
+            <input style={inputStyle} value={form.popup_description} onChange={(e) => set("popup_description", e.target.value)} placeholder={form.announcement_text.trim() || form.hero_subtext.trim() || "Banner description"} />
+          </Field>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ flex: 1, minWidth: 160 }}>
+              <label style={labelStyle}>Popup button text</label>
+              <input style={inputStyle} value={form.popup_cta_text} onChange={(e) => set("popup_cta_text", e.target.value)} placeholder={form.cta_text.trim() || "View Offers"} />
+            </div>
+            <div style={{ flex: 1, minWidth: 160 }}>
+              <label style={labelStyle}>Popup button link</label>
+              <input style={inputStyle} value={form.popup_cta_link} onChange={(e) => set("popup_cta_link", e.target.value)} placeholder={form.cta_link.trim() || "/menu"} />
+            </div>
+          </div>
+          <Field label="Popup image (optional)">
+            {form.popup_image_url && (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img src={form.popup_image_url} alt="popup preview" style={{ width: "100%", maxWidth: 320, borderRadius: 10, display: "block", marginBottom: 8 }} />
+            )}
+            <input type="file" accept="image/*" onChange={handleImage("popup_image_url")} disabled={uploading} />
             {uploading && <span style={{ color: BERRY, opacity: 0.7, marginLeft: 8 }}>Uploading…</span>}
           </Field>
         </Section>
@@ -703,9 +837,23 @@ function OfferPreview({ form, isMobile }: { form: FormState; isMobile: boolean }
   const announcement = form.announcement_text.trim();
   const heading = form.hero_heading.trim();
   const subtext = form.hero_subtext.trim();
-  const highlight = form.hero_highlight_text.trim();
   const ctaText = form.cta_text.trim();
   const ctaLink = form.cta_link.trim();
+
+  // The right side resolves exactly as the storefront does: an image replaces
+  // the hero text entirely, and a blank hero text falls back to the value
+  // derived from this offer's type.
+  const heroImage = form.hero_image_url.trim();
+  const showHeroImage = form.hero_display_mode === "image" && heroImage !== "";
+  const highlight = showHeroImage
+    ? ""
+    : form.hero_highlight_text.trim() || heroTextPlaceholder(form);
+
+  // Popup content mirrors resolveOfferDisplay()'s fallback chain.
+  const popupTitle = form.popup_title.trim() || heading || form.name.trim();
+  const popupDescription = form.popup_description.trim() || announcement || subtext;
+  const popupImage = form.popup_image_url.trim() || form.banner_image_url.trim();
+  const popupCtaText = form.popup_cta_text.trim() || ctaText || "View Offers";
 
   const muted = "rgba(92,42,65,0.45)";
 
@@ -748,27 +896,38 @@ function OfferPreview({ form, isMobile }: { form: FormState; isMobile: boolean }
               : {}),
           }}
         >
-          {/* Watermark — hidden on mobile, exactly as the real banner does. */}
+          {/* Right side — hidden on mobile, exactly as the real banner does.
+              Either the hero image or the big hero text, never both. */}
           {!isMobile && (
-            <span
-              aria-hidden
-              style={{
-                position: "absolute",
-                right: 16,
-                top: "50%",
-                transform: "translateY(-50%)",
-                fontSize: "6.5rem",
-                fontWeight: 900,
-                lineHeight: 1,
-                letterSpacing: "-0.02em",
-                color: "rgba(122,46,77,0.5)",
-                pointerEvents: "none",
-                userSelect: "none",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {highlight || <span style={{ color: muted, fontSize: "1rem", fontWeight: 600, fontStyle: "italic" }}>product count</span>}
-            </span>
+            showHeroImage ? (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img
+                src={heroImage}
+                alt=""
+                aria-hidden
+                style={{ position: "absolute", right: 16, top: "50%", transform: "translateY(-50%)", height: 150, maxWidth: "40%", objectFit: "contain", objectPosition: "right", pointerEvents: "none", userSelect: "none" }}
+              />
+            ) : (
+              <span
+                aria-hidden
+                style={{
+                  position: "absolute",
+                  right: 16,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  fontSize: "6.5rem",
+                  fontWeight: 900,
+                  lineHeight: 1,
+                  letterSpacing: "-0.02em",
+                  color: "rgba(122,46,77,0.5)",
+                  pointerEvents: "none",
+                  userSelect: "none",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {highlight || <span style={{ color: muted, fontSize: "1rem", fontWeight: 600, fontStyle: "italic" }}>product count</span>}
+              </span>
+            )
           )}
 
           <div style={{ position: "relative", maxWidth: "60%" }}>
@@ -801,6 +960,38 @@ function OfferPreview({ form, isMobile }: { form: FormState; isMobile: boolean }
             The button needs text as well as a link — the storefront only renders a CTA when both are set.
           </p>
         )}
+      </div>
+
+      {/* Home page popup ---------------------------------------------- */}
+      <div>
+        <PreviewLabel>Home page popup</PreviewLabel>
+        <div style={{ maxWidth: 320, borderRadius: 12, overflow: "hidden", border: "1px solid rgba(135,56,83,0.15)", background: "#FDF6F3" }}>
+          {popupImage && (
+            <div style={{ height: 110, backgroundImage: `url(${popupImage})`, backgroundSize: "cover", backgroundPosition: "center" }} aria-hidden />
+          )}
+          <div style={{ padding: "16px 18px 20px", textAlign: "center" }}>
+            {highlight && (
+              <span style={{ display: "inline-block", marginBottom: 10, background: WINE, color: "#FDF6F3", borderRadius: 999, padding: "4px 12px", fontSize: "0.68rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                {highlight}
+              </span>
+            )}
+            {popupTitle ? (
+              <h3 style={{ color: "#4A1F30", fontSize: "1.15rem", fontWeight: 800, margin: 0, lineHeight: 1.3 }}>🎉 {popupTitle}</h3>
+            ) : (
+              <h3 style={{ color: muted, fontSize: "1.15rem", fontWeight: 800, margin: 0, fontStyle: "italic" }}>Offer name</h3>
+            )}
+            {popupDescription ? (
+              <p style={{ color: "#6E4152", fontSize: "0.85rem", marginTop: 8, marginBottom: 0 }}>{popupDescription}</p>
+            ) : (
+              <p style={{ color: muted, fontSize: "0.85rem", marginTop: 8, marginBottom: 0, fontStyle: "italic" }}>
+                Check out our latest offers on the Menu page.
+              </p>
+            )}
+            <span style={{ display: "inline-block", marginTop: 16, background: WINE, color: "#FDF6F3", borderRadius: 999, padding: "9px 20px", fontSize: "0.82rem", fontWeight: 600 }}>
+              {popupCtaText}
+            </span>
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -31,6 +31,8 @@ export type OfferType =
 
 export type CouponDiscountType = "percentage" | "fixed_amount";
 export type EligibilityScope = "all" | "categories" | "products";
+/** What the Special Offer banner renders on its RIGHT side. */
+export type HeroDisplayMode = "text" | "image";
 export type OfferAudience =
   | "everyone"
   | "first_order"
@@ -101,6 +103,17 @@ export type Offer = {
   cta_text?: string | null;
   cta_link?: string | null;
   banner_image_url?: string | null;
+
+  // banner right-side content (18_offer_banner_popup.sql)
+  hero_display_mode?: HeroDisplayMode | null;
+  hero_image_url?: string | null;
+
+  // home-page popup content (18_offer_banner_popup.sql)
+  popup_title?: string | null;
+  popup_description?: string | null;
+  popup_image_url?: string | null;
+  popup_cta_text?: string | null;
+  popup_cta_link?: string | null;
 
   created_at: string;
   updated_at?: string;
@@ -655,6 +668,15 @@ export function offerFromRow(row: Record<string, unknown>): Offer {
     cta_text: asStr(r.cta_text),
     cta_link: asStr(r.cta_link),
     banner_image_url: asStr(r.banner_image_url),
+    // Rows written before 18_offer_banner_popup.sql carry no mode -> 'text',
+    // which is exactly the behaviour the banner had before that column existed.
+    hero_display_mode: asStr(r.hero_display_mode) === "image" ? "image" : "text",
+    hero_image_url: asStr(r.hero_image_url),
+    popup_title: asStr(r.popup_title),
+    popup_description: asStr(r.popup_description),
+    popup_image_url: asStr(r.popup_image_url),
+    popup_cta_text: asStr(r.popup_cta_text),
+    popup_cta_link: asStr(r.popup_cta_link),
     created_at: String(r.created_at ?? ""),
     updated_at: asStr(r.updated_at) ?? undefined,
     categoryRules: catSrc.map((c) => ({
@@ -669,4 +691,238 @@ export function offerFromRow(row: Record<string, unknown>): Offer {
       .map((e) => (typeof e === "string" ? e : String((e as Record<string, unknown>)?.email ?? "")))
       .filter(Boolean),
   };
+}
+
+// ============================================================
+// STOREFRONT DISPLAY  (banner + home popup, for EVERY offer type)
+// ------------------------------------------------------------
+// The banner and the popup used to read the raw `offers` row and assume a
+// percentage discount. They now read ONE resolved OfferDisplay, produced here.
+// This is presentation only — it never touches the discount math above, so a
+// change to hero copy can't move a price.
+//
+// Seasonal promotions (Christmas, Diwali, Halloween, Valentine's, New Year,
+// Black Friday, Easter) are plain `custom` offers: they get their whole look
+// from these content fields. There is deliberately no `festival` offer type.
+// ============================================================
+
+/** Trim a nullable text column to a plain string. */
+function str(v: string | null | undefined): string {
+  return (v ?? "").trim();
+}
+
+/** "30" not "30.00"; "12.5" stays "12.5". */
+function numLabel(n: number): string {
+  return Number.isInteger(n) ? String(n) : String(round2(n));
+}
+
+/** "£10", "£7.50" — like money() but without a forced ".00". */
+function poundLabel(n: number): string {
+  return `£${numLabel(round2(n))}`;
+}
+
+/**
+ * The big right-side hero text for an offer, DERIVED FROM ITS TYPE when the
+ * admin hasn't written one. `hero_highlight_text` always wins, so any offer can
+ * say whatever it likes ("CHRISTMAS SALE", "DIWALI SALE", "BLACK FRIDAY").
+ *
+ *   percentage    -> "30% OFF"
+ *   fixed_amount  -> "£10 OFF"
+ *   buy_x_get_y   -> "BUY 1 GET 1 FREE"
+ *   free_delivery -> "FREE DELIVERY"
+ *   coupon        -> "" (see below)
+ *   custom        -> the offer name, uppercased ("CHRISTMAS SPECIAL")
+ *
+ * Coupons deliberately derive NOTHING. Coupon rows are non-enumerable by RLS
+ * (supabase/sql/15_offers.sql) precisely so codes can't be harvested; auto-
+ * printing coupon_code on a public banner would undo that. An admin publishes
+ * a code by typing it into hero_highlight_text — an explicit opt-in.
+ */
+export function offerHeroText(offer: Offer): string {
+  const explicit = str(offer.hero_highlight_text);
+  if (explicit) return explicit;
+
+  switch (offer.type) {
+    case "percentage": {
+      const p = num(offer.percentage_value);
+      return p > 0 ? `${numLabel(p)}% OFF` : "";
+    }
+    case "fixed_amount": {
+      const a = num(offer.fixed_amount_value);
+      return a > 0 ? `${poundLabel(a)} OFF` : "";
+    }
+    case "buy_x_get_y": {
+      const x = Math.floor(num(offer.buy_x_quantity));
+      const y = Math.floor(num(offer.get_y_quantity));
+      if (x <= 0 || y <= 0) return "";
+      return num(offer.get_y_discount_percent) >= 100
+        ? `BUY ${x} GET ${y} FREE`
+        : `BUY ${x} GET ${y}`;
+    }
+    case "free_delivery":
+      return "FREE DELIVERY";
+    case "coupon":
+      return "";
+    case "custom":
+    default:
+      return str(offer.name).toUpperCase();
+  }
+}
+
+/** Everything the storefront needs to render an offer. No coupon_code, ever. */
+export type OfferDisplay = {
+  id: string;
+  type: OfferType;
+
+  announcementText: string;
+
+  // Banner — left side + backdrop
+  bannerTitle: string;
+  bannerDescription: string;
+  ctaText: string;
+  ctaLink: string;
+  backgroundImageUrl: string;
+
+  // Banner — right side
+  heroDisplayMode: HeroDisplayMode;
+  heroText: string;
+  heroImageUrl: string;
+
+  // Home-page popup
+  popupTitle: string;
+  popupDescription: string;
+  popupImageUrl: string;
+  popupCtaText: string;
+  popupCtaLink: string;
+
+  /** The offer carries enough copy for the banner slide to be worth showing. */
+  hasBanner: boolean;
+};
+
+const DEFAULT_POPUP_CTA_TEXT = "View Offers";
+const DEFAULT_POPUP_CTA_LINK = "/menu";
+
+/** The banner-ish fields an admin can fill in. Used for the `hasBanner` gate. */
+function bannerFieldsSet(offer: Offer): boolean {
+  return Boolean(
+    str(offer.hero_heading) ||
+      str(offer.hero_subtext) ||
+      str(offer.hero_highlight_text) ||
+      str(offer.banner_image_url) ||
+      str(offer.hero_image_url),
+  );
+}
+
+/** Any storefront copy at all — the opt-in signal for coupon offers. */
+function anyDisplayContent(offer: Offer): boolean {
+  return Boolean(
+    bannerFieldsSet(offer) ||
+      str(offer.announcement_text) ||
+      str(offer.popup_title) ||
+      str(offer.popup_description) ||
+      str(offer.popup_image_url) ||
+      str(offer.popup_cta_text) ||
+      str(offer.popup_cta_link),
+  );
+}
+
+/**
+ * May this offer drive the storefront at all?
+ *
+ * Every type may, EXCEPT a coupon that carries no storefront copy: an unadorned
+ * coupon is a private, code-gated discount and must stay invisible. Filling in
+ * any banner/popup field is how an admin promotes one publicly.
+ */
+export function isDisplayEligible(offer: Offer): boolean {
+  if (!offer) return false;
+  return offer.type !== "coupon" || anyDisplayContent(offer);
+}
+
+/**
+ * Normalise an offer into the single shape the banner and the popup render.
+ * Each field falls back to the next-best source, so an offer that only sets a
+ * name still produces a coherent banner and popup.
+ */
+export function resolveOfferDisplay(offer: Offer): OfferDisplay {
+  const heroImageUrl = str(offer.hero_image_url);
+  // 'image' with no image is meaningless — fall back to text rather than
+  // rendering an empty right side.
+  const heroDisplayMode: HeroDisplayMode =
+    offer.hero_display_mode === "image" && heroImageUrl ? "image" : "text";
+
+  const bannerTitle = str(offer.hero_heading) || str(offer.name);
+  // Deliberately NOT falling back to announcement_text: the announcement is a
+  // separate surface, and an offer that only sets it never showed banner
+  // subtext before. The popup keeps that fallback, as it always had.
+  const bannerDescription = str(offer.hero_subtext);
+  const ctaText = str(offer.cta_text);
+  const ctaLink = str(offer.cta_link);
+  const backgroundImageUrl = str(offer.banner_image_url);
+
+  return {
+    id: offer.id,
+    type: offer.type,
+
+    announcementText: str(offer.announcement_text),
+
+    bannerTitle,
+    bannerDescription,
+    ctaText,
+    ctaLink,
+    backgroundImageUrl,
+
+    heroDisplayMode,
+    // When the right side shows an image the hero text is dropped entirely.
+    heroText: heroDisplayMode === "image" ? "" : offerHeroText(offer),
+    heroImageUrl,
+
+    popupTitle: str(offer.popup_title) || bannerTitle,
+    popupDescription:
+      str(offer.popup_description) ||
+      str(offer.announcement_text) ||
+      str(offer.hero_subtext),
+    popupImageUrl: str(offer.popup_image_url) || backgroundImageUrl,
+    popupCtaText: str(offer.popup_cta_text) || ctaText || DEFAULT_POPUP_CTA_TEXT,
+    popupCtaLink: str(offer.popup_cta_link) || ctaLink || DEFAULT_POPUP_CTA_LINK,
+
+    hasBanner: bannerFieldsSet(offer),
+  };
+}
+
+/**
+ * The ONE offer that owns the storefront right now — banner, popup, CTA,
+ * background image and right-side hero content all come from it.
+ *
+ * Ordering mirrors resolveActiveOffers(): a non-stackable (headline) offer
+ * outranks a stackable add-on, then highest `priority`, then most recent.
+ *
+ * This pool is WIDER than resolveActiveOffers()' `primary`: it includes coupon
+ * offers (which never auto-apply and so are excluded from pricing) whenever the
+ * admin has given them storefront copy. Display and pricing are separate
+ * concerns — a coupon can advertise itself on the banner without discounting
+ * anything until the code is entered at checkout.
+ */
+export function resolveDisplayOffer(offers: Offer[], now: Date): Offer | null {
+  if (!Array.isArray(offers)) return null;
+
+  const candidates = offers
+    .filter((o) => isOfferCurrentlyActive(o, now) && isDisplayEligible(o))
+    .sort((a, b) => {
+      if (a.stackable !== b.stackable) return a.stackable ? 1 : -1;
+      if (b.priority !== a.priority) return num(b.priority) - num(a.priority);
+      const ca = Date.parse(a.created_at || "");
+      const cb = Date.parse(b.created_at || "");
+      return (Number.isNaN(cb) ? 0 : cb) - (Number.isNaN(ca) ? 0 : ca);
+    });
+
+  return candidates[0] ?? null;
+}
+
+/** resolveDisplayOffer + resolveOfferDisplay in one step. */
+export function resolveActiveDisplay(
+  offers: Offer[],
+  now: Date,
+): OfferDisplay | null {
+  const winner = resolveDisplayOffer(offers, now);
+  return winner ? resolveOfferDisplay(winner) : null;
 }

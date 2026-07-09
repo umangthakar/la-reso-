@@ -4,9 +4,14 @@
 // Le Rasa Bakery — home-page offer popup
 //
 // Replaces the old top announcement bar as the place an active offer is
-// announced. Every string and the image come from the SAME `offers` row the
-// admin Offer Preview and the Menu rotating banner read (via useActiveOffer),
-// so there is exactly one source of truth and nothing is hardcoded.
+// announced. Every string and the image come from the SAME resolved
+// OfferDisplay the admin Offer Preview and the Menu rotating banner read (via
+// useActiveOffer), so there is exactly one source of truth and nothing —
+// including the button's destination — is hardcoded.
+//
+// Works for every offer type: an offer that sets no popup_* fields inherits its
+// banner copy, so percentage, fixed-amount, buy-X-get-Y, free-delivery, coupon
+// and custom/seasonal offers all announce themselves here.
 //
 // Behaviour: appears ~3.5s after the home page loads, once per browser
 // session (sessionStorage), dismissible via the X, the backdrop or Escape.
@@ -27,7 +32,9 @@ const FALLBACK_MESSAGE = "Check out our latest offers on the Menu page.";
 
 export function OfferPopup() {
   const { offers, loading } = useActiveOffer();
-  const offer = offers.primary;
+  // The display offer, not the pricing offer — a coupon the admin has written
+  // banner copy for should announce itself here too.
+  const offer = offers.display;
   const [open, setOpen] = useState(false);
 
   const dismiss = useCallback(() => setOpen(false), []);
@@ -65,15 +72,14 @@ export function OfferPopup() {
 
   if (!offer) return null;
 
-  // All content is offer-derived; each falls back to the next-best field.
-  const title = offer.hero_heading?.trim() || offer.name;
-  const message =
-    offer.announcement_text?.trim() ||
-    offer.hero_subtext?.trim() ||
-    FALLBACK_MESSAGE;
-  const highlight = offer.hero_highlight_text?.trim() || "";
-  const ctaText = offer.cta_text?.trim() || "View Offers";
-  const image = offer.banner_image_url?.trim() || "";
+  // All content is offer-derived. resolveOfferDisplay() already applied the
+  // popup -> banner -> name fallback chain, so these are just reads.
+  const title = offer.popupTitle;
+  const message = offer.popupDescription || FALLBACK_MESSAGE;
+  const highlight = offer.heroText;
+  const ctaText = offer.popupCtaText;
+  const ctaLink = offer.popupCtaLink;
+  const image = offer.popupImageUrl;
 
   return (
     <AnimatePresence>
@@ -152,7 +158,7 @@ export function OfferPopup() {
                   Maybe later
                 </button>
                 <Link
-                  href="/menu"
+                  href={ctaLink}
                   onClick={dismiss}
                   className="w-full rounded-full bg-wine px-6 py-3 text-center text-sm font-semibold text-blush-50 shadow-clay-sm transition-all hover:-translate-y-0.5 hover:bg-wine-dark sm:w-auto"
                 >

@@ -118,6 +118,16 @@ export function buildOfferRow(body: Body): Record<string, unknown> {
     cta_text: strOrNull(body.cta_text),
     cta_link: strOrNull(body.cta_link),
     banner_image_url: strOrNull(body.banner_image_url),
+    // Banner right side + home popup (18_offer_banner_popup.sql). The column is
+    // NOT NULL with a 'text' default, so an unknown value collapses to 'text'
+    // rather than tripping the check constraint.
+    hero_display_mode: body.hero_display_mode === "image" ? "image" : "text",
+    hero_image_url: strOrNull(body.hero_image_url),
+    popup_title: strOrNull(body.popup_title),
+    popup_description: strOrNull(body.popup_description),
+    popup_image_url: strOrNull(body.popup_image_url),
+    popup_cta_text: strOrNull(body.popup_cta_text),
+    popup_cta_link: strOrNull(body.popup_cta_link),
   };
 }
 

@@ -20,35 +20,35 @@ export function RotatingBanners({
   banners: RotatingBanner[];
   count: number;
 }) {
-  // Live active offer drives the offer slide + the highlight watermark.
+  // The resolved display offer drives the offer slide. It is NOT `primary`:
+  // `display` is presentation-only and may be a coupon offer the admin chose to
+  // advertise, whereas `primary` is the pricing offer. See /api/offers/active.
   const { offers: activeOffers } = useActiveOffer();
-  const activeOffer = activeOffers.primary;
+  const display = activeOffers.display;
 
-  // The active offer becomes a slide built straight from its own `offers` row —
-  // the SAME record the admin Offer Preview renders from, so the two always
-  // agree. Previously the offer's content could only override a stored banner
-  // whose type happened to be "offer"; when the admin had no such banner (the
-  // common case) the offer never appeared here at all.
+  // The active offer becomes a slide built straight from its resolved display
+  // content — the SAME OfferDisplay the admin Offer Preview and the home popup
+  // render from, so all three always agree. Every offer TYPE works here:
+  // the hero text is derived per type (30% OFF / £10 OFF / BUY 1 GET 1 FREE /
+  // FREE DELIVERY / CHRISTMAS SALE) by lib/offers.ts, never assumed to be a
+  // percentage.
   const offerSlide: RotatingBanner | null = useMemo(() => {
-    if (!activeOffer) return null;
-    const heading = activeOffer.hero_heading?.trim() ?? "";
-    const subtext = activeOffer.hero_subtext?.trim() ?? "";
     // Nothing to show unless the offer carries banner copy.
-    if (!heading && !subtext) return null;
+    if (!display || !display.hasBanner) return null;
     return {
       type: "offer",
-      heading,
-      subtext,
-      cta_text: activeOffer.cta_text?.trim() ?? "",
-      cta_link: activeOffer.cta_link?.trim() ?? "",
-      watermark_text: activeOffer.hero_highlight_text?.trim() ?? "",
-      // The offer slide always shows its highlight ("30%") on the right, as
-      // it always has — the offer's own banner_image_url is its backdrop.
-      right_content_type: "highlight",
-      right_image_url: "",
+      heading: display.bannerTitle,
+      subtext: display.bannerDescription,
+      cta_text: display.ctaText,
+      cta_link: display.ctaLink,
+      watermark_text: display.heroText,
+      // The offer's right side is its own choice: the big hero text, or a
+      // promotional image that replaces it entirely.
+      right_content_type: display.heroDisplayMode === "image" ? "image" : "highlight",
+      right_image_url: display.heroImageUrl,
       enabled: true,
     };
-  }, [activeOffer]);
+  }, [display]);
 
   // Only enabled banners rotate; if none are enabled fall back to the first
   // default banner so the Menu page never looks empty. An active offer either
@@ -94,10 +94,10 @@ export function RotatingBanners({
   // renders its own fields.
   const { heading, subtext, cta_text: ctaText, cta_link: ctaLink } = current;
 
-  // An active offer's banner image backs the offer slide only, behind a blush
-  // scrim so the heading keeps its contrast. Other slides stay flat blush.
+  // An active offer's background image backs the offer slide only, behind a
+  // blush scrim so the heading keeps its contrast. Other slides stay flat blush.
   const isOfferSlide = offerSlide !== null && current === offerSlide;
-  const bannerImage = isOfferSlide ? activeOffer?.banner_image_url?.trim() : "";
+  const bannerImage = isOfferSlide ? display?.backgroundImageUrl ?? "" : "";
 
   return (
     <section
