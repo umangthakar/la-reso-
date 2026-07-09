@@ -126,6 +126,7 @@ export default function OfferFormPage() {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [loading, setLoading] = useState(!isNew);
   const [saving, setSaving] = useState(false);
+  const [duplicating, setDuplicating] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
 
@@ -356,6 +357,29 @@ export default function OfferFormPage() {
       router.push("/admin/dashboard/offers");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete offer");
+    }
+  }
+
+  // Duplicates the SAVED offer, not the form — the server copies the stored row.
+  // Any unsaved edits on screen are therefore not carried into the copy, so say
+  // so rather than silently dropping them.
+  async function handleDuplicate() {
+    if (isNew) return;
+    if (
+      !window.confirm(
+        `Duplicate "${form.name}"? The copy is created disabled, without the coupon code, and from the last saved version — unsaved changes on this page won't be copied.`,
+      )
+    ) {
+      return;
+    }
+    setDuplicating(true);
+    setError("");
+    try {
+      const { id: newId } = await adminSend<{ id: string }>(`/api/admin/offers/${id}/duplicate`, "POST");
+      router.push(`/admin/dashboard/offers/${newId}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to duplicate offer");
+      setDuplicating(false);
     }
   }
 
@@ -634,23 +658,158 @@ export default function OfferFormPage() {
           </Field>
         </Section>
 
+        {/* PREVIEW ------------------------------------------------------ */}
+        <Section title="Preview">
+          <p style={hintStyle}>
+            How this offer’s content appears on the storefront while it’s active. Blank fields fall back to the
+            existing site content, shown here as muted placeholders.
+          </p>
+          <OfferPreview form={form} isMobile={isMobile} />
+        </Section>
+
         {/* ACTIONS ------------------------------------------------------ */}
         <div style={{ display: "flex", gap: 12, justifyContent: "space-between", flexWrap: "wrap" }}>
           {!isNew ? (
-            <button type="button" onClick={handleDelete} style={{ ...secondaryBtn, borderColor: "#d9534f", color: "#d9534f" }}>
+            <button type="button" onClick={handleDelete} disabled={saving || duplicating} style={{ ...secondaryBtn, borderColor: "#d9534f", color: "#d9534f" }}>
               Delete offer
             </button>
           ) : (
             <span />
           )}
-          <div style={{ display: "flex", gap: 12 }}>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
             <button type="button" onClick={() => router.push("/admin/dashboard/offers")} style={secondaryBtn}>Cancel</button>
-            <button type="submit" disabled={saving || uploading} style={{ ...primaryBtn, opacity: saving || uploading ? 0.6 : 1 }}>
-              {saving ? "Saving…" : "Save offer"}
+            {!isNew && (
+              <button type="button" onClick={handleDuplicate} disabled={saving || duplicating} style={{ ...secondaryBtn, opacity: saving || duplicating ? 0.6 : 1 }}>
+                {duplicating ? "Duplicating…" : "Duplicate"}
+              </button>
+            )}
+            <button type="submit" disabled={saving || duplicating || uploading} style={{ ...primaryBtn, opacity: saving || duplicating || uploading ? 0.6 : 1 }}>
+              {saving ? "Saving…" : isNew ? "Create offer" : "Save offer"}
             </button>
           </div>
         </div>
       </form>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------
+// Live preview of the offer's storefront content. Mirrors the real surfaces:
+// AnnouncementBar (components/announcement-bar.tsx) and the offer slide of
+// RotatingBanners (components/rotating-banners.tsx) — same palette, same
+// watermark-vs-heading layering, same CTA pill.
+// ------------------------------------------------------------
+function OfferPreview({ form, isMobile }: { form: FormState; isMobile: boolean }) {
+  const announcement = form.announcement_text.trim();
+  const heading = form.hero_heading.trim();
+  const subtext = form.hero_subtext.trim();
+  const highlight = form.hero_highlight_text.trim();
+  const ctaText = form.cta_text.trim();
+  const ctaLink = form.cta_link.trim();
+
+  const muted = "rgba(92,42,65,0.45)";
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {/* Announcement bar --------------------------------------------- */}
+      <div>
+        <PreviewLabel>Announcement bar</PreviewLabel>
+        <div style={{ borderRadius: 10, overflow: "hidden", border: "1px solid rgba(135,56,83,0.15)" }}>
+          {announcement ? (
+            <div style={{ background: WINE, color: "white", textAlign: "center", padding: "8px 16px", fontSize: "0.9rem", fontWeight: 600, lineHeight: 1.4 }}>
+              {announcement}
+            </div>
+          ) : (
+            <div style={{ background: "rgba(135,56,83,0.05)", color: muted, textAlign: "center", padding: "8px 16px", fontSize: "0.85rem", fontStyle: "italic" }}>
+              No announcement text — the site-wide announcement bar stays as it is.
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Special Offer hero banner ------------------------------------ */}
+      <div>
+        <PreviewLabel>Special Offer banner</PreviewLabel>
+        <div
+          style={{
+            position: "relative",
+            overflow: "hidden",
+            borderRadius: 12,
+            border: "1px solid rgba(135,56,83,0.15)",
+            background: "#F9EEEA",
+            padding: isMobile ? "1.5rem 1.25rem" : "2.25rem 2rem",
+            minHeight: 180,
+            ...(form.banner_image_url
+              ? {
+                  backgroundImage: `linear-gradient(to right, rgba(249,238,234,0.94), rgba(249,238,234,0.7)), url(${form.banner_image_url})`,
+                  backgroundSize: "cover",
+                  backgroundPosition: "center",
+                }
+              : {}),
+          }}
+        >
+          {/* Watermark — hidden on mobile, exactly as the real banner does. */}
+          {!isMobile && (
+            <span
+              aria-hidden
+              style={{
+                position: "absolute",
+                right: 16,
+                top: "50%",
+                transform: "translateY(-50%)",
+                fontSize: "6.5rem",
+                fontWeight: 900,
+                lineHeight: 1,
+                letterSpacing: "-0.02em",
+                color: "rgba(122,46,77,0.5)",
+                pointerEvents: "none",
+                userSelect: "none",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {highlight || <span style={{ color: muted, fontSize: "1rem", fontWeight: 600, fontStyle: "italic" }}>product count</span>}
+            </span>
+          )}
+
+          <div style={{ position: "relative", maxWidth: "60%" }}>
+            {heading ? (
+              <h3 style={{ color: "#612437", fontSize: isMobile ? "1.6rem" : "2.2rem", fontWeight: 800, lineHeight: 1.15, margin: 0 }}>{heading}</h3>
+            ) : (
+              <h3 style={{ color: muted, fontSize: isMobile ? "1.6rem" : "2.2rem", fontWeight: 800, lineHeight: 1.15, margin: 0, fontStyle: "italic" }}>
+                Existing banner heading
+              </h3>
+            )}
+            {subtext ? (
+              <p style={{ color: "#9C616D", marginTop: 12, marginBottom: 0 }}>{subtext}</p>
+            ) : (
+              <p style={{ color: muted, marginTop: 12, marginBottom: 0, fontStyle: "italic" }}>Existing banner subtext</p>
+            )}
+            {ctaText && (
+              <span style={{ display: "inline-block", marginTop: 18, background: WINE, color: "#FDF6F3", borderRadius: 999, padding: "10px 22px", fontSize: "0.85rem", fontWeight: 600 }}>
+                {ctaText}
+              </span>
+            )}
+          </div>
+        </div>
+        {ctaText && !ctaLink && (
+          <p style={{ ...hintStyle, marginTop: 8, color: "#9a6212", opacity: 1 }}>
+            The button needs a link as well as text — the storefront only renders a CTA when both are set.
+          </p>
+        )}
+        {ctaLink && !ctaText && (
+          <p style={{ ...hintStyle, marginTop: 8, color: "#9a6212", opacity: 1 }}>
+            The button needs text as well as a link — the storefront only renders a CTA when both are set.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PreviewLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{ fontSize: "0.72rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: BERRY, opacity: 0.55, marginBottom: 6 }}>
+      {children}
     </div>
   );
 }

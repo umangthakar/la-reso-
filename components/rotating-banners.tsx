@@ -61,8 +61,23 @@ export function RotatingBanners({
   const ctaText = isOfferSlide && activeOffer?.cta_text?.trim() ? activeOffer.cta_text : current.cta_text;
   const ctaLink = isOfferSlide && activeOffer?.cta_link?.trim() ? activeOffer.cta_link : current.cta_link;
 
+  // An active offer's banner image backs the offer slide only, behind a blush
+  // scrim so the heading keeps its contrast. Other slides stay flat blush.
+  const bannerImage = isOfferSlide ? activeOffer?.banner_image_url?.trim() : "";
+
   return (
-    <section className="relative w-full overflow-hidden bg-[#F9EEEA] px-8 py-16">
+    <section
+      className="relative w-full overflow-hidden bg-[#F9EEEA] px-8 py-16"
+      style={
+        bannerImage
+          ? {
+              backgroundImage: `linear-gradient(to right, rgba(249,238,234,0.94), rgba(249,238,234,0.7)), url(${bannerImage})`,
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+            }
+          : undefined
+      }
+    >
       {/* Decorative watermark: active-offer highlight → banner watermark → count */}
       <span className="pointer-events-none absolute right-6 top-1/2 hidden -translate-y-1/2 select-none font-display text-[200px] font-black tracking-tight leading-none text-[#7A2E4D]/50 md:block">
         {highlight || current.watermark_text || count}

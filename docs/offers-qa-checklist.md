@@ -87,22 +87,64 @@ bar, the Special-Offer banner heading/CTA, and the banner watermark **live**
 
 ---
 
-## ⚠️ Blocker — schema not applied
+## ⚠️ Blocker — migration written, not yet applied
 
-A read-only probe of the live database (service role) on <run date> found **no
-`offers` table at all** — and none of `offer_category_rules`,
-`offer_product_rules`, `offer_emails`, `offer_redemptions`, or the
-`validate_coupon()` function. `supabase/sql/15_offers.sql` has never been
-applied.
+`supabase/sql/15_offers.sql` now matches the schema the Phase 2–5 code targets
+(`name`/`type`/`enabled`/`stackable`/`eligibility_scope`, the three child
+tables, `offer_redemptions`, `validate_coupon()`, and the
+`one_active_non_stackable_offer` exclusion constraint). It has **not been run
+against the live database**.
 
-Additionally, the `15_offers.sql` **on disk is a simpler earlier draft**
-(`title`/`discount_type`/`discount_value`/`min_subtotal`/`active`) that does
-**not** match the rich Phase-1 schema the Phase 2–5 code targets
-(`name`/`type`/`enabled`/`stackable`/`eligibility_scope`/child tables/
-`validate_coupon`/exclusion constraint). `scripts/test-offers-rls.mjs` on disk
-tests that same simple draft.
+### Actual state of the live database (probed with the service role)
 
-**Before any check above can pass**, the rich Phase-1 migration (and the
-matching RLS test) must be authored and applied. Until then the offer routes
-compile and the storefront degrades gracefully (no offers shown, no discount,
-checkout unchanged), but no offer functionality is live.
+An earlier revision of this document claimed there was no `offers` table. That
+was wrong. What is really there:
+
+| Object | State |
+| --- | --- |
+| `public.offers` | **Exists, legacy draft shape, 0 rows** (`title`, `discount_type`, `discount_value`, `min_subtotal`, `active`) |
+| `offer_category_rules`, `offer_product_rules`, `offer_emails`, `offer_redemptions` | Missing |
+| `validate_coupon()` | Missing |
+| `orders.offer_id`, `orders.discount_amount`, `orders.coupon_code` | **Exist** — `16_order_discounts.sql` has already been applied |
+
+So the old draft *was* run at some point, and `orders.offer_id` currently holds
+a foreign key into that legacy table.
+
+### Applying it
+
+Run **`supabase/sql/15_offers.sql`** in the Supabase SQL editor. It will:
+
+1. Refuse to proceed if the legacy `offers` table has gained any rows since the
+   probe (it raises, and the transaction rolls back — nothing is touched).
+2. Otherwise drop the empty legacy table `CASCADE`, which also drops the
+   `orders.offer_id` foreign key. **No order data is affected** — CASCADE drops
+   the constraint, not the column.
+3. Rebuild `offers` with the full schema, re-attach the `orders.offer_id`
+   foreign key, and create the child tables, RPC, RLS and exclusion constraint.
+
+`16_order_discounts.sql` is already applied and does not need re-running (it is
+idempotent if you do). Then verify:
+
+```
+node scripts/test-offers-rls.mjs
+```
+
+Until the migration is applied the offer routes compile and the storefront
+degrades gracefully — `/api/offers/active` returns `{"primary":null,
+"stackable":[]}`, no discount is applied, checkout is unchanged — but the admin
+Offers page will show a 500 from `/api/admin/offers` and no offer functionality
+is live.
+
+### Notes on the schema as written
+
+- **Coupons are exempt from the exclusion constraint.** It is scoped to
+  `type <> 'coupon'`, because a coupon never auto-applies and never drives the
+  banner. Without that scope, creating one non-stackable coupon would make every
+  other non-stackable offer unsaveable for the same window.
+- **Usage limits are stored but not yet enforced.** `usage_limit_total` and
+  `usage_limit_per_customer` are collected by the admin form and persisted, and
+  `offer_redemptions` records every redemption — but nothing in
+  `checkout/create-intent` reads that ledger to refuse an over-limit offer.
+- **`start_at` / `end_at` are sent from a `datetime-local` input**, which has no
+  timezone, so Postgres stores them as UTC. Admins entering a BST time will see
+  the offer flip an hour off. Worth confirming before a timed launch.
