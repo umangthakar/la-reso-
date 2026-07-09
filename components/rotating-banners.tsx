@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -20,10 +20,43 @@ export function RotatingBanners({
   banners: RotatingBanner[];
   count: number;
 }) {
+  // Live active offer drives the offer slide + the highlight watermark.
+  const { offers: activeOffers } = useActiveOffer();
+  const activeOffer = activeOffers.primary;
+
+  // The active offer becomes a slide built straight from its own `offers` row —
+  // the SAME record the admin Offer Preview renders from, so the two always
+  // agree. Previously the offer's content could only override a stored banner
+  // whose type happened to be "offer"; when the admin had no such banner (the
+  // common case) the offer never appeared here at all.
+  const offerSlide: RotatingBanner | null = useMemo(() => {
+    if (!activeOffer) return null;
+    const heading = activeOffer.hero_heading?.trim() ?? "";
+    const subtext = activeOffer.hero_subtext?.trim() ?? "";
+    // Nothing to show unless the offer carries banner copy.
+    if (!heading && !subtext) return null;
+    return {
+      type: "offer",
+      heading,
+      subtext,
+      cta_text: activeOffer.cta_text?.trim() ?? "",
+      cta_link: activeOffer.cta_link?.trim() ?? "",
+      watermark_text: activeOffer.hero_highlight_text?.trim() ?? "",
+      enabled: true,
+    };
+  }, [activeOffer]);
+
   // Only enabled banners rotate; if none are enabled fall back to the first
-  // default banner so the Menu page never looks empty.
-  const enabled = banners.filter((b) => b.enabled);
-  const slides = enabled.length > 0 ? enabled : [DEFAULT_ROTATING_BANNERS[0]];
+  // default banner so the Menu page never looks empty. An active offer either
+  // replaces a stored "offer" banner (no duplicate) or is prepended.
+  const slides = useMemo(() => {
+    const enabled = banners.filter((b) => b.enabled);
+    const base = enabled.length > 0 ? enabled : [DEFAULT_ROTATING_BANNERS[0]];
+    if (!offerSlide) return base;
+    return base.some((b) => b.type === "offer")
+      ? base.map((b) => (b.type === "offer" ? offerSlide : b))
+      : [offerSlide, ...base];
+  }, [banners, offerSlide]);
 
   const [index, setIndex] = useState(0);
 
@@ -44,25 +77,17 @@ export function RotatingBanners({
   const current = slides[Math.min(index, slides.length - 1)];
   const icon = BANNER_ICONS[current.type] ?? "";
 
-  // Live active offer drives the "offer" slide + the highlight watermark.
-  const { offers: activeOffers } = useActiveOffer();
-  const activeOffer = activeOffers.primary;
-
   // Watermark precedence: active offer's highlight (empty string = absent,
   // falls through), then this banner's manual watermark, then product count.
   const highlight = activeOffer?.hero_highlight_text?.trim();
 
-  // On the "offer" slide only, an active offer's content overrides the stored
-  // heading/subtext/cta (same precedence as the announcement bar). Every other
-  // banner type is untouched.
-  const isOfferSlide = current.type === "offer";
-  const heading = isOfferSlide && activeOffer?.hero_heading?.trim() ? activeOffer.hero_heading : current.heading;
-  const subtext = isOfferSlide && activeOffer?.hero_subtext?.trim() ? activeOffer.hero_subtext : current.subtext;
-  const ctaText = isOfferSlide && activeOffer?.cta_text?.trim() ? activeOffer.cta_text : current.cta_text;
-  const ctaLink = isOfferSlide && activeOffer?.cta_link?.trim() ? activeOffer.cta_link : current.cta_link;
+  // The offer slide already carries the offer's own copy, so every slide simply
+  // renders its own fields.
+  const { heading, subtext, cta_text: ctaText, cta_link: ctaLink } = current;
 
   // An active offer's banner image backs the offer slide only, behind a blush
   // scrim so the heading keeps its contrast. Other slides stay flat blush.
+  const isOfferSlide = offerSlide !== null && current === offerSlide;
   const bannerImage = isOfferSlide ? activeOffer?.banner_image_url?.trim() : "";
 
   return (

@@ -6,8 +6,13 @@ import { motion } from "framer-motion";
 import { Heart, Plus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import type { Product } from "@/lib/data";
+import { useActiveOffer } from "@/lib/use-active-offer";
+import { PriceText } from "@/components/product-price";
 
 export function ProductCard({ product }: { product: Product }) {
+  // Same live offer set the Menu cards use, so a discount shows everywhere.
+  const { offers } = useActiveOffer();
+
   return (
     <motion.div
       whileHover={{ y: -10 }}
@@ -52,7 +57,7 @@ export function ProductCard({ product }: { product: Product }) {
 
         <div className="mt-4 flex items-center justify-between">
           <span className="font-display text-xl font-semibold text-darkberry">
-            £{product.price.toFixed(2)}
+            <PriceText product={product} offers={offers} />
           </span>
           <Link
             href="/contact"

@@ -7,6 +7,8 @@ import { ShoppingCart } from "lucide-react";
 import type { Product } from "@/lib/data";
 import { AnimatedProductCard } from "@/components/animated-product-card";
 import { useCart } from "@/components/cart/cart-context";
+import { useActiveOffer } from "@/lib/use-active-offer";
+import { PriceText } from "@/components/product-price";
 import { slugify } from "@/lib/slug";
 
 export type HomeProduct = {
@@ -79,6 +81,9 @@ export function HomeProducts({ products }: { products: HomeProduct[] }) {
 
 function MobileCard({ product }: { product: HomeProduct }) {
   const { addItem, openCart } = useCart();
+  // The desktop card (AnimatedProductCard) already reflects active offers;
+  // this mobile card needs the same live offer set to match it.
+  const { offers } = useActiveOffer();
   const slug = slugify(product.name);
   const image = product.image_url || FALLBACK_IMAGE;
 
@@ -118,7 +123,14 @@ function MobileCard({ product }: { product: HomeProduct }) {
           </h3>
         </Link>
         <span className="mt-1 font-display text-lg font-bold text-[#743249]">
-          £{Number(product.price).toFixed(2)}
+          <PriceText
+            product={{
+              id: product.id,
+              category: product.category ?? "",
+              price: Number(product.price) || 0,
+            }}
+            offers={offers}
+          />
         </span>
 
         <button
