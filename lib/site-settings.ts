@@ -23,6 +23,12 @@ export type Announcement = { enabled: boolean; text: string };
 export type HeroBanner = { enabled: boolean; heading: string; subtext: string };
 export type WhatsappBar = { enabled: boolean; text: string; number: string };
 export type BannerType = "hero" | "offer" | "announcement" | "custom_cakes";
+
+// What a banner renders on its right-hand side. Each banner chooses its own,
+// independently of the others. Legacy banners have neither field, so
+// normaliseBanner() defaults them to "highlight" — the pre-existing behaviour.
+export type BannerRightContentType = "highlight" | "image";
+
 export type RotatingBanner = {
   type: BannerType;
   heading: string;
@@ -30,6 +36,8 @@ export type RotatingBanner = {
   cta_text: string;
   cta_link: string;
   watermark_text: string;
+  right_content_type: BannerRightContentType;
+  right_image_url: string;
   enabled: boolean;
 };
 
@@ -100,6 +108,8 @@ export const DEFAULT_ROTATING_BANNERS: RotatingBanner[] = [
     cta_text: "Order Custom Cake",
     cta_link: "/contact",
     watermark_text: "",
+    right_content_type: "highlight",
+    right_image_url: "",
     enabled: true,
   },
   {
@@ -109,6 +119,8 @@ export const DEFAULT_ROTATING_BANNERS: RotatingBanner[] = [
     cta_text: "Shop Now",
     cta_link: "/menu",
     watermark_text: "",
+    right_content_type: "highlight",
+    right_image_url: "",
     enabled: true,
   },
 ];
@@ -130,6 +142,11 @@ export const DEFAULT_ABOUT_TEXT =
 function normaliseBanner(v: unknown): RotatingBanner {
   const b = (v ?? {}) as Partial<RotatingBanner>;
   const type = BANNER_TYPES.includes(b.type as BannerType) ? (b.type as BannerType) : "hero";
+  const rightImage = typeof b.right_image_url === "string" ? b.right_image_url : "";
+  // Only honour "image" when an image is actually stored, so a half-configured
+  // banner falls back to the highlight rather than rendering a blank right side.
+  const rightType: BannerRightContentType =
+    b.right_content_type === "image" && rightImage.trim() !== "" ? "image" : "highlight";
   return {
     type,
     heading: typeof b.heading === "string" ? b.heading : "",
@@ -137,6 +154,8 @@ function normaliseBanner(v: unknown): RotatingBanner {
     cta_text: typeof b.cta_text === "string" ? b.cta_text : "",
     cta_link: typeof b.cta_link === "string" ? b.cta_link : "",
     watermark_text: typeof b.watermark_text === "string" ? b.watermark_text : "",
+    right_content_type: rightType,
+    right_image_url: rightImage,
     enabled: b.enabled !== false,
   };
 }

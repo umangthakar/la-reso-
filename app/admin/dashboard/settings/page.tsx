@@ -38,6 +38,7 @@ type HeroBanner = { enabled: boolean; heading: string; subtext: string };
 type WhatsappBar = { enabled: boolean; text: string; number: string };
 type Contact = { phone: string; whatsapp: string; email: string; address: string };
 type BannerType = "hero" | "offer" | "announcement" | "custom_cakes";
+type BannerRightContentType = "highlight" | "image";
 type RotatingBanner = {
   type: BannerType;
   heading: string;
@@ -45,6 +46,8 @@ type RotatingBanner = {
   cta_text: string;
   cta_link: string;
   watermark_text: string;
+  right_content_type: BannerRightContentType;
+  right_image_url: string;
   enabled: boolean;
 };
 
@@ -57,6 +60,11 @@ const BANNER_TYPE_OPTIONS: { value: BannerType; label: string }[] = [
   { value: "announcement", label: "📣 Announcement" },
 ];
 
+const BANNER_RIGHT_CONTENT_OPTIONS: { value: BannerRightContentType; label: string }[] = [
+  { value: "highlight", label: "Hero Highlight Text" },
+  { value: "image", label: "Image" },
+];
+
 const DEFAULT_ROTATING_BANNERS: RotatingBanner[] = [
   {
     type: "custom_cakes",
@@ -65,6 +73,8 @@ const DEFAULT_ROTATING_BANNERS: RotatingBanner[] = [
     cta_text: "Order Custom Cake",
     cta_link: "/contact",
     watermark_text: "",
+    right_content_type: "highlight",
+    right_image_url: "",
     enabled: true,
   },
   {
@@ -74,6 +84,8 @@ const DEFAULT_ROTATING_BANNERS: RotatingBanner[] = [
     cta_text: "Shop Now",
     cta_link: "/menu",
     watermark_text: "",
+    right_content_type: "highlight",
+    right_image_url: "",
     enabled: true,
   },
 ];
@@ -162,6 +174,10 @@ export default function SettingsAdminPage() {
             cta_text: typeof b?.cta_text === "string" ? b.cta_text : "",
             cta_link: typeof b?.cta_link === "string" ? b.cta_link : "",
             watermark_text: typeof b?.watermark_text === "string" ? b.watermark_text : "",
+            // Legacy banners carry neither field — they default to the
+            // highlight, which is exactly how they render today.
+            right_content_type: (b?.right_content_type === "image" ? "image" : "highlight") as BannerRightContentType,
+            right_image_url: typeof b?.right_image_url === "string" ? b.right_image_url : "",
             enabled: b?.enabled !== false,
           }))
         : DEFAULT_ROTATING_BANNERS;
@@ -342,6 +358,7 @@ export default function SettingsAdminPage() {
       <RotatingBannersSection
         banners={s.rotating_banners}
         onChange={(next) => set("rotating_banners", next)}
+        onError={setError}
         saved={savedSection === "rotating_banners"}
         onSave={() => saveSection("rotating_banners", ["rotating_banners"])}
       />
@@ -565,11 +582,13 @@ const nextBid = () => `b${_bid++}`;
 function RotatingBannersSection({
   banners,
   onChange,
+  onError,
   saved,
   onSave,
 }: {
   banners: RotatingBanner[];
   onChange: (next: RotatingBanner[]) => void;
+  onError: (msg: string) => void;
   saved: boolean;
   onSave: () => void;
 }) {
@@ -596,7 +615,17 @@ function RotatingBannersSection({
   function add() {
     onChange([
       ...banners,
-      { type: "offer", heading: "", subtext: "", cta_text: "", cta_link: "", watermark_text: "", enabled: true },
+      {
+        type: "offer",
+        heading: "",
+        subtext: "",
+        cta_text: "",
+        cta_link: "",
+        watermark_text: "",
+        right_content_type: "highlight",
+        right_image_url: "",
+        enabled: true,
+      },
     ]);
     setIds((prev) => [...prev, nextBid()]);
   }
@@ -645,6 +674,7 @@ function RotatingBannersSection({
                 banner={b}
                 position={i + 1}
                 onUpdate={(patch) => update(i, patch)}
+                onError={onError}
                 onDelete={() => remove(i)}
               />
             ))}
@@ -673,12 +703,14 @@ function SortableBannerRow({
   banner,
   position,
   onUpdate,
+  onError,
   onDelete,
 }: {
   id: string;
   banner: RotatingBanner;
   position: number;
   onUpdate: (patch: Partial<RotatingBanner>) => void;
+  onError: (msg: string) => void;
   onDelete: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
@@ -746,12 +778,37 @@ function SortableBannerRow({
           placeholder="Button link (e.g. /contact)"
         />
       </div>
-      <input
-        style={{ ...inputStyle, marginTop: 8 }}
-        value={banner.watermark_text}
-        onChange={(e) => onUpdate({ watermark_text: e.target.value })}
-        placeholder="Large watermark text (e.g. 30%, 50%, FREE, Buy 1 Get 1 — leave blank to show product count)"
-      />
+
+      {/* Right-side content: each banner picks its own, independently. */}
+      <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed rgba(135,56,83,0.18)" }}>
+        <label style={{ display: "block", color: BERRY, fontWeight: 700, fontSize: "0.8rem", marginBottom: 6 }}>
+          Right Side Content Type
+        </label>
+        <select
+          value={banner.right_content_type}
+          onChange={(e) => onUpdate({ right_content_type: e.target.value as BannerRightContentType })}
+          style={{ ...inputStyle, width: "auto", padding: "6px 10px", marginBottom: 8 }}
+        >
+          {BANNER_RIGHT_CONTENT_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+
+        {banner.right_content_type === "image" ? (
+          <ImageUpload
+            url={banner.right_image_url}
+            onChange={(url) => onUpdate({ right_image_url: url })}
+            onError={onError}
+          />
+        ) : (
+          <input
+            style={inputStyle}
+            value={banner.watermark_text}
+            onChange={(e) => onUpdate({ watermark_text: e.target.value })}
+            placeholder="Hero highlight text (e.g. 30%, 50%, FREE, Buy 1 Get 1 — leave blank to show product count)"
+          />
+        )}
+      </div>
     </div>
   );
 }

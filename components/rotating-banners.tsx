@@ -42,6 +42,10 @@ export function RotatingBanners({
       cta_text: activeOffer.cta_text?.trim() ?? "",
       cta_link: activeOffer.cta_link?.trim() ?? "",
       watermark_text: activeOffer.hero_highlight_text?.trim() ?? "",
+      // The offer slide always shows its highlight ("30%") on the right, as
+      // it always has — the offer's own banner_image_url is its backdrop.
+      right_content_type: "highlight",
+      right_image_url: "",
       enabled: true,
     };
   }, [activeOffer]);
@@ -77,9 +81,14 @@ export function RotatingBanners({
   const current = slides[Math.min(index, slides.length - 1)];
   const icon = BANNER_ICONS[current.type] ?? "";
 
-  // Watermark precedence: active offer's highlight (empty string = absent,
-  // falls through), then this banner's manual watermark, then product count.
-  const highlight = activeOffer?.hero_highlight_text?.trim();
+  // Right-side content belongs to the CURRENT slide alone. It used to be read
+  // off the active offer, which leaked that offer's "30%" highlight onto every
+  // banner in the rotation; each slide now decides for itself.
+  const rightImage =
+    current.right_content_type === "image" ? current.right_image_url.trim() : "";
+  // Highlight precedence: this banner's own watermark, then the product count.
+  // Trim first — a whitespace-only watermark is "unset", not a blank highlight.
+  const highlight = rightImage ? "" : current.watermark_text.trim() || String(count);
 
   // The offer slide already carries the offer's own copy, so every slide simply
   // renders its own fields.
@@ -103,10 +112,35 @@ export function RotatingBanners({
           : undefined
       }
     >
-      {/* Decorative watermark: active-offer highlight → banner watermark → count */}
-      <span className="pointer-events-none absolute right-6 top-1/2 hidden -translate-y-1/2 select-none font-display text-[200px] font-black tracking-tight leading-none text-[#7A2E4D]/50 md:block">
-        {highlight || current.watermark_text || count}
-      </span>
+      {/* Right-side content, per banner: either the decorative highlight text
+          or the banner's own image. Stays desktop-only (md:block) exactly as
+          the watermark always has, so the mobile layout is unchanged and the
+          absolutely-positioned content can never overlap the left copy. */}
+      <div className="pointer-events-none absolute right-6 top-1/2 hidden -translate-y-1/2 select-none md:block">
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={index}
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -16 }}
+            transition={{ duration: 0.6, ease: "easeOut" }}
+          >
+            {rightImage ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={rightImage}
+                alt=""
+                aria-hidden
+                className="h-[200px] w-[26vw] max-w-[300px] object-contain object-right lg:h-[240px]"
+              />
+            ) : (
+              <span className="block font-display text-[200px] font-black tracking-tight leading-none text-[#7A2E4D]/50">
+                {highlight}
+              </span>
+            )}
+          </motion.div>
+        </AnimatePresence>
+      </div>
 
       {/* Rotating content — cross-fades between banners. Fixed min-height so
           the banner keeps the same height as the old hero (no layout jump). */}
