@@ -13,6 +13,7 @@ import {
   normaliseSettings,
   type PublicSettings,
 } from "@/lib/site-settings";
+import { offerFromRow, resolveActiveOffers, type Offer } from "@/lib/offers";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 // The anon key is now the "publishable" key; fall back to the legacy name.
@@ -63,5 +64,35 @@ export async function getPublicSettings(): Promise<PublicSettings> {
     return normaliseSettings(row ?? null);
   } catch {
     return DEFAULT_SETTINGS;
+  }
+}
+
+/**
+ * Read the live, resolved active offer(s) server-side (for server components
+ * like the announcement bar). Same no-store discipline and anon RLS scope as
+ * getPublicSettings and /api/offers/active — coupon offers are excluded, and
+ * any failure returns the safe empty result so the storefront never throws.
+ */
+export async function getActiveOfferServer(): Promise<{ primary: Offer | null; stackable: Offer[] }> {
+  const EMPTY = { primary: null as Offer | null, stackable: [] as Offer[] };
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return EMPTY;
+  try {
+    const select = "*,offer_category_rules(category,mode),offer_product_rules(product_id,mode)";
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/offers?select=${select}&type=neq.coupon&enabled=eq.true`,
+      {
+        headers: {
+          apikey: SUPABASE_ANON_KEY as string,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        },
+        cache: "no-store",
+      },
+    );
+    if (!res.ok) return EMPTY;
+    const rows = (await res.json()) as Record<string, unknown>[];
+    const offers = Array.isArray(rows) ? rows.map(offerFromRow) : [];
+    return resolveActiveOffers(offers, new Date());
+  } catch {
+    return EMPTY;
   }
 }

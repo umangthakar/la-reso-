@@ -53,6 +53,9 @@ export async function POST(req: Request) {
   let paidTotal: number;
   let metaSubtotal = 0;
   let metaDelivery = 0;
+  let metaDiscount = 0;
+  let metaCoupon: string | null = null;
+  let metaOffer: string | null = null;
   try {
     const stripe = getCheckoutStripe();
     const pi = await stripe.paymentIntents.retrieve(paymentIntentId);
@@ -65,6 +68,9 @@ export async function POST(req: Request) {
     paidTotal = round2((pi.amount_received || pi.amount || 0) / 100);
     metaSubtotal = Number(pi.metadata?.subtotal) || 0;
     metaDelivery = Number(pi.metadata?.delivery_fee) || 0;
+    metaDiscount = Number(pi.metadata?.discount_amount) || 0;
+    metaCoupon = (pi.metadata?.coupon_code || "").trim() || null;
+    metaOffer = (pi.metadata?.offer_id || "").trim() || null;
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Could not verify payment." },
@@ -119,6 +125,11 @@ export async function POST(req: Request) {
     delivery_address: deliveryAddress || null,
     postcode: postcode || null,
     special_instructions: instructions,
+    // Discount columns from 16_order_discounts.sql (may not exist yet — the
+    // isMissingColumn() fallback below drops them if the migration isn't run).
+    discount_amount: metaDiscount,
+    coupon_code: metaCoupon,
+    offer_id: metaOffer,
   };
 
   // 3) Insert the order. If the DB predates the newer columns, retry with
@@ -169,6 +180,23 @@ export async function POST(req: Request) {
     });
     // Don't fail the whole order if items can't be written; the order is saved.
     await supabase.from("order_items").insert(rows);
+  }
+
+  // 5) Record the offer redemption (powers usage limits / analytics). Same
+  //    best-effort posture as the line items — never fail a saved order if
+  //    this ledger write can't complete (e.g. the offers tables aren't
+  //    migrated yet).
+  if (metaOffer) {
+    try {
+      await supabase.from("offer_redemptions").insert({
+        offer_id: metaOffer,
+        order_id: order.id,
+        email: coreOrder.email || null,
+        discount_amount: metaDiscount,
+      });
+    } catch {
+      /* ignore — the order is already saved */
+    }
   }
 
   return NextResponse.json({ orderId: order.id });

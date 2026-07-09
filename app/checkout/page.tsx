@@ -58,9 +58,17 @@ function toOrderNumber(id: string): string {
 
 export default function CheckoutPage() {
   const router = useRouter();
-  const { items, subtotal, count, clearCart } = useCart();
+  const { items, subtotal, count, clearCart, discount, freeDelivery } = useCart();
   const { user, ready } = useAuth();
   const { settings } = useSiteSettings();
+
+  // Coupon entry — validated server-side via /api/offers/validate-coupon; the
+  // applied code is passed to create-intent, which recomputes authoritatively.
+  const [couponInput, setCouponInput] = useState("");
+  const [appliedCoupon, setAppliedCoupon] = useState<string | null>(null);
+  const [couponMsg, setCouponMsg] = useState<string | null>(null);
+  const [couponError, setCouponError] = useState<string | null>(null);
+  const [couponBusy, setCouponBusy] = useState(false);
 
   // Admin-configured delivery rules (lead time, available days, blocked dates).
   const deliveryRules = {
@@ -88,17 +96,26 @@ export default function CheckoutPage() {
   // Authoritative amounts returned by the server when the PaymentIntent is
   // created — used for the confirmation snapshot so it matches the charge.
   const [charged, setCharged] = useState<
-    { subtotal: number; deliveryFee: number; total: number } | null
+    { subtotal: number; discount: number; deliveryFee: number; total: number; couponCode: string | null } | null
   >(null);
 
-  // Zone-based delivery fee for the entered postcode (display only; the server
-  // re-computes it authoritatively so the charge always matches).
-  const deliveryFee = resolveDeliveryFee(
+  // Zone-based delivery fee for the entered postcode, minus any offer discount
+  // (display only; the server re-computes it authoritatively so the charge
+  // always matches). A free-delivery offer waives the fee.
+  const deliveryFee = freeDelivery
+    ? 0
+    : resolveDeliveryFee(subtotal, form.postcode, settings.delivery_zones);
+  const total = round2(subtotal - discount + deliveryFee);
+
+  // The breakdown shown in the summary: the server's authoritative numbers once
+  // the PaymentIntent exists, otherwise the live client estimate.
+  const summary = charged ?? {
     subtotal,
-    form.postcode,
-    settings.delivery_zones,
-  );
-  const total = round2(subtotal + deliveryFee);
+    discount,
+    deliveryFee,
+    total,
+    couponCode: appliedCoupon,
+  };
 
   const set = (k: keyof Form, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -177,6 +194,56 @@ export default function CheckoutPage() {
     );
   }
 
+  async function applyCoupon() {
+    const code = couponInput.trim();
+    if (!code) return;
+    setCouponBusy(true);
+    setCouponError(null);
+    setCouponMsg(null);
+    try {
+      const res = await fetch("/api/offers/validate-coupon", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code,
+          email: form.email,
+          postcode: form.postcode,
+          cartItems: items.map((i) => ({
+            id: i.id,
+            category: i.category,
+            price: i.price,
+            quantity: i.quantity,
+          })),
+        }),
+      });
+      const data = await res.json();
+      if (data.valid) {
+        setAppliedCoupon(code);
+        const parts: string[] = [];
+        if (typeof data.discountAmount === "number" && data.discountAmount > 0)
+          parts.push(`${money(data.discountAmount)} off`);
+        if (data.freeDelivery) parts.push("free delivery");
+        setCouponMsg(
+          `Applied: ${parts.join(" + ") || "discount"}${data.note ? ` — ${data.note}` : ""}`,
+        );
+      } else {
+        setAppliedCoupon(null);
+        setCouponError(data.reason || "That code isn't valid.");
+      }
+    } catch {
+      setCouponError("Could not validate that code.");
+    } finally {
+      setCouponBusy(false);
+    }
+  }
+
+  function removeCoupon() {
+    setAppliedCoupon(null);
+    setCouponInput("");
+    setCouponMsg(null);
+    setCouponError(null);
+  }
+
   async function goToPayment() {
     setLoadingIntent(true);
     setIntentError(null);
@@ -188,6 +255,8 @@ export default function CheckoutPage() {
           items: items.map((i) => ({ id: i.id, quantity: i.quantity })),
           deliveryDate: form.deliveryDate,
           postcode: form.postcode,
+          email: form.email,
+          couponCode: appliedCoupon || undefined,
         }),
       });
       const data = await res.json();
@@ -200,8 +269,10 @@ export default function CheckoutPage() {
       ) {
         setCharged({
           subtotal: data.subtotal,
+          discount: typeof data.discount === "number" ? data.discount : 0,
           deliveryFee: data.deliveryFee,
           total: data.total,
+          couponCode: data.couponCode ?? appliedCoupon ?? null,
         });
       }
       setStep(4);
@@ -459,7 +530,8 @@ export default function CheckoutPage() {
                         // Snapshot the order for the confirmation screen. Prefer
                         // the server's authoritative amounts so it matches the
                         // actual charge (zone-based delivery included).
-                        const amounts = charged ?? { subtotal, deliveryFee, total };
+                        const amounts =
+                          charged ?? { subtotal, discount, deliveryFee, total, couponCode: appliedCoupon };
                         const snapshot = {
                           orderId,
                           orderNumber: toOrderNumber(orderId),
@@ -469,6 +541,8 @@ export default function CheckoutPage() {
                             price: i.price,
                           })),
                           subtotal: amounts.subtotal,
+                          discount: amounts.discount,
+                          couponCode: amounts.couponCode ?? null,
                           deliveryFee: amounts.deliveryFee,
                           total: amounts.total,
                           deliveryDate: form.deliveryDate,
@@ -543,21 +617,64 @@ export default function CheckoutPage() {
                 </li>
               ))}
             </ul>
+            {/* Coupon entry — validated server-side, never guessed here */}
+            <div className="mt-4 border-t border-dustyrose/40 pt-4">
+              {appliedCoupon ? (
+                <div className="flex items-center justify-between gap-2 text-sm">
+                  <span className="font-semibold text-darkberry">
+                    Coupon <span className="uppercase">{appliedCoupon}</span> applied
+                  </span>
+                  <button
+                    type="button"
+                    onClick={removeCoupon}
+                    className="text-xs font-semibold text-wine underline"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <input
+                    value={couponInput}
+                    onChange={(e) => setCouponInput(e.target.value)}
+                    placeholder="Coupon code"
+                    className={`${INPUT} !py-2`}
+                  />
+                  <button
+                    type="button"
+                    onClick={applyCoupon}
+                    disabled={couponBusy || !couponInput.trim()}
+                    className="shrink-0 rounded-2xl bg-wine px-4 py-2 text-sm font-semibold text-blush-50 disabled:opacity-50"
+                  >
+                    {couponBusy ? "…" : "Apply"}
+                  </button>
+                </div>
+              )}
+              {couponMsg && <p className="mt-1.5 text-xs font-semibold text-green-700">{couponMsg}</p>}
+              {couponError && <p className="mt-1.5 text-xs font-semibold text-red-600">{couponError}</p>}
+            </div>
+
             <dl className="mt-4 space-y-1.5 border-t border-dustyrose/40 pt-4 text-sm">
               <div className="flex justify-between text-berry">
                 <dt>Subtotal</dt>
-                <dd className="font-semibold text-darkberry">{money(subtotal)}</dd>
+                <dd className="font-semibold text-darkberry">{money(summary.subtotal)}</dd>
               </div>
+              {summary.discount > 0 && (
+                <div className="flex justify-between text-green-700">
+                  <dt>Discount{summary.couponCode ? ` (${summary.couponCode.toUpperCase()})` : ""}</dt>
+                  <dd className="font-semibold">−{money(summary.discount)}</dd>
+                </div>
+              )}
               <div className="flex justify-between text-berry">
                 <dt>Delivery</dt>
                 <dd className="font-semibold text-darkberry">
-                  {deliveryFee === 0 ? "Free" : money(deliveryFee)}
+                  {summary.deliveryFee === 0 ? "Free" : money(summary.deliveryFee)}
                 </dd>
               </div>
               <div className="flex justify-between border-t border-dustyrose/40 pt-2">
                 <dt className="font-bold text-darkberry">Total</dt>
                 <dd className="font-display text-lg font-bold text-wine-dark">
-                  {money(total)}
+                  {money(summary.total)}
                 </dd>
               </div>
             </dl>

@@ -26,6 +26,8 @@ import { createClient } from "@/utils/supabase/client";
 import { useCart } from "@/components/cart/cart-context";
 import { slugify } from "@/lib/slug";
 import { money } from "@/lib/pricing";
+import { useActiveOffer } from "@/lib/use-active-offer";
+import { PriceText } from "@/components/product-price";
 
 type DetailProduct = {
   id: string;
@@ -105,6 +107,7 @@ export default function ProductDetailPage() {
   const slug = params?.slug ?? "";
   const router = useRouter();
   const { addItem, openCart } = useCart();
+  const { offers: activeOffers } = useActiveOffer();
 
   const [products, setProducts] = useState<DetailProduct[]>([]);
   const [loading, setLoading] = useState(true);
@@ -240,7 +243,7 @@ export default function ProductDetailPage() {
             </div>
 
             <p className="mt-4 font-display text-3xl font-bold text-wine-dark">
-              {money(product.price)}
+              <PriceText product={product} offers={activeOffers} badge />
             </p>
 
             <p className="mt-4 leading-relaxed text-darkberry-light">

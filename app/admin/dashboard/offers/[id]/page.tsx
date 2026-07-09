@@ -1,0 +1,733 @@
+"use client";
+
+// ============================================================
+// Le Rasa Bakery — Offer create / edit form
+// One page handles both create ("new") and edit (an offer id), organised into
+// the sections from the spec: Basics, Discount value, Eligibility, Cart
+// conditions, Audience, Schedule, Storefront content. Persists via the
+// password-gated /api/admin/offers routes; the server (Phase 3) is the source
+// of truth — the client validation here only mirrors it for a quick message.
+// Styled to match the Products / Content & Settings admin pages.
+// ============================================================
+
+import { useCallback, useEffect, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { adminGet, adminSend, adminUpload } from "@/lib/admin-api";
+import { useIsMobile } from "@/lib/use-is-mobile";
+import { offerFromRow } from "@/lib/offers";
+
+const WINE = "#873853";
+const BERRY = "#5C2A41";
+
+const TYPE_OPTIONS = [
+  { value: "percentage", label: "Percentage off" },
+  { value: "fixed_amount", label: "Fixed amount off" },
+  { value: "buy_x_get_y", label: "Buy X get Y" },
+  { value: "free_delivery", label: "Free delivery" },
+  { value: "coupon", label: "Coupon code" },
+  { value: "custom", label: "Custom" },
+] as const;
+
+const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+type OfferType = (typeof TYPE_OPTIONS)[number]["value"];
+
+type FormState = {
+  name: string;
+  type: OfferType;
+  enabled: boolean;
+  stackable: boolean;
+  priority: string;
+  percentage_value: string;
+  fixed_amount_value: string;
+  buy_x_quantity: string;
+  get_y_quantity: string;
+  get_y_discount_percent: string;
+  free_delivery: boolean;
+  coupon_code: string;
+  coupon_discount_type: "percentage" | "fixed_amount";
+  eligibility_scope: "all" | "categories" | "products";
+  includeCategories: string[];
+  includeProducts: string[];
+  excludeCategories: string[];
+  excludeProducts: string[];
+  min_order_amount: string;
+  max_order_amount: string;
+  min_quantity: string;
+  max_quantity: string;
+  audience: "everyone" | "first_order" | "new_customer" | "specific_emails";
+  emailsText: string;
+  usage_limit_total: string;
+  usage_limit_per_customer: string;
+  start_at: string;
+  end_at: string;
+  time_start: string;
+  time_end: string;
+  days_of_week: number[];
+  announcement_text: string;
+  hero_heading: string;
+  hero_subtext: string;
+  hero_highlight_text: string;
+  cta_text: string;
+  cta_link: string;
+  banner_image_url: string;
+};
+
+const EMPTY_FORM: FormState = {
+  name: "",
+  type: "percentage",
+  enabled: false,
+  stackable: false,
+  priority: "0",
+  percentage_value: "",
+  fixed_amount_value: "",
+  buy_x_quantity: "",
+  get_y_quantity: "",
+  get_y_discount_percent: "100",
+  free_delivery: false,
+  coupon_code: "",
+  coupon_discount_type: "percentage",
+  eligibility_scope: "all",
+  includeCategories: [],
+  includeProducts: [],
+  excludeCategories: [],
+  excludeProducts: [],
+  min_order_amount: "",
+  max_order_amount: "",
+  min_quantity: "",
+  max_quantity: "",
+  audience: "everyone",
+  emailsText: "",
+  usage_limit_total: "",
+  usage_limit_per_customer: "",
+  start_at: "",
+  end_at: "",
+  time_start: "",
+  time_end: "",
+  days_of_week: [],
+  announcement_text: "",
+  hero_heading: "",
+  hero_subtext: "",
+  hero_highlight_text: "",
+  cta_text: "",
+  cta_link: "",
+  banner_image_url: "",
+};
+
+const numStr = (v: unknown): string => (v === null || v === undefined ? "" : String(v));
+
+export default function OfferFormPage() {
+  const router = useRouter();
+  const params = useParams<{ id: string }>();
+  const isMobile = useIsMobile();
+  const id = params.id;
+  const isNew = id === "new";
+
+  const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const [loading, setLoading] = useState(!isNew);
+  const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState("");
+
+  const [categoryOptions, setCategoryOptions] = useState<string[]>([]);
+  const [productOptions, setProductOptions] = useState<{ id: string; name: string }[]>([]);
+
+  const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
+    setForm((f) => ({ ...f, [key]: value }));
+
+  // --- load option sources (categories + products) for the pickers ---------
+  useEffect(() => {
+    (async () => {
+      try {
+        const cats = await adminGet<{ categories: { name: string; count: number }[] }>(
+          "/api/admin/products/categories",
+          { force: true },
+        );
+        setCategoryOptions((cats.categories || []).map((c) => c.name));
+      } catch {
+        /* leave empty; the picker shows a hint */
+      }
+      try {
+        const prods = await adminGet<{ products: { id: string; name: string }[] }>(
+          "/api/admin/products?page=1&pageSize=100",
+        );
+        setProductOptions((prods.products || []).map((p) => ({ id: p.id, name: p.name })));
+      } catch {
+        /* leave empty */
+      }
+    })();
+  }, []);
+
+  // --- load the offer being edited -----------------------------------------
+  const loadOffer = useCallback(async () => {
+    if (isNew) return;
+    setLoading(true);
+    setError("");
+    try {
+      const data = await adminGet<{ offer: Record<string, unknown> }>(`/api/admin/offers/${id}`, {
+        force: true,
+      });
+      const o = offerFromRow(data.offer);
+      setForm({
+        name: o.name,
+        type: (o.type as OfferType) || "percentage",
+        enabled: o.enabled,
+        stackable: o.stackable,
+        priority: numStr(o.priority),
+        percentage_value: numStr(o.percentage_value),
+        fixed_amount_value: numStr(o.fixed_amount_value),
+        buy_x_quantity: numStr(o.buy_x_quantity),
+        get_y_quantity: numStr(o.get_y_quantity),
+        get_y_discount_percent: numStr(o.get_y_discount_percent) || "100",
+        free_delivery: !!o.free_delivery,
+        coupon_code: o.coupon_code ?? "",
+        coupon_discount_type: o.coupon_discount_type === "fixed_amount" ? "fixed_amount" : "percentage",
+        eligibility_scope: o.eligibility_scope || "all",
+        includeCategories: o.categoryRules.filter((r) => r.mode === "include").map((r) => r.category),
+        includeProducts: o.productRules.filter((r) => r.mode === "include").map((r) => r.product_id),
+        excludeCategories: o.categoryRules.filter((r) => r.mode === "exclude").map((r) => r.category),
+        excludeProducts: o.productRules.filter((r) => r.mode === "exclude").map((r) => r.product_id),
+        min_order_amount: numStr(o.min_order_amount),
+        max_order_amount: numStr(o.max_order_amount),
+        min_quantity: numStr(o.min_quantity),
+        max_quantity: numStr(o.max_quantity),
+        audience: o.audience || "everyone",
+        emailsText: (o.emails ?? []).join("\n"),
+        usage_limit_total: numStr(o.usage_limit_total),
+        usage_limit_per_customer: numStr(o.usage_limit_per_customer),
+        start_at: (o.start_at ?? "").slice(0, 16),
+        end_at: (o.end_at ?? "").slice(0, 16),
+        time_start: (o.time_start ?? "").slice(0, 5),
+        time_end: (o.time_end ?? "").slice(0, 5),
+        days_of_week: Array.isArray(o.days_of_week) ? o.days_of_week : [],
+        announcement_text: o.announcement_text ?? "",
+        hero_heading: o.hero_heading ?? "",
+        hero_subtext: o.hero_subtext ?? "",
+        hero_highlight_text: o.hero_highlight_text ?? "",
+        cta_text: o.cta_text ?? "",
+        cta_link: o.cta_link ?? "",
+        banner_image_url: o.banner_image_url ?? "",
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load offer");
+    } finally {
+      setLoading(false);
+    }
+  }, [id, isNew]);
+
+  useEffect(() => {
+    loadOffer();
+  }, [loadOffer]);
+
+  function toggleDay(d: number) {
+    setForm((f) => ({
+      ...f,
+      days_of_week: f.days_of_week.includes(d)
+        ? f.days_of_week.filter((x) => x !== d)
+        : [...f.days_of_week, d].sort((a, b) => a - b),
+    }));
+  }
+
+  async function handleBanner(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    setError("");
+    try {
+      const { url } = await adminUpload(file, "/api/admin/site-assets/upload");
+      set("banner_image_url", url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  // Mirror (not replace) the server-side validation for a fast message.
+  function clientValidate(): string | null {
+    if (!form.name.trim()) return "Name is required.";
+    switch (form.type) {
+      case "percentage":
+        if (!(Number(form.percentage_value) > 0)) return "Enter a percentage value.";
+        break;
+      case "fixed_amount":
+        if (!(Number(form.fixed_amount_value) > 0)) return "Enter a fixed amount.";
+        break;
+      case "buy_x_get_y":
+        if (!(Number(form.buy_x_quantity) > 0) || !(Number(form.get_y_quantity) > 0))
+          return "Enter Buy X and Get Y quantities.";
+        break;
+      case "coupon": {
+        if (!form.coupon_code.trim()) return "Enter a coupon code.";
+        const v =
+          form.coupon_discount_type === "percentage" ? form.percentage_value : form.fixed_amount_value;
+        if (!(Number(v) > 0)) return "Enter the coupon discount value.";
+        break;
+      }
+    }
+    return null;
+  }
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    const invalid = clientValidate();
+    if (invalid) {
+      setError(invalid);
+      return;
+    }
+    setSaving(true);
+    setError("");
+
+    const categoryRules = [
+      ...(form.eligibility_scope === "categories"
+        ? form.includeCategories.map((c) => ({ category: c, mode: "include" as const }))
+        : []),
+      ...form.excludeCategories.map((c) => ({ category: c, mode: "exclude" as const })),
+    ];
+    const productRules = [
+      ...(form.eligibility_scope === "products"
+        ? form.includeProducts.map((p) => ({ product_id: p, mode: "include" as const }))
+        : []),
+      ...form.excludeProducts.map((p) => ({ product_id: p, mode: "exclude" as const })),
+    ];
+    const emails = form.emailsText
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    const payload = {
+      name: form.name.trim(),
+      type: form.type,
+      enabled: form.enabled,
+      stackable: form.stackable,
+      priority: form.priority,
+      percentage_value: form.percentage_value,
+      fixed_amount_value: form.fixed_amount_value,
+      buy_x_quantity: form.buy_x_quantity,
+      get_y_quantity: form.get_y_quantity,
+      get_y_discount_percent: form.get_y_discount_percent,
+      free_delivery: form.free_delivery,
+      coupon_code: form.coupon_code,
+      coupon_discount_type: form.coupon_discount_type,
+      eligibility_scope: form.eligibility_scope,
+      min_order_amount: form.min_order_amount,
+      max_order_amount: form.max_order_amount,
+      min_quantity: form.min_quantity,
+      max_quantity: form.max_quantity,
+      audience: form.audience,
+      usage_limit_total: form.usage_limit_total,
+      usage_limit_per_customer: form.usage_limit_per_customer,
+      start_at: form.start_at || null,
+      end_at: form.end_at || null,
+      time_start: form.time_start || null,
+      time_end: form.time_end || null,
+      days_of_week: form.days_of_week,
+      announcement_text: form.announcement_text,
+      hero_heading: form.hero_heading,
+      hero_subtext: form.hero_subtext,
+      hero_highlight_text: form.hero_highlight_text,
+      cta_text: form.cta_text,
+      cta_link: form.cta_link,
+      banner_image_url: form.banner_image_url,
+      categoryRules,
+      productRules,
+      emails,
+    };
+
+    try {
+      if (isNew) {
+        await adminSend("/api/admin/offers", "POST", payload);
+      } else {
+        await adminSend(`/api/admin/offers/${id}`, "PUT", payload);
+      }
+      router.push("/admin/dashboard/offers");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save offer");
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (isNew) return;
+    if (!window.confirm(`Delete "${form.name}"? This cannot be undone.`)) return;
+    setError("");
+    try {
+      await adminSend(`/api/admin/offers/${id}`, "DELETE");
+      router.push("/admin/dashboard/offers");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete offer");
+    }
+  }
+
+  if (loading) {
+    return <p style={{ color: BERRY, opacity: 0.7 }}>Loading offer…</p>;
+  }
+
+  const productOpts = productOptions.map((p) => ({ value: p.id, label: p.name }));
+  const catOpts = categoryOptions.map((c) => ({ value: c, label: c }));
+
+  return (
+    <div style={{ maxWidth: 760 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+        <h1 style={{ color: WINE, fontSize: "1.8rem", fontWeight: 800, margin: 0 }}>
+          {isNew ? "New Offer" : "Edit Offer"}
+        </h1>
+        <button type="button" onClick={() => router.push("/admin/dashboard/offers")} style={secondaryBtn}>
+          ← Back to offers
+        </button>
+      </div>
+
+      {error && <p style={errorBox}>{error}</p>}
+
+      <form onSubmit={handleSave} style={{ marginTop: 20, display: "flex", flexDirection: "column", gap: 20 }}>
+        {/* BASICS ------------------------------------------------------- */}
+        <Section title="Basics">
+          <Field label="Name (internal label)">
+            <input style={inputStyle} value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="e.g. Summer 20% off" />
+          </Field>
+          <Field label="Type">
+            <select style={inputStyle} value={form.type} onChange={(e) => set("type", e.target.value as OfferType)}>
+              {TYPE_OPTIONS.map((t) => (
+                <option key={t.value} value={t.value}>{t.label}</option>
+              ))}
+            </select>
+          </Field>
+          <div style={{ display: "flex", gap: 20, flexWrap: "wrap", alignItems: "center" }}>
+            <label style={checkRow}>
+              <Toggle on={form.enabled} onClick={() => set("enabled", !form.enabled)} /> Enabled
+            </label>
+            <label style={checkRow}>
+              <Toggle on={form.stackable} onClick={() => set("stackable", !form.stackable)} /> Stackable
+            </label>
+            <div style={{ flex: 1, minWidth: 140 }}>
+              <label style={labelStyle}>Priority</label>
+              <input style={inputStyle} type="number" value={form.priority} onChange={(e) => set("priority", e.target.value)} />
+            </div>
+          </div>
+          <p style={hintStyle}>
+            Stackable offers run alongside another active offer. Priority breaks ties when more than one
+            non-stackable offer could be active.
+          </p>
+        </Section>
+
+        {/* DISCOUNT VALUE ---------------------------------------------- */}
+        <Section title="Discount value">
+          {form.type === "percentage" && (
+            <Field label="Percentage off (%)">
+              <input style={inputStyle} type="number" step="0.01" min="0" max="100" value={form.percentage_value} onChange={(e) => set("percentage_value", e.target.value)} placeholder="e.g. 20" />
+            </Field>
+          )}
+          {form.type === "fixed_amount" && (
+            <Field label="Amount off (£)">
+              <input style={inputStyle} type="number" step="0.01" min="0" value={form.fixed_amount_value} onChange={(e) => set("fixed_amount_value", e.target.value)} placeholder="e.g. 5.00" />
+            </Field>
+          )}
+          {form.type === "buy_x_get_y" && (
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+              <div style={{ flex: 1, minWidth: 120 }}>
+                <label style={labelStyle}>Buy quantity (X)</label>
+                <input style={inputStyle} type="number" min="1" value={form.buy_x_quantity} onChange={(e) => set("buy_x_quantity", e.target.value)} placeholder="e.g. 2" />
+              </div>
+              <div style={{ flex: 1, minWidth: 120 }}>
+                <label style={labelStyle}>Get quantity (Y)</label>
+                <input style={inputStyle} type="number" min="1" value={form.get_y_quantity} onChange={(e) => set("get_y_quantity", e.target.value)} placeholder="e.g. 1" />
+              </div>
+              <div style={{ flex: 1, minWidth: 120 }}>
+                <label style={labelStyle}>Y discount (%)</label>
+                <input style={inputStyle} type="number" step="0.01" min="0" max="100" value={form.get_y_discount_percent} onChange={(e) => set("get_y_discount_percent", e.target.value)} placeholder="100 = free" />
+              </div>
+            </div>
+          )}
+          {form.type === "coupon" && (
+            <>
+              <Field label="Coupon code">
+                <input style={inputStyle} value={form.coupon_code} onChange={(e) => set("coupon_code", e.target.value)} placeholder="e.g. WELCOME10" />
+              </Field>
+              <Field label="Coupon discount type">
+                <select style={inputStyle} value={form.coupon_discount_type} onChange={(e) => set("coupon_discount_type", e.target.value as "percentage" | "fixed_amount")}>
+                  <option value="percentage">Percentage off</option>
+                  <option value="fixed_amount">Fixed amount off</option>
+                </select>
+              </Field>
+              {form.coupon_discount_type === "percentage" ? (
+                <Field label="Percentage off (%)">
+                  <input style={inputStyle} type="number" step="0.01" min="0" max="100" value={form.percentage_value} onChange={(e) => set("percentage_value", e.target.value)} placeholder="e.g. 10" />
+                </Field>
+              ) : (
+                <Field label="Amount off (£)">
+                  <input style={inputStyle} type="number" step="0.01" min="0" value={form.fixed_amount_value} onChange={(e) => set("fixed_amount_value", e.target.value)} placeholder="e.g. 5.00" />
+                </Field>
+              )}
+            </>
+          )}
+          {form.type === "free_delivery" && (
+            <p style={hintStyle}>Free delivery offers need no discount value — the delivery fee is waived when the offer is active.</p>
+          )}
+          {form.type === "custom" && (
+            <p style={hintStyle}>Custom offers carry no automatic discount math; use the free-delivery toggle and/or storefront content below.</p>
+          )}
+          <label style={{ ...checkRow, marginTop: 6 }}>
+            <Toggle on={form.free_delivery} onClick={() => set("free_delivery", !form.free_delivery)} /> Also give free delivery
+          </label>
+        </Section>
+
+        {/* ELIGIBILITY -------------------------------------------------- */}
+        <Section title="Eligibility">
+          <Field label="Applies to">
+            <select style={inputStyle} value={form.eligibility_scope} onChange={(e) => set("eligibility_scope", e.target.value as FormState["eligibility_scope"])}>
+              <option value="all">All products</option>
+              <option value="categories">Specific categories</option>
+              <option value="products">Specific products</option>
+            </select>
+          </Field>
+          {form.eligibility_scope === "categories" && (
+            <MultiPicker label="Include categories" options={catOpts} selected={form.includeCategories} onChange={(v) => set("includeCategories", v)} emptyHint="No categories found." />
+          )}
+          {form.eligibility_scope === "products" && (
+            <MultiPicker label="Include products" options={productOpts} selected={form.includeProducts} onChange={(v) => set("includeProducts", v)} emptyHint="No products found." />
+          )}
+          <p style={hintStyle}>Exclusions always apply, whatever the scope above — use them for “everything except…”.</p>
+          <MultiPicker label="Exclude categories" options={catOpts} selected={form.excludeCategories} onChange={(v) => set("excludeCategories", v)} emptyHint="No categories found." />
+          <MultiPicker label="Exclude products" options={productOpts} selected={form.excludeProducts} onChange={(v) => set("excludeProducts", v)} emptyHint="No products found." />
+        </Section>
+
+        {/* CART CONDITIONS --------------------------------------------- */}
+        <Section title="Cart conditions">
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ flex: 1, minWidth: 140 }}>
+              <label style={labelStyle}>Min order amount (£)</label>
+              <input style={inputStyle} type="number" step="0.01" min="0" value={form.min_order_amount} onChange={(e) => set("min_order_amount", e.target.value)} placeholder="No minimum" />
+            </div>
+            <div style={{ flex: 1, minWidth: 140 }}>
+              <label style={labelStyle}>Max order amount (£)</label>
+              <input style={inputStyle} type="number" step="0.01" min="0" value={form.max_order_amount} onChange={(e) => set("max_order_amount", e.target.value)} placeholder="No maximum" />
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ flex: 1, minWidth: 140 }}>
+              <label style={labelStyle}>Min quantity</label>
+              <input style={inputStyle} type="number" min="0" value={form.min_quantity} onChange={(e) => set("min_quantity", e.target.value)} placeholder="No minimum" />
+            </div>
+            <div style={{ flex: 1, minWidth: 140 }}>
+              <label style={labelStyle}>Max quantity</label>
+              <input style={inputStyle} type="number" min="0" value={form.max_quantity} onChange={(e) => set("max_quantity", e.target.value)} placeholder="No maximum" />
+            </div>
+          </div>
+        </Section>
+
+        {/* AUDIENCE ----------------------------------------------------- */}
+        <Section title="Audience">
+          <Field label="Who can use this offer">
+            <select style={inputStyle} value={form.audience} onChange={(e) => set("audience", e.target.value as FormState["audience"])}>
+              <option value="everyone">Everyone</option>
+              <option value="first_order">First order only</option>
+              <option value="new_customer">New customers only</option>
+              <option value="specific_emails">Specific emails</option>
+            </select>
+          </Field>
+          {form.audience === "specific_emails" && (
+            <Field label="Allowed emails (one per line)">
+              <textarea style={{ ...inputStyle, minHeight: 90, resize: "vertical" }} value={form.emailsText} onChange={(e) => set("emailsText", e.target.value)} placeholder={"alice@example.com\nbob@example.com"} />
+            </Field>
+          )}
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ flex: 1, minWidth: 140 }}>
+              <label style={labelStyle}>Usage limit (total)</label>
+              <input style={inputStyle} type="number" min="0" value={form.usage_limit_total} onChange={(e) => set("usage_limit_total", e.target.value)} placeholder="Unlimited" />
+            </div>
+            <div style={{ flex: 1, minWidth: 140 }}>
+              <label style={labelStyle}>Usage limit (per customer)</label>
+              <input style={inputStyle} type="number" min="0" value={form.usage_limit_per_customer} onChange={(e) => set("usage_limit_per_customer", e.target.value)} placeholder="Unlimited" />
+            </div>
+          </div>
+        </Section>
+
+        {/* SCHEDULE ----------------------------------------------------- */}
+        <Section title="Schedule">
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <label style={labelStyle}>Starts</label>
+              <input style={inputStyle} type="datetime-local" value={form.start_at} onChange={(e) => set("start_at", e.target.value)} />
+            </div>
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <label style={labelStyle}>Ends</label>
+              <input style={inputStyle} type="datetime-local" value={form.end_at} onChange={(e) => set("end_at", e.target.value)} />
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ flex: 1, minWidth: 140 }}>
+              <label style={labelStyle}>Daily from (optional)</label>
+              <input style={inputStyle} type="time" value={form.time_start} onChange={(e) => set("time_start", e.target.value)} />
+            </div>
+            <div style={{ flex: 1, minWidth: 140 }}>
+              <label style={labelStyle}>Daily until (optional)</label>
+              <input style={inputStyle} type="time" value={form.time_end} onChange={(e) => set("time_end", e.target.value)} />
+            </div>
+          </div>
+          <div>
+            <label style={labelStyle}>Days of week (leave all unchecked for every day)</label>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {DAY_LABELS.map((d, i) => {
+                const on = form.days_of_week.includes(i);
+                return (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => toggleDay(i)}
+                    style={{
+                      padding: "8px 12px",
+                      borderRadius: 10,
+                      border: `1px solid ${on ? WINE : "rgba(135,56,83,0.25)"}`,
+                      background: on ? WINE : "transparent",
+                      color: on ? "white" : BERRY,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {d}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <p style={hintStyle}>
+            There is no scheduler to switch offers on and off — an offer is “active” whenever it’s enabled and
+            the current time falls inside this schedule.
+          </p>
+        </Section>
+
+        {/* STOREFRONT CONTENT ------------------------------------------ */}
+        <Section title="Storefront content">
+          <Field label="Announcement bar text">
+            <input style={inputStyle} value={form.announcement_text} onChange={(e) => set("announcement_text", e.target.value)} placeholder="Overrides the top bar while active" />
+          </Field>
+          <Field label="Banner heading">
+            <input style={inputStyle} value={form.hero_heading} onChange={(e) => set("hero_heading", e.target.value)} />
+          </Field>
+          <Field label="Banner subtext">
+            <input style={inputStyle} value={form.hero_subtext} onChange={(e) => set("hero_subtext", e.target.value)} />
+          </Field>
+          <Field label="Large watermark highlight">
+            <input style={inputStyle} value={form.hero_highlight_text} onChange={(e) => set("hero_highlight_text", e.target.value)} placeholder="30%, 50%, FREE, BUY 1 GET 1…" />
+          </Field>
+          <p style={hintStyle}>
+            Large watermark shown on the Special Offer banner — e.g. 30%, 50%, FREE, BUY 1 GET 1. Leave blank
+            to show the product count instead.
+          </p>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ flex: 1, minWidth: 160 }}>
+              <label style={labelStyle}>Call-to-action text</label>
+              <input style={inputStyle} value={form.cta_text} onChange={(e) => set("cta_text", e.target.value)} placeholder="e.g. Shop the sale" />
+            </div>
+            <div style={{ flex: 1, minWidth: 160 }}>
+              <label style={labelStyle}>Call-to-action link</label>
+              <input style={inputStyle} value={form.cta_link} onChange={(e) => set("cta_link", e.target.value)} placeholder="/menu" />
+            </div>
+          </div>
+          <Field label="Banner image (optional)">
+            {form.banner_image_url && (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img src={form.banner_image_url} alt="banner preview" style={{ width: "100%", maxWidth: 320, borderRadius: 10, display: "block", marginBottom: 8 }} />
+            )}
+            <input type="file" accept="image/*" onChange={handleBanner} disabled={uploading} />
+            {uploading && <span style={{ color: BERRY, opacity: 0.7, marginLeft: 8 }}>Uploading…</span>}
+          </Field>
+        </Section>
+
+        {/* ACTIONS ------------------------------------------------------ */}
+        <div style={{ display: "flex", gap: 12, justifyContent: "space-between", flexWrap: "wrap" }}>
+          {!isNew ? (
+            <button type="button" onClick={handleDelete} style={{ ...secondaryBtn, borderColor: "#d9534f", color: "#d9534f" }}>
+              Delete offer
+            </button>
+          ) : (
+            <span />
+          )}
+          <div style={{ display: "flex", gap: 12 }}>
+            <button type="button" onClick={() => router.push("/admin/dashboard/offers")} style={secondaryBtn}>Cancel</button>
+            <button type="submit" disabled={saving || uploading} style={{ ...primaryBtn, opacity: saving || uploading ? 0.6 : 1 }}>
+              {saving ? "Saving…" : "Save offer"}
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------
+// Small presentational helpers (match the products/settings styling)
+// ------------------------------------------------------------
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div style={{ background: "white", borderRadius: 16, padding: "1.25rem 1.4rem", boxShadow: "0 10px 30px rgba(135,56,83,0.08)" }}>
+      <h2 style={{ color: WINE, fontSize: "1.15rem", fontWeight: 800, margin: "0 0 14px" }}>{title}</h2>
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>{children}</div>
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label style={labelStyle}>{label}</label>
+      {children}
+    </div>
+  );
+}
+
+function Toggle({ on, onClick }: { on: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={on}
+      style={{ width: 44, height: 24, borderRadius: 999, border: "none", cursor: "pointer", background: on ? WINE : "rgba(135,56,83,0.2)", position: "relative", transition: "background 0.15s", flexShrink: 0 }}
+    >
+      <span style={{ position: "absolute", top: 2, left: on ? 22 : 2, width: 20, height: 20, borderRadius: "50%", background: "white", transition: "left 0.15s" }} />
+    </button>
+  );
+}
+
+function MultiPicker({
+  label,
+  options,
+  selected,
+  onChange,
+  emptyHint,
+}: {
+  label: string;
+  options: { value: string; label: string }[];
+  selected: string[];
+  onChange: (next: string[]) => void;
+  emptyHint: string;
+}) {
+  function toggle(value: string) {
+    onChange(selected.includes(value) ? selected.filter((v) => v !== value) : [...selected, value]);
+  }
+  return (
+    <div>
+      <label style={labelStyle}>{label}</label>
+      {options.length === 0 ? (
+        <p style={hintStyle}>{emptyHint}</p>
+      ) : (
+        <div style={{ maxHeight: 180, overflowY: "auto", border: "1px solid rgba(135,56,83,0.25)", borderRadius: 10, padding: "8px 10px", display: "flex", flexDirection: "column", gap: 6 }}>
+          {options.map((o) => (
+            <label key={o.value} style={{ display: "flex", alignItems: "center", gap: 8, color: BERRY, fontSize: "0.9rem", cursor: "pointer" }}>
+              <input type="checkbox" checked={selected.includes(o.value)} onChange={() => toggle(o.value)} />
+              {o.label}
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const inputStyle: React.CSSProperties = { width: "100%", boxSizing: "border-box", padding: "10px 12px", borderRadius: 10, border: "1px solid rgba(135,56,83,0.25)", fontSize: "0.95rem", color: BERRY, outline: "none" };
+const labelStyle: React.CSSProperties = { display: "block", fontWeight: 600, color: BERRY, marginBottom: 6, fontSize: "0.9rem" };
+const checkRow: React.CSSProperties = { display: "flex", alignItems: "center", gap: 10, color: BERRY, fontWeight: 600 };
+const hintStyle: React.CSSProperties = { color: BERRY, opacity: 0.65, fontSize: "0.82rem", margin: 0 };
+const primaryBtn: React.CSSProperties = { padding: "10px 18px", borderRadius: 10, border: "none", background: WINE, color: "white", fontWeight: 700, cursor: "pointer" };
+const secondaryBtn: React.CSSProperties = { padding: "10px 18px", borderRadius: 10, border: `1px solid ${WINE}`, background: "transparent", color: WINE, fontWeight: 700, cursor: "pointer" };
+const errorBox: React.CSSProperties = { background: "#fde8e8", color: "#b03030", padding: "10px 14px", borderRadius: 10, marginTop: 16 };

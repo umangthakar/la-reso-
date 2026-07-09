@@ -8,6 +8,7 @@ import {
   DEFAULT_ROTATING_BANNERS,
   type RotatingBanner,
 } from "@/lib/site-settings";
+import { useActiveOffer } from "@/lib/use-active-offer";
 
 // How long each banner stays before rotating to the next.
 const ROTATE_MS = 5000;
@@ -43,11 +44,28 @@ export function RotatingBanners({
   const current = slides[Math.min(index, slides.length - 1)];
   const icon = BANNER_ICONS[current.type] ?? "";
 
+  // Live active offer drives the "offer" slide + the highlight watermark.
+  const { offers: activeOffers } = useActiveOffer();
+  const activeOffer = activeOffers.primary;
+
+  // Watermark precedence: active offer's highlight (empty string = absent,
+  // falls through), then this banner's manual watermark, then product count.
+  const highlight = activeOffer?.hero_highlight_text?.trim();
+
+  // On the "offer" slide only, an active offer's content overrides the stored
+  // heading/subtext/cta (same precedence as the announcement bar). Every other
+  // banner type is untouched.
+  const isOfferSlide = current.type === "offer";
+  const heading = isOfferSlide && activeOffer?.hero_heading?.trim() ? activeOffer.hero_heading : current.heading;
+  const subtext = isOfferSlide && activeOffer?.hero_subtext?.trim() ? activeOffer.hero_subtext : current.subtext;
+  const ctaText = isOfferSlide && activeOffer?.cta_text?.trim() ? activeOffer.cta_text : current.cta_text;
+  const ctaLink = isOfferSlide && activeOffer?.cta_link?.trim() ? activeOffer.cta_link : current.cta_link;
+
   return (
     <section className="relative w-full overflow-hidden bg-[#F9EEEA] px-8 py-16">
-      {/* Decorative product-count watermark (unchanged from the hero) */}
+      {/* Decorative watermark: active-offer highlight → banner watermark → count */}
       <span className="pointer-events-none absolute right-6 top-1/2 hidden -translate-y-1/2 select-none font-display text-[200px] font-black tracking-tight leading-none text-[#7A2E4D]/50 md:block">
-        {current.watermark_text || count}
+        {highlight || current.watermark_text || count}
       </span>
 
       {/* Rotating content — cross-fades between banners. Fixed min-height so
@@ -67,17 +85,17 @@ export function RotatingBanners({
               </span>
             )}
             <h2 className="font-display text-5xl font-bold leading-tight text-[#612437] md:text-7xl">
-              {current.heading}
+              {heading}
             </h2>
-            {current.subtext && (
-              <p className="mt-4 text-[#9C616D]">{current.subtext}</p>
+            {subtext && (
+              <p className="mt-4 text-[#9C616D]">{subtext}</p>
             )}
-            {current.cta_text && current.cta_link && (
+            {ctaText && ctaLink && (
               <Link
-                href={current.cta_link}
+                href={ctaLink}
                 className="mt-6 inline-flex items-center gap-2 rounded-full bg-wine px-6 py-3 text-sm font-semibold text-blush-50 shadow-clay-sm transition-transform hover:-translate-y-0.5"
               >
-                {current.cta_text}
+                {ctaText}
               </Link>
             )}
           </motion.div>

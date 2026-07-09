@@ -10,6 +10,8 @@ import { Star, ShoppingCart, Zap, X, ArrowRight, Leaf } from "lucide-react";
 import type { Product } from "@/lib/data";
 import { useCart } from "@/components/cart/cart-context";
 import { slugify } from "@/lib/slug";
+import { useActiveOffer, type ActiveOffers } from "@/lib/use-active-offer";
+import { PriceText } from "@/components/product-price";
 
 /* ------------------------------------------------------------------ *
  * Le Rasa — Animated Product Card
@@ -129,6 +131,7 @@ export function AnimatedProductCard({ product }: { product: Product }) {
   const [mounted, setMounted] = useState(false);
   const open = hovered || pinned;
   const rating = ratingFor(product.id);
+  const { offers: activeOffers } = useActiveOffer();
 
   // Portal target only exists on the client.
   useEffect(() => setMounted(true), []);
@@ -216,7 +219,7 @@ export function AnimatedProductCard({ product }: { product: Product }) {
             {product.name}
           </h3>
           <span className="mt-2 block font-display text-lg font-bold text-[#743249]">
-            £{product.price.toFixed(2)}
+            <PriceText product={product} offers={activeOffers} />
           </span>
         </motion.div>
 
@@ -230,6 +233,7 @@ export function AnimatedProductCard({ product }: { product: Product }) {
             product={product}
             rating={rating}
             onReadMore={openModal}
+            offers={activeOffers}
             animated
           />
         </motion.div>
@@ -240,6 +244,7 @@ export function AnimatedProductCard({ product }: { product: Product }) {
             product={product}
             rating={rating}
             onReadMore={openModal}
+            offers={activeOffers}
           />
         </div>
       </div>
@@ -274,7 +279,7 @@ export function AnimatedProductCard({ product }: { product: Product }) {
           variants={overlayItem}
           className="absolute right-2 top-2 hidden rounded-full bg-white/95 px-3 py-1 text-sm font-bold text-[#743249] shadow-md md:block"
         >
-          £{product.price.toFixed(2)}
+          <PriceText product={product} offers={activeOffers} />
         </motion.span>
 
         {/* Rating + actions — bottom of the image */}
@@ -329,6 +334,7 @@ export function AnimatedProductCard({ product }: { product: Product }) {
               onClose={() => setModalOpen(false)}
               handleAdd={handleAdd}
               handleBuyNow={handleBuyNow}
+              offers={activeOffers}
             />
           )}
         </AnimatePresence>,
@@ -344,11 +350,13 @@ function ProductDetails({
   product,
   rating,
   onReadMore,
+  offers,
   animated = false,
 }: {
   product: Product;
   rating: number;
   onReadMore: (e: React.MouseEvent) => void;
+  offers: ActiveOffers;
   animated?: boolean;
 }) {
   const Row = animated ? motion.div : "div";
@@ -369,7 +377,7 @@ function ProductDetails({
         <span className="text-sm font-semibold text-[#743249]">{rating.toFixed(1)}</span>
       </Row>
       <Row {...rowProps} className="mt-2 font-display text-2xl font-bold text-[#743249]">
-        £{product.price.toFixed(2)}
+        <PriceText product={product} offers={offers} />
       </Row>
       <Row
         {...rowProps}
@@ -401,12 +409,14 @@ function ProductModal({
   onClose,
   handleAdd,
   handleBuyNow,
+  offers,
 }: {
   product: Product;
   rating: number;
   onClose: () => void;
   handleAdd: (e: React.MouseEvent) => void;
   handleBuyNow: (e: React.MouseEvent) => void;
+  offers: ActiveOffers;
 }) {
   return (
     <motion.div
@@ -476,7 +486,7 @@ function ProductModal({
               <span className="text-sm font-semibold text-[#743249]">{rating.toFixed(1)}</span>
             </div>
             <span className="font-display text-2xl font-bold text-[#743249]">
-              £{product.price.toFixed(2)}
+              <PriceText product={product} offers={offers} badge />
             </span>
           </div>
 
