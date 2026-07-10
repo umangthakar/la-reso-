@@ -162,6 +162,7 @@ function heroTextPlaceholder(form: FormState): string {
       buy_x_quantity: form.buy_x_quantity,
       get_y_quantity: form.get_y_quantity,
       get_y_discount_percent: form.get_y_discount_percent,
+      coupon_code: form.coupon_code,
     }),
   );
 }

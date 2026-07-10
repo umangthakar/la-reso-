@@ -730,13 +730,17 @@ function poundLabel(n: number): string {
  *   fixed_amount  -> "£10 OFF"
  *   buy_x_get_y   -> "BUY 1 GET 1 FREE"
  *   free_delivery -> "FREE DELIVERY"
- *   coupon        -> "" (see below)
+ *   coupon        -> the code itself, uppercased ("SAVE20") — see below
  *   custom        -> the offer name, uppercased ("CHRISTMAS SPECIAL")
  *
- * Coupons deliberately derive NOTHING. Coupon rows are non-enumerable by RLS
- * (supabase/sql/15_offers.sql) precisely so codes can't be harvested; auto-
- * printing coupon_code on a public banner would undo that. An admin publishes
- * a code by typing it into hero_highlight_text — an explicit opt-in.
+ * A coupon derives its own code as the hero text, so the banner announces
+ * "SAVE20" instead of falling through to the decorative product count. This is
+ * a deliberate, narrow relaxation of the rule that coupon codes stay server-
+ * side: coupon rows remain non-enumerable by RLS (supabase/sql/15_offers.sql),
+ * and only the ONE coupon an admin has opted into promoting (isDisplayEligible
+ * — it must carry banner or popup copy) ever reaches a page. Publishing that
+ * code is the entire point of promoting it. Every other coupon's code still
+ * never leaves the server.
  */
 export function offerHeroText(offer: Offer): string {
   const explicit = str(offer.hero_highlight_text);
@@ -762,7 +766,7 @@ export function offerHeroText(offer: Offer): string {
     case "free_delivery":
       return "FREE DELIVERY";
     case "coupon":
-      return "";
+      return str(offer.coupon_code).toUpperCase();
     case "custom":
     default:
       return str(offer.name).toUpperCase();

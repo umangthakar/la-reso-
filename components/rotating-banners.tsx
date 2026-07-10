@@ -13,6 +13,58 @@ import { useActiveOffer } from "@/lib/use-active-offer";
 // How long each banner stays before rotating to the next.
 const ROTATE_MS = 5000;
 
+// Hero-text sizing. The right column is at most RIGHT_COL_PX wide, and the hero
+// block may not grow taller than HERO_MAX_H_PX or it would overflow the banner.
+const RIGHT_COL_PX = 380;
+const HERO_MAX_H_PX = 200;
+const HERO_MAX_FONT_PX = 200;
+const HERO_MIN_FONT_PX = 36;
+// This display face measures ~0.69em per uppercase glyph; 0.72 buys a margin so
+// a word never lands flush against the column edge and gets split by
+// `break-words`. HERO_LEADING mirrors the rendered line-height.
+const GLYPH_EM = 0.72;
+const HERO_LEADING = 0.95;
+// Words are fitted against slightly less than the full column, so the estimate
+// erring high can still not trigger a mid-word break.
+const HERO_FIT_W = RIGHT_COL_PX * 0.95;
+
+/**
+ * The largest font size at which `text` fits the right column: no word may
+ * overflow the column's width, and the wrapped block may not exceed its height.
+ * Returned in px against the reference column width, then re-expressed in `cqw`
+ * by the caller. Wrapping is scale-invariant — font size and column width scale
+ * together — so the line structure found here holds at every viewport.
+ */
+function fitHeroFontPx(text: string): number {
+  const words = text.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return 0;
+
+  for (let font = HERO_MAX_FONT_PX; font >= HERO_MIN_FONT_PX; font--) {
+    const space = GLYPH_EM * font;
+    let lines = 1;
+    let lineWidth = 0;
+    let wordFits = true;
+
+    for (const word of words) {
+      const width = GLYPH_EM * font * word.length;
+      if (width > HERO_FIT_W) {
+        wordFits = false;
+        break;
+      }
+      if (lineWidth === 0) lineWidth = width;
+      else if (lineWidth + space + width <= HERO_FIT_W) lineWidth += space + width;
+      else {
+        lines++;
+        lineWidth = width;
+      }
+    }
+
+    if (!wordFits) continue;
+    if (lines * HERO_LEADING * font <= HERO_MAX_H_PX) return font;
+  }
+  return HERO_MIN_FONT_PX;
+}
+
 export function RotatingBanners({
   banners,
   count,
@@ -86,18 +138,37 @@ export function RotatingBanners({
   // banner in the rotation; each slide now decides for itself.
   const rightImage =
     current.right_content_type === "image" ? current.right_image_url.trim() : "";
-  // Highlight precedence: this banner's own watermark, then the product count.
-  // Trim first — a whitespace-only watermark is "unset", not a blank highlight.
-  const highlight = rightImage ? "" : current.watermark_text.trim() || String(count);
-
-  // The offer slide already carries the offer's own copy, so every slide simply
-  // renders its own fields.
-  const { heading, subtext, cta_text: ctaText, cta_link: ctaLink } = current;
 
   // An active offer's background image backs the offer slide only, behind a
   // blush scrim so the heading keeps its contrast. Other slides stay flat blush.
   const isOfferSlide = offerSlide !== null && current === offerSlide;
   const bannerImage = isOfferSlide ? display?.backgroundImageUrl ?? "" : "";
+
+  // Highlight precedence: this banner's own watermark, then the product count.
+  // Trim first — a whitespace-only watermark is "unset", not a blank highlight.
+  //
+  // The product-count fallback is for the DECORATIVE slides only. An offer slide
+  // whose hero text resolved to nothing must render nothing: falling back there
+  // printed a stray "9" next to the offer's copy.
+  const highlight = rightImage
+    ? ""
+    : current.watermark_text.trim() || (isOfferSlide ? "" : String(count));
+
+  // The offer slide already carries the offer's own copy, so every slide simply
+  // renders its own fields.
+  const { heading, subtext, cta_text: ctaText, cta_link: ctaLink } = current;
+
+  // The hero text has to fit the right-hand column instead of spilling across
+  // the banner, so its size is fitted to that column rather than fixed at 200px.
+  // `1cqw` is 1% of the column's own width, which is what makes it scale with
+  // the space actually available. A short highlight ("9") still renders as large
+  // as it always has; a long one ("FREE DELIVERY") shrinks and wraps.
+  const heroFontSize = useMemo(() => {
+    const fontPx = fitHeroFontPx(highlight);
+    if (fontPx === 0) return undefined;
+    const cqw = (fontPx / RIGHT_COL_PX) * 100;
+    return `clamp(${HERO_MIN_FONT_PX / 16}rem, ${cqw.toFixed(2)}cqw, ${fontPx}px)`;
+  }, [highlight]);
 
   return (
     <section
@@ -133,18 +204,29 @@ export function RotatingBanners({
                 aria-hidden
                 className="h-[200px] w-[26vw] max-w-[300px] object-contain object-right lg:h-[240px]"
               />
-            ) : (
-              <span className="block font-display text-[200px] font-black tracking-tight leading-none text-[#7A2E4D]/50">
-                {highlight}
-              </span>
-            )}
+            ) : highlight ? (
+              // The fixed-width query container is what bounds the hero text:
+              // it can no longer grow past this column into the left copy, and
+              // `cqw` in heroFontSize resolves against this width.
+              <div className="w-[34vw] max-w-[380px] [container-type:inline-size]">
+                <span
+                  className="block break-words text-right font-display font-black leading-[0.95] tracking-tight text-[#7A2E4D]/50"
+                  style={{ fontSize: heroFontSize }}
+                >
+                  {highlight}
+                </span>
+              </div>
+            ) : null}
           </motion.div>
         </AnimatePresence>
       </div>
 
       {/* Rotating content — cross-fades between banners. Fixed min-height so
-          the banner keeps the same height as the old hero (no layout jump). */}
-      <div className="relative min-h-[210px] max-w-2xl md:min-h-[240px]">
+          the banner keeps the same height as the old hero (no layout jump).
+          From md up (where the right column appears) the copy is also capped to
+          58% so it can never run underneath that column; below md the right
+          column is hidden and the full max-w-2xl applies as before. */}
+      <div className="relative min-h-[210px] max-w-2xl md:min-h-[240px] md:max-w-[min(42rem,58%)]">
         <AnimatePresence mode="wait">
           <motion.div
             key={index}

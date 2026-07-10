@@ -17,9 +17,10 @@
 //
 // Coupon rows are hidden from anon by RLS (supabase/sql/15_offers.sql), so the
 // display pool reads them with the service role, selecting ONLY presentation
-// columns — coupon_code is never in the projection and never leaves the server.
-// A coupon appears on the storefront only once an admin gives it banner/popup
-// copy (see isDisplayEligible), which is the explicit opt-in.
+// columns. A coupon appears on the storefront only once an admin gives it
+// banner/popup copy (see isDisplayEligible), which is the explicit opt-in — and
+// when it does, its own code is the hero text ("SAVE20"). Only the single
+// winning display offer is serialised, so no other coupon's code is exposed.
 //
 // Same discipline as /api/categories and /api/site-settings: force-dynamic,
 // no-store, and any failure returns the safe empty fallback rather than
@@ -47,15 +48,24 @@ const SUPABASE_ANON_KEY =
 const SELECT =
   "*,offer_category_rules(category,mode),offer_product_rules(product_id,mode)";
 
-// Presentation columns only, for the service-role coupon read. `coupon_code`,
-// the discount values and the usage limits are all deliberately absent: this
-// projection is the security boundary that keeps codes non-enumerable, so do
-// NOT replace it with `*`. Schedule columns are included because the display
-// offer's active-ness is derived, never stored.
+// Presentation columns only, for the service-role coupon read. The discount
+// values and the usage limits are deliberately absent: this projection is the
+// security boundary, so do NOT replace it with `*`.
+//
+// `coupon_code` IS selected, because a promoted coupon renders its own code as
+// the banner's hero text (offerHeroText). That does not make codes enumerable:
+// resolveActiveDisplay() picks a single winner from these rows and only that
+// winner's OfferDisplay is serialised to the client, and only a coupon the
+// admin gave banner/popup copy to is display-eligible at all. Every other
+// coupon's code is read here and discarded server-side.
+//
+// Schedule columns are included because the display offer's active-ness is
+// derived, never stored.
 const DISPLAY_SELECT = [
   "id",
   "name",
   "type",
+  "coupon_code",
   "enabled",
   "stackable",
   "priority",
