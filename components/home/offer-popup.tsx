@@ -13,8 +13,16 @@
 // banner copy, so percentage, fixed-amount, buy-X-get-Y, free-delivery, coupon
 // and custom/seasonal offers all announce themselves here.
 //
-// Behaviour: appears ~3.5s after the home page loads, once per browser
-// session (sessionStorage), dismissible via the X, the backdrop or Escape.
+// Timing contract: the offer is fetched immediately on mount; the countdown
+// starts only once that fetch has resolved, and then runs for a fixed 3s — the
+// fetch time is never added to it. No active offer means no popup. Shown once
+// per browser session (sessionStorage), dismissible via the X, backdrop or Esc.
+//
+// The countdown is keyed on the offer's ID, NOT on the offer object. Every
+// component that calls useActiveOffer() re-fetches on mount, and each resolved
+// fetch broadcasts a freshly-parsed object to all subscribers. A product grid
+// mounts dozens of those, so depending on the object identity here restarted
+// the timer on every broadcast — the popup would surface late, or never.
 // ============================================================
 
 import { useCallback, useEffect, useState } from "react";
@@ -25,7 +33,7 @@ import { useActiveOffer } from "@/lib/use-active-offer";
 
 /** Marked as soon as the popup is shown, so it appears once per session. */
 const SESSION_KEY = "lerasa:offer-popup-seen";
-const SHOW_AFTER_MS = 3500;
+const SHOW_AFTER_MS = 3000;
 
 /** Copy used only when the offer itself carries no message. */
 const FALLBACK_MESSAGE = "Check out our latest offers on the Menu page.";
@@ -39,9 +47,14 @@ export function OfferPopup() {
 
   const dismiss = useCallback(() => setOpen(false), []);
 
-  // Arm the timer only once a live offer has actually resolved.
+  // A stable dependency. `offer` is a new object on every broadcast even when
+  // it describes the same offer, so keying the effect on it reset the pending
+  // timeout each time; the id only changes when the offer genuinely does.
+  const offerId = offer?.id ?? null;
+
+  // Arm the countdown once the offer has resolved, and let it run to the end.
   useEffect(() => {
-    if (loading || !offer) return;
+    if (loading || !offerId) return;
     try {
       if (window.sessionStorage.getItem(SESSION_KEY)) return;
     } catch {
@@ -58,7 +71,7 @@ export function OfferPopup() {
     }, SHOW_AFTER_MS);
 
     return () => clearTimeout(id);
-  }, [loading, offer]);
+  }, [loading, offerId]);
 
   // Escape closes, matching the backdrop click.
   useEffect(() => {
