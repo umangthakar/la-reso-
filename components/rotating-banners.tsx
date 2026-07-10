@@ -163,16 +163,23 @@ export function RotatingBanners({
   // `1cqw` is 1% of the column's own width, which is what makes it scale with
   // the space actually available. A short highlight ("9") still renders as large
   // as it always has; a long one ("FREE DELIVERY") shrinks and wraps.
+  // The lower bound is a CSS variable, not a constant: the mobile column is far
+  // narrower than the desktop one, so it needs a smaller floor. `--hero-min` is
+  // set per breakpoint on the column below, leaving desktop sizing untouched.
   const heroFontSize = useMemo(() => {
     const fontPx = fitHeroFontPx(highlight);
     if (fontPx === 0) return undefined;
     const cqw = (fontPx / RIGHT_COL_PX) * 100;
-    return `clamp(${HERO_MIN_FONT_PX / 16}rem, ${cqw.toFixed(2)}cqw, ${fontPx}px)`;
+    const fallback = `${HERO_MIN_FONT_PX / 16}rem`;
+    return `clamp(var(--hero-min, ${fallback}), ${cqw.toFixed(2)}cqw, ${fontPx}px)`;
   }, [highlight]);
 
   return (
+    // `pb-36` on mobile only: it is the room the bottom-right highlight occupies,
+    // keeping it clear of the CTA and the dots. From md up the highlight is back
+    // in its own column and the padding is the original py-16.
     <section
-      className="relative w-full overflow-hidden bg-[#F9EEEA] px-8 py-16"
+      className="relative w-full overflow-hidden bg-[#F9EEEA] px-8 pb-36 pt-16 md:py-16"
       style={
         bannerImage
           ? {
@@ -184,10 +191,15 @@ export function RotatingBanners({
       }
     >
       {/* Right-side content, per banner: either the decorative highlight text
-          or the banner's own image. Stays desktop-only (md:block) exactly as
-          the watermark always has, so the mobile layout is unchanged and the
-          absolutely-positioned content can never overlap the left copy. */}
-      <div className="pointer-events-none absolute right-6 top-1/2 hidden -translate-y-1/2 select-none md:block">
+          or the banner's own image.
+
+          From md up this is the vertically-centred right column it has always
+          been. Below md there is no room beside the copy, so it anchors to the
+          bottom-right corner instead — clear of the heading, the subtext and
+          the CTA (which are all left-aligned and end above it) — and shrinks
+          with its own width. It used to be `hidden md:block`, which is why the
+          highlight vanished on mobile entirely. */}
+      <div className="pointer-events-none absolute bottom-4 right-4 select-none md:bottom-auto md:right-6 md:top-1/2 md:-translate-y-1/2">
         <AnimatePresence mode="wait">
           <motion.div
             key={index}
@@ -197,18 +209,22 @@ export function RotatingBanners({
             transition={{ duration: 0.6, ease: "easeOut" }}
           >
             {rightImage ? (
+              // Banner images stay desktop-only, exactly as before — there is no
+              // room for a 300px illustration beside the copy on a phone.
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={rightImage}
                 alt=""
                 aria-hidden
-                className="h-[200px] w-[26vw] max-w-[300px] object-contain object-right lg:h-[240px]"
+                className="hidden h-[200px] w-[26vw] max-w-[300px] object-contain object-right md:block lg:h-[240px]"
               />
             ) : highlight ? (
               // The fixed-width query container is what bounds the hero text:
               // it can no longer grow past this column into the left copy, and
-              // `cqw` in heroFontSize resolves against this width.
-              <div className="w-[34vw] max-w-[380px] [container-type:inline-size]">
+              // `cqw` in heroFontSize resolves against this width. Narrower on
+              // mobile, so the same cqw ratio yields a proportionally smaller
+              // font — the highlight shrinks rather than disappearing.
+              <div className="w-[42vw] max-w-[200px] [--hero-min:1.25rem] [container-type:inline-size] md:w-[34vw] md:max-w-[380px] md:[--hero-min:2.25rem]">
                 <span
                   className="block break-words text-right font-display font-black leading-[0.95] tracking-tight text-[#7A2E4D]/50"
                   style={{ fontSize: heroFontSize }}
