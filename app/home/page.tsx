@@ -3,6 +3,7 @@ import { getPublicSettings } from "@/lib/site-settings-server";
 import { HomeSlider } from "@/components/home/home-slider";
 import { HomeProducts, type HomeProduct } from "@/components/home/home-products";
 import { WhatsappFloat } from "@/components/home/whatsapp-float";
+import { OfferPopup } from "@/components/home/offer-popup";
 import { Marquee } from "@/components/marquee";
 import { Testimonials } from "@/components/testimonials";
 
@@ -98,6 +99,9 @@ export default async function HomeLandingPage() {
 
       {/* 7. WHATSAPP FLOATING BUTTON */}
       <WhatsappFloat number={settings.contact.whatsapp} />
+
+      {/* Active-offer popup — home page only, once per browser session. */}
+      <OfferPopup />
 
       {/* 8. FOOTER — shared footer (branding + address) is rendered by the
           root layout. Address also surfaced here for the landing context. */}

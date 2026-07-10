@@ -16,6 +16,13 @@ import {
   useState,
 } from "react";
 import { deliveryFeeFor, round2 } from "@/lib/pricing";
+import { useActiveOffer } from "@/lib/use-active-offer";
+import {
+  checkCartConditions,
+  computeOfferDiscount,
+  type Offer,
+  type OfferCartItem,
+} from "@/lib/offers";
 
 export type CartItem = {
   id: string;
@@ -31,6 +38,8 @@ type CartContextValue = {
   items: CartItem[];
   count: number;
   subtotal: number;
+  discount: number;
+  freeDelivery: boolean;
   deliveryFee: number;
   total: number;
   isOpen: boolean;
@@ -69,6 +78,9 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   const [items, setItems] = useState<CartItem[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [hydrated, setHydrated] = useState(false);
+  // Live active offers, so the drawer's subtotal/total match what checkout
+  // will actually charge. Display-only — the server always recomputes.
+  const { offers: activeOffers } = useActiveOffer();
 
   // Load once on mount (avoids SSR/client hydration mismatch).
   useEffect(() => {
@@ -117,19 +129,47 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   const openCart = useCallback(() => setIsOpen(true), []);
   const closeCart = useCallback(() => setIsOpen(false), []);
 
-  const { count, subtotal, deliveryFee, total } = useMemo(() => {
+  const { count, subtotal, discount, freeDelivery, deliveryFee, total } = useMemo(() => {
     const count = items.reduce((n, i) => n + i.quantity, 0);
     const subtotal = round2(
       items.reduce((s, i) => s + i.price * i.quantity, 0),
     );
-    const deliveryFee = deliveryFeeFor(subtotal);
-    return { count, subtotal, deliveryFee, total: round2(subtotal + deliveryFee) };
-  }, [items]);
+
+    // Apply the live offer(s) exactly as the checkout will: same lib/offers.ts
+    // math, over the real cart items. We can only verify the "everyone"
+    // audience client-side (first-order / new-customer / specific-email checks
+    // need the server), so audience-restricted offers are conservatively left
+    // for the server to apply — the drawer never over-promises a discount.
+    const offerItems: OfferCartItem[] = items.map((i) => ({
+      id: i.id,
+      category: i.category,
+      price: i.price,
+      quantity: i.quantity,
+    }));
+    let discount = 0;
+    let freeDelivery = false;
+    const applicable = [activeOffers.primary, ...activeOffers.stackable].filter(
+      (o): o is Offer => !!o && o.audience === "everyone",
+    );
+    for (const offer of applicable) {
+      if (!checkCartConditions(offer, subtotal, count).ok) continue;
+      const d = computeOfferDiscount(offer, offerItems, subtotal);
+      discount += d.discountAmount;
+      if (d.freeDelivery) freeDelivery = true;
+    }
+    discount = round2(Math.min(Math.max(discount, 0), subtotal));
+
+    const deliveryFee = freeDelivery ? 0 : deliveryFeeFor(subtotal);
+    const total = round2(subtotal - discount + deliveryFee);
+    return { count, subtotal, discount, freeDelivery, deliveryFee, total };
+  }, [items, activeOffers]);
 
   const value: CartContextValue = {
     items,
     count,
     subtotal,
+    discount,
+    freeDelivery,
     deliveryFee,
     total,
     isOpen,

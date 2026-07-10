@@ -26,6 +26,8 @@ type Snapshot = {
   orderNumber: string;
   items: { name: string; quantity: number; price: number }[];
   subtotal: number;
+  discount?: number;
+  couponCode?: string | null;
   deliveryFee: number;
   total: number;
   deliveryDate: string;
@@ -168,6 +170,12 @@ export default function OrderConfirmationPage() {
                     {money(order.subtotal)}
                   </dd>
                 </div>
+                {order.discount && order.discount > 0 ? (
+                  <div className="flex justify-between text-green-700">
+                    <dt>Discount{order.couponCode ? ` (${order.couponCode.toUpperCase()})` : ""}</dt>
+                    <dd className="font-semibold">−{money(order.discount)}</dd>
+                  </div>
+                ) : null}
                 <div className="flex justify-between text-berry">
                   <dt>Delivery</dt>
                   <dd className="font-semibold text-darkberry">
