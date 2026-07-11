@@ -4,8 +4,9 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Menu, X, ShoppingBag, Cake, Phone, Star, User } from "lucide-react";
+import { Menu, X, ShoppingBag, Phone, Star, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { LogoMark } from "@/components/logo-mark";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/use-auth";
 import { useSiteSettings } from "@/lib/use-site-settings";
@@ -85,20 +86,7 @@ export function Navbar() {
       >
         <nav className="container flex items-center justify-between py-3">
           <Link href="/" className="flex items-center gap-2.5">
-            <span className="grid h-10 w-10 place-items-center overflow-hidden rounded-2xl border-2 border-white/90 bg-[#F8F2EE] p-0.5 text-wine-dark shadow-[0_10px_30px_rgba(107,31,58,0.15)]">
-              {settings.logo ? (
-                // Uploaded logo (site_settings.logo) sits INSIDE the fixed
-                // container; the wordmark beside it always stays visible.
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={settings.logo}
-                  alt="Le Rasa"
-                  className="h-full w-full object-contain"
-                />
-              ) : (
-                <Cake className="h-5 w-5" />
-              )}
-            </span>
+            <LogoMark logo={settings.logo} />
             <span className="flex flex-col leading-none">
               <span className="font-display text-lg font-semibold text-darkberry">
                 Le Rasa

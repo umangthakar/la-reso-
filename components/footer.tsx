@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { Cake, Instagram, Facebook, Music2, Mail, MapPin, Phone } from "lucide-react";
+import { Instagram, Facebook, Music2, Mail, MapPin, Phone } from "lucide-react";
 import { CardCarousel } from "@/components/ui/card-carousel";
+import { LogoMark } from "@/components/logo-mark";
 import { useSiteSettings } from "@/lib/use-site-settings";
 import { instagramUrl, instagramHandle } from "@/lib/site-settings";
 
@@ -83,19 +84,7 @@ export function Footer() {
         <div className="container grid gap-10 py-10 text-center sm:grid-cols-2 sm:py-14 sm:text-left lg:grid-cols-4">
           <div className="sm:col-span-2 lg:col-span-1">
             <Link href="/" className="flex items-center justify-center gap-2.5 sm:justify-start">
-              <span className="grid h-10 w-10 place-items-center overflow-hidden rounded-2xl border border-white/15 bg-gradient-to-br from-[#6B1F3A] to-[#8B3556] p-1 text-blush-50 shadow-clay-sm">
-                {settings.logo ? (
-                  // Uploaded logo INSIDE the fixed container; wordmark stays.
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={settings.logo}
-                    alt="Le Rasa"
-                    className="h-full w-full object-contain"
-                  />
-                ) : (
-                  <Cake className="h-5 w-5" />
-                )}
-              </span>
+              <LogoMark logo={settings.logo} />
               <span className="flex flex-col leading-none">
                 <span className="font-display text-lg font-semibold text-blush-50">
                   Le Rasa
