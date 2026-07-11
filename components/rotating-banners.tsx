@@ -209,14 +209,16 @@ export function RotatingBanners({
             transition={{ duration: 0.6, ease: "easeOut" }}
           >
             {rightImage ? (
-              // Banner images stay desktop-only, exactly as before — there is no
-              // room for a 300px illustration beside the copy on a phone.
+              // Banner images render at every breakpoint: a small mobile-first
+              // size (tucked in the same bottom-right corner as the highlight)
+              // that scales up to the unchanged desktop values from md. Aspect
+              // ratio preserved (object-contain), right-aligned (object-right).
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={rightImage}
                 alt=""
                 aria-hidden
-                className="hidden h-[200px] w-[26vw] max-w-[300px] object-contain object-right md:block lg:h-[240px]"
+                className="block h-[80px] w-[26vw] max-w-[120px] object-contain object-right sm:h-[110px] sm:max-w-[150px] md:h-[200px] md:w-[26vw] md:max-w-[300px] lg:h-[240px]"
               />
             ) : highlight ? (
               // The fixed-width query container is what bounds the hero text:
