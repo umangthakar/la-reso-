@@ -5,6 +5,7 @@ import { Instagram, Facebook, Music2, Mail, MapPin, Phone } from "lucide-react";
 import { CardCarousel } from "@/components/ui/card-carousel";
 import { LogoMark } from "@/components/logo-mark";
 import { useSiteSettings } from "@/lib/use-site-settings";
+import { usePolicies } from "@/lib/use-policies";
 import { instagramUrl, instagramHandle } from "@/lib/site-settings";
 
 // Shown when the matching site_settings field is empty, so the footer never
@@ -17,6 +18,9 @@ const FALLBACK = {
 
 export function Footer() {
   const { settings } = useSiteSettings();
+  // Admin-managed, from the policies table. No fallback list: if none are
+  // enabled, the footer simply shows no policy links.
+  const { policies } = usePolicies();
 
   const address = settings.contact.address.trim() || FALLBACK.address;
   const phone = settings.contact.phone.trim();
@@ -186,6 +190,25 @@ export function Footer() {
             </p>
           </div>
         </div>
+
+        {/* Policy links — order, labels and visibility all come from the
+            admin panel (the policies table). Renders nothing when none are
+            enabled, so the bar keeps its original two-item layout. */}
+        {policies.length > 0 && (
+          <div className="border-t border-blush-100/10">
+            <nav className="container flex flex-wrap items-center justify-center gap-x-6 gap-y-2 py-5 text-xs text-blush-100/70 sm:justify-start">
+              {policies.map((p) => (
+                <Link
+                  key={p.id}
+                  href={`/policies/${p.slug}`}
+                  className="transition-colors hover:text-dustyrose"
+                >
+                  {p.title}
+                </Link>
+              ))}
+            </nav>
+          </div>
+        )}
 
         <div className="border-t border-blush-100/10">
           <div className="container flex flex-col items-center justify-between gap-3 py-6 text-xs text-blush-100/60 sm:flex-row">
