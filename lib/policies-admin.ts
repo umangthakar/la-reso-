@@ -23,7 +23,7 @@ type Body = Record<string, unknown>;
 
 /** Every column the admin panel reads or writes. */
 export const POLICY_COLS =
-  "id,title,short_description,content,read_more_text,slug,display_order,enabled,created_at,updated_at";
+  "id,title,short_description,content,read_more_text,slug,icon_url,display_order,enabled,created_at,updated_at";
 
 function str(v: unknown, fallback = ""): string {
   if (v === null || v === undefined) return fallback;
@@ -109,6 +109,8 @@ export function buildPolicyRow(body: Body, slug: string): Record<string, unknown
     content: str(body.content),
     read_more_text: str(body.read_more_text, "Read More"),
     slug,
+    // Optional: '' means the storefront picks a default Lucide icon instead.
+    icon_url: str(body.icon_url),
     display_order: Number(body.display_order) || 0,
     enabled: body.enabled ?? true,
   };

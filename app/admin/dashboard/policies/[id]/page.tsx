@@ -15,7 +15,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
-import { adminGet, adminSend } from "@/lib/admin-api";
+import { adminGet, adminSend, adminUpload } from "@/lib/admin-api";
 import { useIsMobile } from "@/lib/use-is-mobile";
 import { slugify } from "@/lib/slug";
 import {
@@ -34,6 +34,7 @@ type FormState = {
   content: string;
   read_more_text: string;
   slug: string;
+  icon_url: string;
   display_order: string;
   enabled: boolean;
 };
@@ -44,6 +45,7 @@ const EMPTY_FORM: FormState = {
   content: "",
   read_more_text: "Read More",
   slug: "",
+  icon_url: "",
   display_order: "0",
   enabled: true,
 };
@@ -57,6 +59,7 @@ export default function PolicyEditPage({ params }: { params: { id: string } }) {
   const [others, setOthers] = useState<Policy[]>([]); // every OTHER policy, for the slug-uniqueness hint
   const [loading, setLoading] = useState(!isNew);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
 
   // The slug stops tracking the title the moment the admin types in it —
@@ -96,6 +99,7 @@ export default function PolicyEditPage({ params }: { params: { id: string } }) {
         content: found.content ?? "",
         read_more_text: found.read_more_text || "Read More",
         slug: found.slug,
+        icon_url: found.icon_url ?? "",
         display_order: String(found.display_order ?? 0),
         enabled: found.enabled,
       });
@@ -123,6 +127,23 @@ export default function PolicyEditPage({ params }: { params: { id: string } }) {
     return "";
   }, [effectiveSlug, others]);
 
+  /** Optional icon for the home-page policy card. Blank = the site's default. */
+  async function handleIcon(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    setError("");
+    try {
+      const { url } = await adminUpload(file, "/api/admin/site-assets/upload");
+      setForm((f) => ({ ...f, icon_url: url }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploading(false);
+      e.target.value = ""; // so re-picking the same file fires onChange again
+    }
+  }
+
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     if (!form.title.trim()) {
@@ -142,6 +163,7 @@ export default function PolicyEditPage({ params }: { params: { id: string } }) {
       content: form.content,
       read_more_text: form.read_more_text.trim() || "Read More",
       slug: effectiveSlug, // blank is fine — the server derives it from the title
+      icon_url: form.icon_url,
       display_order: Number(form.display_order) || 0,
       enabled: form.enabled,
     };
@@ -229,6 +251,35 @@ export default function PolicyEditPage({ params }: { params: { id: string } }) {
               onChange={(e) => setForm({ ...form, short_description: e.target.value })}
               placeholder="One line shown on the policy card, e.g. “How we collect and protect your personal information.”"
             />
+          </div>
+
+          <div style={{ marginBottom: 14 }}>
+            <label style={labelStyle}>Icon (optional)</label>
+            {form.icon_url && (
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={form.icon_url}
+                  alt="icon preview"
+                  style={{ width: 40, height: 40, objectFit: "contain", display: "block" }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setForm({ ...form, icon_url: "" })}
+                  style={{ ...secondaryBtn, padding: "6px 12px", fontSize: "0.82rem" }}
+                >
+                  Remove icon
+                </button>
+              </div>
+            )}
+            <input type="file" accept="image/*" onChange={handleIcon} disabled={uploading} />
+            {uploading && (
+              <span style={{ color: BERRY, opacity: 0.7, marginLeft: 8 }}>Uploading…</span>
+            )}
+            <p style={hint}>
+              Shown on the home-page policy cards. Leave this empty and the site picks a matching
+              outline icon automatically — you only need to upload one to override it.
+            </p>
           </div>
 
           <div style={{ display: isMobile ? "block" : "flex", gap: 12, marginBottom: 14 }}>
@@ -372,8 +423,8 @@ export default function PolicyEditPage({ params }: { params: { id: string } }) {
             </button>
             <button
               type="submit"
-              disabled={saving}
-              style={{ ...primaryBtn, opacity: saving ? 0.6 : 1, ...(isMobile ? { minHeight: 44 } : {}) }}
+              disabled={saving || uploading}
+              style={{ ...primaryBtn, opacity: saving || uploading ? 0.6 : 1, ...(isMobile ? { minHeight: 44 } : {}) }}
             >
               {saving ? "Saving…" : isNew ? "Create policy" : "Save changes"}
             </button>

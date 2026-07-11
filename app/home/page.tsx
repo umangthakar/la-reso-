@@ -4,8 +4,10 @@ import { HomeSlider } from "@/components/home/home-slider";
 import { HomeProducts, type HomeProduct } from "@/components/home/home-products";
 import { WhatsappFloat } from "@/components/home/whatsapp-float";
 import { OfferPopup } from "@/components/home/offer-popup";
+import { PolicyCards } from "@/components/home/policy-cards";
 import { Marquee } from "@/components/marquee";
 import { Testimonials } from "@/components/testimonials";
+import { getPolicies } from "@/lib/policies-server";
 
 // Fetch settings + products fresh on every request so admin edits show
 // immediately with no redeploy.
@@ -45,14 +47,16 @@ async function fetchHomeProducts(): Promise<HomeProduct[]> {
 }
 
 export default async function HomeLandingPage() {
-  const [settings, products] = await Promise.all([
+  // Policies are read here (not inside the component) so the three reads share
+  // one round trip, like settings and products already do.
+  const [settings, products, policies] = await Promise.all([
     getPublicSettings(),
     fetchHomeProducts(),
+    getPolicies(),
   ]);
 
   const waDigits = settings.contact.whatsapp.replace(/[^0-9]/g, "");
   const waText = settings.whatsapp_bar.text || "For any question";
-  const address = settings.contact.address.trim();
 
   return (
     <div className="pb-16">
@@ -103,15 +107,12 @@ export default async function HomeLandingPage() {
       {/* Active-offer popup — home page only, once per browser session. */}
       <OfferPopup />
 
-      {/* 8. FOOTER — shared footer (branding + address) is rendered by the
-          root layout. Address also surfaced here for the landing context. */}
-      {address && (
-        <section className="container mt-16 border-t border-[#F2DCD6] pt-6 text-center text-sm text-[#9C616D]">
-          <span className="font-display text-lg font-bold text-darkberry">Le Rasa</span>
-          <span className="mx-2">·</span>
-          {address}
-        </section>
-      )}
+      {/* 8. POLICIES — replaces the old "Le Rasa · {address}" strip that used to
+          close the page. The address was already in the footer on every page,
+          so this slot now carries the policy cards instead. Every card is a row
+          from the policies table; the admin's order and enabled flags decide
+          what renders. */}
+      <PolicyCards policies={policies} />
     </div>
   );
 }
