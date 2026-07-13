@@ -10,7 +10,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Plus, Minus, Trash2, ShoppingBag } from "lucide-react";
-import { useCart } from "@/components/cart/cart-context";
+import { useCart, unitPriceOf } from "@/components/cart/cart-context";
 import { usePurchaseGate } from "@/lib/use-purchase-gate";
 import { money, FREE_DELIVERY_THRESHOLD } from "@/lib/pricing";
 
@@ -139,6 +139,17 @@ export function CartDrawer() {
                               {item.name}
                             </p>
                             <p className="text-xs text-berry">{item.category}</p>
+                            {/* The cake wizard's choices, so the basket shows
+                                exactly what's being bought. */}
+                            {item.customization?.lines.map((c) => (
+                              <p
+                                key={c.key}
+                                className="truncate text-xs text-berry/80"
+                                title={`${c.label}: ${c.value}`}
+                              >
+                                {c.label}: <span className="text-darkberry">{c.value}</span>
+                              </p>
+                            ))}
                           </div>
                           <button
                             onClick={() => removeItem(item.id)}
@@ -175,7 +186,7 @@ export function CartDrawer() {
                             </button>
                           </div>
                           <span className="font-display text-sm font-bold text-wine-dark">
-                            {money(item.price * item.quantity)}
+                            {money(unitPriceOf(item) * item.quantity)}
                           </span>
                         </div>
                       </div>

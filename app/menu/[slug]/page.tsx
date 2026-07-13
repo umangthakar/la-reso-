@@ -28,6 +28,7 @@ import { slugify } from "@/lib/slug";
 import { money } from "@/lib/pricing";
 import { useActiveOffer } from "@/lib/use-active-offer";
 import { usePurchaseGate } from "@/lib/use-purchase-gate";
+import { useCustomization } from "@/lib/use-customization";
 import { consumePurchaseIntent, peekPurchaseIntent } from "@/lib/purchase-intent";
 import { PriceText } from "@/components/product-price";
 
@@ -111,6 +112,7 @@ export default function ProductDetailPage() {
   const { addItem, openCart } = useCart();
   const { offers: activeOffers } = useActiveOffer();
   const { requireAuth, user, ready: authReady } = usePurchaseGate();
+  const { isCustomizable, loading: configLoading } = useCustomization();
 
   const [products, setProducts] = useState<DetailProduct[]>([]);
   const [loading, setLoading] = useState(true);
@@ -161,7 +163,9 @@ export default function ProductDetailPage() {
   // it to the basket and continue straight to checkout.
   useEffect(() => {
     if (!resuming || resumed.current) return;
-    if (!authReady || loading) return;
+    // `configLoading` matters: until it settles we don't know whether this is
+    // a cake, and a cake must land in the wizard rather than the cart.
+    if (!authReady || loading || configLoading) return;
 
     if (!user || !product || !product.in_stock) {
       // Signed out again, product gone, or sold out while they were away —
@@ -184,6 +188,12 @@ export default function ProductDetailPage() {
     consumePurchaseIntent();
     const quantity = Math.min(99, Math.max(1, pending!.quantity ?? 1));
     setQty(quantity);
+
+    // Same fork as a fresh Buy Now: cakes get customized first.
+    if (isCustomizable(product.id)) {
+      router.push(`/customize/${slugify(product.name)}?qty=${quantity}`);
+      return;
+    }
     addItem(
       {
         id: product.id,
@@ -196,7 +206,18 @@ export default function ProductDetailPage() {
       quantity,
     );
     router.push("/checkout");
-  }, [resuming, authReady, loading, user, product, slug, addItem, router]);
+  }, [
+    resuming,
+    authReady,
+    loading,
+    configLoading,
+    user,
+    product,
+    slug,
+    addItem,
+    isCustomizable,
+    router,
+  ]);
 
   if (loading || resuming) {
     return (
@@ -240,6 +261,9 @@ export default function ProductDetailPage() {
   // Purchasing requires a signed-in customer: if they aren't, the gate stores
   // this exact product + quantity and sends them to Google login, and this
   // page replays the Buy Now when they come back.
+  //
+  // A cake then goes through the customization wizard before the cart; every
+  // other product keeps the existing straight-to-checkout flow.
   const buyNow = async () => {
     const allowed = await requireAuth({
       action: "buy-now",
@@ -249,6 +273,10 @@ export default function ProductDetailPage() {
       href: `/menu/${cartLine.slug}`,
     });
     if (!allowed) return;
+    if (isCustomizable(product.id)) {
+      router.push(`/customize/${cartLine.slug}?qty=${qty}`);
+      return;
+    }
     addItem(cartLine, qty);
     router.push("/checkout");
   };

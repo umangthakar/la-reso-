@@ -17,6 +17,7 @@ import {
 } from "react";
 import { deliveryFeeFor, round2 } from "@/lib/pricing";
 import { useActiveOffer } from "@/lib/use-active-offer";
+import type { Customization } from "@/lib/customization";
 import {
   checkCartConditions,
   computeOfferDiscount,
@@ -25,14 +26,38 @@ import {
 } from "@/lib/offers";
 
 export type CartItem = {
+  /**
+   * The cart LINE id. For a plain product this is the product id; for a
+   * customized cake it is `<productId>::<signature>` (see lib/customization),
+   * so two differently-customized cakes are two lines rather than one line of
+   * quantity 2. Legacy baskets stored before customization existed hold a bare
+   * product id here and no `productId` — `productIdOf` handles both.
+   */
   id: string;
   name: string;
+  /** Base product price. Accessory extras live in `addons`, never in here. */
   price: number;
   image: string;
   category: string;
   slug: string;
   quantity: number;
+  /** The underlying product. Absent on legacy items, where `id` IS the product. */
+  productId?: string;
+  /** Per-unit accessory extra from the customization wizard. */
+  addons?: number;
+  /** What the customer chose in the wizard. */
+  customization?: Customization;
 };
+
+/** The product a line refers to, tolerating baskets saved before customization. */
+export function productIdOf(item: CartItem): string {
+  return item.productId ?? item.id;
+}
+
+/** What one unit of a line actually costs: base price plus its accessories. */
+export function unitPriceOf(item: CartItem): number {
+  return round2(item.price + (item.addons ?? 0));
+}
 
 type CartContextValue = {
   items: CartItem[];
@@ -131,9 +156,20 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
   const { count, subtotal, discount, freeDelivery, deliveryFee, total } = useMemo(() => {
     const count = items.reduce((n, i) => n + i.quantity, 0);
-    const subtotal = round2(
+
+    // Product prices and accessory extras are kept APART, because the offer
+    // engine discounts cakes — not candles. `productSubtotal` is what the
+    // offers see (identical to the old `subtotal`, since a basket with no
+    // customization has no accessories), and the wizard's extras are added on
+    // afterwards. /api/checkout/create-intent splits them the same way, so
+    // what the drawer shows is what Stripe charges.
+    const productSubtotal = round2(
       items.reduce((s, i) => s + i.price * i.quantity, 0),
     );
+    const accessoriesTotal = round2(
+      items.reduce((s, i) => s + (i.addons ?? 0) * i.quantity, 0),
+    );
+    const subtotal = round2(productSubtotal + accessoriesTotal);
 
     // Apply the live offer(s) exactly as the checkout will: same lib/offers.ts
     // math, over the real cart items. We can only verify the "everyone"
@@ -141,7 +177,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     // need the server), so audience-restricted offers are conservatively left
     // for the server to apply — the drawer never over-promises a discount.
     const offerItems: OfferCartItem[] = items.map((i) => ({
-      id: i.id,
+      id: productIdOf(i),
       category: i.category,
       price: i.price,
       quantity: i.quantity,
@@ -152,8 +188,8 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       (o): o is Offer => !!o && o.audience === "everyone",
     );
     for (const offer of applicable) {
-      if (!checkCartConditions(offer, subtotal, count).ok) continue;
-      const d = computeOfferDiscount(offer, offerItems, subtotal);
+      if (!checkCartConditions(offer, productSubtotal, count).ok) continue;
+      const d = computeOfferDiscount(offer, offerItems, productSubtotal);
       discount += d.discountAmount;
       if (d.freeDelivery) freeDelivery = true;
     }

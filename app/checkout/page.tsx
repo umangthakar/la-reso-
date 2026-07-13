@@ -20,7 +20,7 @@ import {
 import type { Appearance } from "@stripe/stripe-js";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { Check, ChevronLeft, Lock, Loader2, ShoppingBag } from "lucide-react";
-import { useCart } from "@/components/cart/cart-context";
+import { useCart, productIdOf, unitPriceOf } from "@/components/cart/cart-context";
 import { useAuth } from "@/lib/use-auth";
 import { loginHrefFor, savePurchaseIntent } from "@/lib/purchase-intent";
 import { useSiteSettings } from "@/lib/use-site-settings";
@@ -230,7 +230,8 @@ export default function CheckoutPage() {
           email: form.email,
           postcode: form.postcode,
           cartItems: items.map((i) => ({
-            id: i.id,
+            // Offer product rules key on the PRODUCT, not the cart line.
+            id: productIdOf(i),
             category: i.category,
             price: i.price,
             quantity: i.quantity,
@@ -273,7 +274,16 @@ export default function CheckoutPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          items: items.map((i) => ({ id: i.id, quantity: i.quantity })),
+          // `productId` and the wizard's selections travel with each line; the
+          // server re-prices the accessories itself and ignores our numbers.
+          items: items.map((i) => ({
+            id: i.id,
+            productId: productIdOf(i),
+            quantity: i.quantity,
+            customization: i.customization
+              ? { selections: i.customization.selections }
+              : undefined,
+          })),
           deliveryDate: form.deliveryDate,
           postcode: form.postcode,
           email: form.email,
@@ -463,9 +473,15 @@ export default function CheckoutPage() {
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-bold text-darkberry">{i.name}</p>
                         <p className="text-xs text-berry">Qty {i.quantity}</p>
+                        {/* What the wizard added, so they can check it before paying */}
+                        {i.customization?.lines.map((c) => (
+                          <p key={c.key} className="text-xs text-berry/80">
+                            {c.label}: {c.value}
+                          </p>
+                        ))}
                       </div>
                       <span className="text-sm font-bold text-wine-dark">
-                        {money(i.price * i.quantity)}
+                        {money(unitPriceOf(i) * i.quantity)}
                       </span>
                     </div>
                   ))}
@@ -535,10 +551,14 @@ export default function CheckoutPage() {
                               deliveryDate: form.deliveryDate,
                               specialInstructions: form.instructions,
                               items: items.map((i) => ({
-                                id: i.id,
+                                // The PRODUCT id — order_items.product_id is a
+                                // real FK, so a cart-line id would not resolve.
+                                id: productIdOf(i),
                                 name: i.name,
                                 price: i.price,
                                 quantity: i.quantity,
+                                addons: i.addons ?? 0,
+                                customization: i.customization ?? null,
                               })),
                             }),
                           });
@@ -559,7 +579,9 @@ export default function CheckoutPage() {
                           items: items.map((i) => ({
                             name: i.name,
                             quantity: i.quantity,
-                            price: i.price,
+                            // Accessories included, so the confirmation's line
+                            // totals add up to what was actually charged.
+                            price: unitPriceOf(i),
                           })),
                           subtotal: amounts.subtotal,
                           discount: amounts.discount,
@@ -633,7 +655,7 @@ export default function CheckoutPage() {
                     {i.quantity} × {i.name}
                   </span>
                   <span className="shrink-0 font-semibold text-darkberry">
-                    {money(i.price * i.quantity)}
+                    {money(unitPriceOf(i) * i.quantity)}
                   </span>
                 </li>
               ))}

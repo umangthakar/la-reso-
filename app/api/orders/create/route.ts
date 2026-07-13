@@ -27,13 +27,27 @@ function isMissingColumn(err: { code?: string; message?: string } | null): boole
   );
 }
 
+type OrderItemCustomization = {
+  lines?: { key: string; label: string; value: string; price: number }[];
+  selections?: Record<string, unknown>;
+  total?: number;
+};
+
 type Body = {
   paymentIntentId?: string;
   customer?: { name?: string; email?: string; phone?: string };
   address?: { line?: string; city?: string; postcode?: string };
   deliveryDate?: string;
   specialInstructions?: string;
-  items?: { id: string; name: string; price: number; quantity: number }[];
+  items?: {
+    id: string;
+    name: string;
+    price: number;
+    quantity: number;
+    /** Per-unit accessory extra from the cake customization wizard. */
+    addons?: number;
+    customization?: OrderItemCustomization | null;
+  }[];
 };
 
 export async function POST(req: Request) {
@@ -166,22 +180,41 @@ export async function POST(req: Request) {
   }
 
   // 4) Insert line items (best-effort snapshot for analytics / invoices).
+  //    A customized cake also carries its accessories: `addons_total` is the
+  //    per-unit extra and `customization` is the resolved, human-readable
+  //    choice list the baker works from. Both are snapshots — editing or
+  //    deleting an accessory later must never rewrite a placed order.
   const items = Array.isArray(body.items) ? body.items : [];
   if (items.length > 0) {
     const rows = items.map((i) => {
       const qty = Math.max(1, Math.trunc(Number(i.quantity)) || 1);
       const unit = round2(Number(i.price) || 0);
+      const addons = round2(Math.max(0, Number(i.addons) || 0));
       return {
         order_id: order.id,
         product_id: i.id,
         product_name: i.name,
         unit_price: unit,
         quantity: qty,
-        line_total: round2(unit * qty),
+        line_total: round2((unit + addons) * qty),
+        addons_total: addons,
+        customization: i.customization ?? null,
       };
     });
+
     // Don't fail the whole order if items can't be written; the order is saved.
-    await supabase.from("order_items").insert(rows);
+    // If 21_cake_customization.sql hasn't been run, the two new columns don't
+    // exist yet — retry without them rather than losing the line items.
+    const { error: itemsErr } = await supabase.from("order_items").insert(rows);
+    if (itemsErr && isMissingColumn(itemsErr)) {
+      await supabase.from("order_items").insert(
+        rows.map(({ addons_total, customization, ...core }) => {
+          void addons_total;
+          void customization;
+          return core;
+        }),
+      );
+    }
   }
 
   // 5) Record the offer redemption (powers usage limits / analytics). Same

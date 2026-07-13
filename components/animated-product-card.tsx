@@ -12,6 +12,7 @@ import { useCart } from "@/components/cart/cart-context";
 import { slugify } from "@/lib/slug";
 import { useActiveOffer, type ActiveOffers } from "@/lib/use-active-offer";
 import { usePurchaseGate } from "@/lib/use-purchase-gate";
+import { useCustomization } from "@/lib/use-customization";
 import { PriceText } from "@/components/product-price";
 
 /* ------------------------------------------------------------------ *
@@ -159,6 +160,7 @@ export function AnimatedProductCard({ product }: { product: Product }) {
   const router = useRouter();
   const { addItem, openCart } = useCart();
   const { requireAuth } = usePurchaseGate();
+  const { isCustomizable } = useCustomization();
   const slug = slugify(product.name);
   const detailHref = `/menu/${slug}`;
 
@@ -193,6 +195,12 @@ export function AnimatedProductCard({ product }: { product: Product }) {
       href: detailHref,
     });
     if (!allowed) return;
+    // A cake is customized before it reaches the cart; everything else keeps
+    // the existing straight-to-checkout flow.
+    if (isCustomizable(product.id)) {
+      router.push(`/customize/${slug}?qty=1`);
+      return;
+    }
     addItem(cartLine);
     router.push("/checkout");
   };

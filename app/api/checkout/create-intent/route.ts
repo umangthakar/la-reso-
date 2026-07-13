@@ -5,6 +5,14 @@
 // The amount is computed SERVER-SIDE from authoritative product
 // prices in Supabase (never trusting client-sent prices), plus the
 // shared delivery rule. Returns the PaymentIntent client secret.
+//
+// Cake customization: a line may carry the wizard's `selections`. Their cost
+// is RE-PRICED here from the live accessory config — the client's numbers are
+// never trusted — so a tampered basket cannot buy a £6 topper for £0. Product
+// prices and accessory extras are kept apart, because the offer engine
+// discounts cakes, not candles: offers still see exactly the product subtotal
+// they saw before this feature existed, and the extras are added afterwards.
+// A basket with no customization prices byte-identically to before.
 // ============================================================
 
 import { NextResponse } from "next/server";
@@ -12,6 +20,13 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/server";
 import { getStripe } from "@/lib/stripe";
 import { resolveDeliveryFee, round2, toPence } from "@/lib/pricing";
+import {
+  fetchAccessoryGroups,
+  groupsForCategory,
+  priceSelections,
+  type AccessoryGroup,
+  type Selections,
+} from "@/lib/customization";
 import {
   offerFromRow,
   resolveActiveOffers,
@@ -25,8 +40,20 @@ import {
 
 export const dynamic = "force-dynamic";
 
-type IncomingItem = { id: string; quantity: number };
+/**
+ * `id` is the cart LINE id; `productId` is the product it refers to. They
+ * differ only for a customized cake (see lib/customization#cartLineId).
+ * Baskets saved before customization existed send `id` alone — hence the
+ * fallback, which keeps old tabs and old localStorage working.
+ */
+type IncomingItem = {
+  id: string;
+  quantity: number;
+  productId?: string;
+  customization?: { selections?: Selections };
+};
 type DeliveryZone = { postcode_prefix?: string; fee?: number };
+type CartLine = { productId: string; quantity: number; selections: Selections };
 
 export async function POST(req: Request) {
   let body: {
@@ -47,14 +74,29 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Your basket is empty." }, { status: 400 });
   }
 
-  // Normalise + validate quantities.
-  const wanted = new Map<string, number>();
+  // Normalise + validate quantities. Lines are kept SEPARATE (not collapsed
+  // into a per-product map) because two cakes of the same product can carry
+  // different accessories and must be priced independently.
+  const lines: CartLine[] = [];
   for (const it of items) {
     const qty = Math.max(0, Math.trunc(Number(it.quantity)) || 0);
-    if (it.id && qty > 0) wanted.set(String(it.id), qty);
+    const productId = String(it.productId ?? it.id ?? "");
+    if (!productId || qty <= 0) continue;
+    lines.push({
+      productId,
+      quantity: qty,
+      selections: it.customization?.selections ?? {},
+    });
   }
-  if (wanted.size === 0) {
+  if (lines.length === 0) {
     return NextResponse.json({ error: "Your basket is empty." }, { status: 400 });
+  }
+
+  // Total quantity per product — what the offer engine works on, exactly as
+  // before (a customized line is still N of that cake).
+  const wanted = new Map<string, number>();
+  for (const line of lines) {
+    wanted.set(line.productId, (wanted.get(line.productId) ?? 0) + line.quantity);
   }
 
   // Look up authoritative prices from the DB (service role — read only here).
@@ -85,7 +127,7 @@ export async function POST(req: Request) {
     category: string | null;
   }[];
 
-  let subtotal = 0;
+  let productSubtotal = 0;
   for (const row of rows) {
     if (row.in_stock === false) {
       return NextResponse.json(
@@ -93,9 +135,45 @@ export async function POST(req: Request) {
         { status: 409 },
       );
     }
-    subtotal += (Number(row.price) || 0) * (wanted.get(row.id) ?? 0);
+    productSubtotal += (Number(row.price) || 0) * (wanted.get(row.id) ?? 0);
   }
-  subtotal = round2(subtotal);
+  productSubtotal = round2(productSubtotal);
+
+  // ---- ACCESSORY EXTRAS (re-priced from the live wizard config) ----------
+  // Only what the config currently says is visible and available is charged;
+  // an unknown or stale selection simply prices at £0 rather than failing a
+  // customer's checkout because an admin edited an accessory mid-basket.
+  // If the customization tables aren't migrated, every line has no selections
+  // and this is a no-op — the existing behavior, unchanged.
+  let accessoriesTotal = 0;
+  const lineAddons = new Map<number, number>();
+  try {
+    const hasSelections = lines.some(
+      (l) => Object.keys(l.selections).length > 0,
+    );
+    if (hasSelections) {
+      const allGroups: AccessoryGroup[] = await fetchAccessoryGroups(supabase);
+      const categoryOf = new Map(rows.map((r) => [r.id, r.category ?? null]));
+
+      lines.forEach((line, i) => {
+        if (Object.keys(line.selections).length === 0) return;
+        const groups = groupsForCategory(
+          allGroups,
+          categoryOf.get(line.productId) ?? null,
+        );
+        const addons = priceSelections(groups, line.selections);
+        lineAddons.set(i, addons);
+        accessoriesTotal += addons * line.quantity;
+      });
+    }
+  } catch {
+    // Customization not migrated / unreadable → no extras, existing behavior.
+    accessoriesTotal = 0;
+    lineAddons.clear();
+  }
+  accessoriesTotal = round2(accessoriesTotal);
+
+  const subtotal = round2(productSubtotal + accessoriesTotal);
 
   if (subtotal <= 0) {
     return NextResponse.json({ error: "Could not price your basket." }, { status: 400 });
@@ -185,9 +263,11 @@ export async function POST(req: Request) {
     // Auto offers: silently skip any that don't currently qualify (so a cart
     // below the minimum simply shows no discount, consistent everywhere).
     for (const offer of [primary, ...stackable].filter(Boolean) as Offer[]) {
-      if (!checkCartConditions(offer, subtotal, cartQuantity).ok) continue;
+      // Offers are evaluated against the PRODUCT subtotal only — accessories
+      // are not discountable, and a basket without them is unaffected.
+      if (!checkCartConditions(offer, productSubtotal, cartQuantity).ok) continue;
       if (!checkAudienceEligibility(offer, audienceCtx).ok) continue;
-      const d = computeOfferDiscount(offer, serverCartItems, subtotal);
+      const d = computeOfferDiscount(offer, serverCartItems, productSubtotal);
       discountAmount += d.discountAmount;
       if (d.freeDelivery) freeDelivery = true;
       if (offer === primary) appliedOfferId = offer.id;
@@ -196,12 +276,12 @@ export async function POST(req: Request) {
     // A coupon the customer explicitly entered: if the basket no longer meets
     // its conditions, that's a 409 — not a silent skip.
     if (coupon) {
-      const cond = checkCartConditions(coupon, subtotal, cartQuantity);
+      const cond = checkCartConditions(coupon, productSubtotal, cartQuantity);
       const aud = checkAudienceEligibility(coupon, audienceCtx);
       if (!cond.ok) couponConflict = cond.reason ?? "This coupon no longer applies to your basket.";
       else if (!aud.ok) couponConflict = aud.reason ?? "This coupon isn't available for your account.";
       else {
-        const d = computeOfferDiscount(coupon, serverCartItems, subtotal);
+        const d = computeOfferDiscount(coupon, serverCartItems, productSubtotal);
         discountAmount += d.discountAmount;
         if (d.freeDelivery) freeDelivery = true;
         appliedCouponCode = coupon.coupon_code ?? couponCode;
@@ -242,6 +322,7 @@ export async function POST(req: Request) {
         discount_amount: discountAmount.toFixed(2),
         coupon_code: appliedCouponCode ?? "",
         offer_id: appliedOfferId ?? "",
+        accessories_total: accessoriesTotal.toFixed(2),
       },
     });
 
@@ -254,6 +335,11 @@ export async function POST(req: Request) {
       freeDelivery,
       couponCode: appliedCouponCode,
       offerId: appliedOfferId,
+      accessoriesTotal,
+      // Per-line accessory extras, in the order the client sent its items, so
+      // the order snapshot records what was actually charged rather than what
+      // the client believed.
+      lineAddons: lines.map((_, i) => lineAddons.get(i) ?? 0),
     });
   } catch (e) {
     return NextResponse.json(
