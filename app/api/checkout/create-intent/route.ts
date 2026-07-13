@@ -21,10 +21,10 @@ import { createAdminClient } from "@/lib/supabase/server";
 import { getStripe } from "@/lib/stripe";
 import { resolveDeliveryFee, round2, toPence } from "@/lib/pricing";
 import {
-  fetchAccessoryGroups,
-  groupsForCategory,
+  fetchAccessoryCategories,
+  categoriesForProduct,
   priceSelections,
-  type AccessoryGroup,
+  type AccessoryCategory,
   type Selections,
 } from "@/lib/customization";
 import {
@@ -152,16 +152,17 @@ export async function POST(req: Request) {
       (l) => Object.keys(l.selections).length > 0,
     );
     if (hasSelections) {
-      const allGroups: AccessoryGroup[] = await fetchAccessoryGroups(supabase);
+      const allCategories: AccessoryCategory[] =
+        await fetchAccessoryCategories(supabase);
       const categoryOf = new Map(rows.map((r) => [r.id, r.category ?? null]));
 
       lines.forEach((line, i) => {
         if (Object.keys(line.selections).length === 0) return;
-        const groups = groupsForCategory(
-          allGroups,
+        const categories = categoriesForProduct(
+          allCategories,
           categoryOf.get(line.productId) ?? null,
         );
-        const addons = priceSelections(groups, line.selections);
+        const addons = priceSelections(categories, line.selections);
         lineAddons.set(i, addons);
         accessoriesTotal += addons * line.quantity;
       });

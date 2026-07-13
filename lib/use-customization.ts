@@ -14,14 +14,14 @@
 // ============================================================
 
 import { useCallback, useEffect, useState } from "react";
-import type { AccessoryGroup } from "@/lib/customization";
+import type { AccessoryCategory } from "@/lib/customization";
 
 export type CustomizationConfig = {
-  groups: AccessoryGroup[];
+  categories: AccessoryCategory[];
   productIds: string[];
 };
 
-const EMPTY: CustomizationConfig = { groups: [], productIds: [] };
+const EMPTY: CustomizationConfig = { categories: [], productIds: [] };
 
 let cache: CustomizationConfig = EMPTY;
 let loaded = false;
@@ -40,7 +40,7 @@ function fetchConfig(): Promise<void> {
       if (res.ok) {
         const data = (await res.json()) as CustomizationConfig;
         cache = {
-          groups: Array.isArray(data.groups) ? data.groups : [],
+          categories: Array.isArray(data.categories) ? data.categories : [],
           productIds: Array.isArray(data.productIds) ? data.productIds : [],
         };
         loaded = true;
@@ -84,7 +84,7 @@ export function useCustomization(): {
 
   const isCustomizable = useCallback(
     (productId: string) =>
-      config.groups.length > 0 && config.productIds.includes(productId),
+      config.categories.length > 0 && config.productIds.includes(productId),
     [config],
   );
 

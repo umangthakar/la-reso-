@@ -23,6 +23,7 @@ import { Check, ChevronLeft, Lock, Loader2, ShoppingBag } from "lucide-react";
 import { useCart, productIdOf, unitPriceOf } from "@/components/cart/cart-context";
 import { useAuth } from "@/lib/use-auth";
 import { loginHrefFor, savePurchaseIntent } from "@/lib/purchase-intent";
+import { lineText } from "@/lib/customization";
 import { useSiteSettings } from "@/lib/use-site-settings";
 import { createClient } from "@/utils/supabase/client";
 import { getStripePromise } from "@/lib/stripe-client";
@@ -473,10 +474,11 @@ export default function CheckoutPage() {
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-bold text-darkberry">{i.name}</p>
                         <p className="text-xs text-berry">Qty {i.quantity}</p>
-                        {/* What the wizard added, so they can check it before paying */}
-                        {i.customization?.lines.map((c) => (
-                          <p key={c.key} className="text-xs text-berry/80">
-                            {c.label}: {c.value}
+                        {/* Accessories + prices, so they can check it before paying */}
+                        {i.customization?.lines.map((c, n) => (
+                          <p key={`${c.key}-${c.value}-${n}`} className="text-xs text-berry/80">
+                            {c.label}: {lineText(c)}
+                            {c.price > 0 ? ` +${money(c.price)}` : ""}
                           </p>
                         ))}
                       </div>

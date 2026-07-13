@@ -39,6 +39,19 @@ type Order = {
   amount?: number | null;
 };
 
+/** A line on the order, with the accessories chosen for it at checkout. */
+type OrderItem = {
+  id: string;
+  product_name: string;
+  unit_price: number;
+  quantity: number;
+  line_total: number;
+  addons_total?: number | null;
+  customization?: {
+    lines?: { key: string; label: string; value: string; quantity?: number; price: number }[];
+  } | null;
+};
+
 // Order total (paid orders carry one; older enquiry orders don't).
 function fmtMoney(o: Order): string {
   const v = o.total ?? o.amount;
@@ -104,6 +117,37 @@ export default function OrdersAdminPage() {
 
   const [selected, setSelected] = useState<Order | null>(null);
   const [updating, setUpdating] = useState(false);
+
+  // The selected order's line items — the cakes, their accessories, the
+  // messages, the notes and the quantities. Fetched per-order (they're only
+  // needed when the drawer is open) from the order's own saved snapshot.
+  const [items, setItems] = useState<OrderItem[] | null>(null);
+  const [itemsError, setItemsError] = useState("");
+
+  useEffect(() => {
+    if (!selected) {
+      setItems(null);
+      setItemsError("");
+      return;
+    }
+    let active = true;
+    setItems(null);
+    setItemsError("");
+    adminGet<{ items: OrderItem[] }>(`/api/admin/orders/${selected.id}/items`, {
+      force: true,
+    })
+      .then((data) => {
+        if (active) setItems(data.items ?? []);
+      })
+      .catch((e: unknown) => {
+        if (active) {
+          setItemsError(e instanceof Error ? e.message : "Could not load items");
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [selected]);
 
   // Live "new order" toast + detection. knownIdsRef holds the ids we've
   // already shown so a refetch only toasts genuinely new orders (null until
@@ -424,6 +468,11 @@ export default function OrdersAdminPage() {
             <DetailRow label="Phone" value={selected.phone} />
             <DetailRow label="Special instructions" value={selected.message || "—"} multiline />
 
+            {/* What to bake: cake → accessories → messages → notes → quantities.
+                Read from the order's own snapshot, so it still reads correctly
+                even after an accessory is repriced or deleted. */}
+            <OrderItems items={items} error={itemsError} />
+
             <div style={divider} />
             <label style={{ ...filterLabel, marginBottom: 8 }}>Update status</label>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
@@ -462,6 +511,100 @@ export default function OrdersAdminPage() {
     </div>
   );
 }
+
+/**
+ * The order's contents, as the baker needs to read them:
+ *   cake → its accessories → the messages → the notes → the quantities
+ * Every accessory line comes from the snapshot saved with the order, so this
+ * keeps telling the truth after the live accessory is repriced or deleted.
+ */
+function OrderItems({ items, error }: { items: OrderItem[] | null; error: string }) {
+  if (error) {
+    return (
+      <div style={{ marginTop: 16 }}>
+        <div style={sectionLabel}>Items</div>
+        <p style={{ marginTop: 4, color: "#991b1b", fontWeight: 600 }}>{error}</p>
+      </div>
+    );
+  }
+  if (!items) {
+    return (
+      <div style={{ marginTop: 16 }}>
+        <div style={sectionLabel}>Items</div>
+        <p style={{ marginTop: 4, color: BERRY, opacity: 0.7 }}>Loading…</p>
+      </div>
+    );
+  }
+  if (items.length === 0) {
+    return (
+      <div style={{ marginTop: 16 }}>
+        <div style={sectionLabel}>Items</div>
+        <p style={{ marginTop: 4, color: BERRY, opacity: 0.7 }}>
+          No line items recorded for this order.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginTop: 16 }}>
+      <div style={sectionLabel}>Items</div>
+      <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 10 }}>
+        {items.map((item) => {
+          const lines = item.customization?.lines ?? [];
+          return (
+            <div
+              key={item.id}
+              style={{ background: "#F9EEEA", borderRadius: 10, padding: "10px 12px" }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                <span style={{ fontWeight: 700, color: BERRY }}>
+                  {item.quantity} × {item.product_name}
+                </span>
+                <span style={{ fontWeight: 700, color: WINE, whiteSpace: "nowrap" }}>
+                  £{Number(item.line_total ?? 0).toFixed(2)}
+                </span>
+              </div>
+
+              {lines.length > 0 ? (
+                <ul style={{ margin: "8px 0 0", paddingLeft: 16 }}>
+                  {lines.map((l, i) => (
+                    <li
+                      key={`${l.key}-${i}`}
+                      style={{ color: BERRY, fontSize: "0.85rem", marginTop: 2 }}
+                    >
+                      <span style={{ opacity: 0.7 }}>{l.label}:</span>{" "}
+                      <strong>
+                        {l.value}
+                        {l.quantity && l.quantity > 1 ? ` × ${l.quantity}` : ""}
+                      </strong>
+                      {l.price > 0 && (
+                        <span style={{ opacity: 0.7 }}> (+£{Number(l.price).toFixed(2)})</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p style={{ margin: "6px 0 0", color: BERRY, opacity: 0.6, fontSize: "0.82rem" }}>
+                  No accessories.
+                </p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+const sectionLabel: React.CSSProperties = {
+  fontSize: "0.78rem",
+  fontWeight: 700,
+  textTransform: "uppercase",
+  letterSpacing: "0.03em",
+  color: BERRY,
+  opacity: 0.6,
+};
 
 function CardRow({ label, value }: { label: string; value: string }) {
   return (

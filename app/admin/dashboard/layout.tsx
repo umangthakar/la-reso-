@@ -24,6 +24,7 @@ const BERRY = "#5C2A41";
 const NAV = [
   { href: "/admin/dashboard", label: "Dashboard", exact: true },
   { href: "/admin/dashboard/products", label: "Products" },
+  { href: "/admin/dashboard/accessories", label: "Accessories" },
   { href: "/admin/dashboard/offers", label: "Offers" },
   { href: "/admin/dashboard/orders", label: "Orders" },
   { href: "/admin/dashboard/payments", label: "Payments" },

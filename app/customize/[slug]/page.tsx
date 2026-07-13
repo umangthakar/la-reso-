@@ -1,12 +1,13 @@
 "use client";
 
 // ============================================================
-// Le Rasa Bakery — Cake Customization Wizard (/customize/[slug])
+// Le Rasa Bakery — Cake customization page (/customize/[slug])
 // ------------------------------------------------------------
 // Sits between "Buy Now" and the cart, for cake products only. EVERY control
-// on this page is rendered from the accessory groups in the database — there
-// is no hardcoded list of candles, cards or toppers here, and adding a new
-// accessory group needs no change to this file.
+// on this page is rendered from the Accessories Management System in the
+// database — there is no hardcoded list of candles, cards, balloons or
+// toppers here, and adding a new accessory category needs no change to this
+// file.
 //
 // Pricing, visibility and validation all come from lib/customization.ts, the
 // same module /api/checkout/create-intent uses to re-price the basket
@@ -19,7 +20,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { motion } from "framer-motion";
-import { ChevronLeft, Sparkles } from "lucide-react";
+import { ChevronLeft, Minus, Plus, Sparkles } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
 import { useCart } from "@/components/cart/cart-context";
 import { useAuth } from "@/lib/use-auth";
@@ -30,12 +31,13 @@ import { money } from "@/lib/pricing";
 import {
   buildCustomization,
   cartLineId,
+  categoriesForProduct,
   defaultSelections,
-  groupsForCategory,
   priceSelections,
   validateSelections,
-  visibleGroups,
-  type AccessoryGroup,
+  visibleCategories,
+  type Accessory,
+  type AccessoryCategory,
   type Selections,
 } from "@/lib/customization";
 
@@ -68,6 +70,22 @@ function PriceTag({ price }: { price: number }) {
   );
 }
 
+/** An accessory's photo, when the admin has uploaded one. */
+function Thumb({ accessory }: { accessory: Accessory }) {
+  if (!accessory.imageUrl) return null;
+  return (
+    <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-xl">
+      <Image
+        src={accessory.imageUrl}
+        alt={accessory.name}
+        fill
+        sizes="44px"
+        className="object-cover"
+      />
+    </div>
+  );
+}
+
 export default function CustomizePage() {
   const params = useParams<{ slug: string }>();
   const slug = params?.slug ?? "";
@@ -95,12 +113,10 @@ export default function CustomizePage() {
   }, []);
 
   // Purchasing requires a signed-in customer — including when someone lands on
-  // this URL directly. They come straight back to the wizard afterwards.
+  // this URL directly. They come straight back here afterwards.
   useEffect(() => {
     if (!authReady || user) return;
-    router.replace(
-      loginHrefFor(`/customize/${slug}${window.location.search}`),
-    );
+    router.replace(loginHrefFor(`/customize/${slug}${window.location.search}`));
   }, [authReady, user, router, slug]);
 
   useEffect(() => {
@@ -142,44 +158,50 @@ export default function CustomizePage() {
     };
   }, [slug]);
 
-  // The accessory groups offered for THIS product's category.
-  const groups: AccessoryGroup[] = useMemo(
-    () => (product ? groupsForCategory(config.groups, product.category) : []),
-    [config.groups, product],
+  // The accessory categories offered for THIS product's category.
+  const categories: AccessoryCategory[] = useMemo(
+    () =>
+      product ? categoriesForProduct(config.categories, product.category) : [],
+    [config.categories, product],
   );
 
-  // Open with every group's configured default.
+  // Open with every category's configured default.
   useEffect(() => {
-    if (seeded || groups.length === 0) return;
-    setSelections(defaultSelections(groups));
+    if (seeded || categories.length === 0) return;
+    setSelections(defaultSelections(categories));
     setSeeded(true);
-  }, [groups, seeded]);
+  }, [categories, seeded]);
 
-  // A non-cake (or a product whose accessories were all deactivated) has
-  // nothing to customize — send it back to its normal product page.
+  // A non-cake (or a product whose accessories were all disabled) has nothing
+  // to customize — send it back to its normal product page.
   useEffect(() => {
     if (loading || configLoading || !product) return;
-    if (!product.is_customizable || groups.length === 0) {
+    if (!product.is_customizable || categories.length === 0) {
       router.replace(`/menu/${slug}`);
     }
-  }, [loading, configLoading, product, groups.length, router, slug]);
+  }, [loading, configLoading, product, categories.length, router, slug]);
 
   const shown = useMemo(
-    () => visibleGroups(groups, selections),
-    [groups, selections],
+    () => visibleCategories(categories, selections),
+    [categories, selections],
   );
   const addons = useMemo(
-    () => priceSelections(groups, selections),
-    [groups, selections],
+    () => priceSelections(categories, selections),
+    [categories, selections],
+  );
+  const summary = useMemo(
+    () => buildCustomization(categories, selections),
+    [categories, selections],
   );
 
   // Re-validate as they fix things, but only once they've tried to continue —
   // nobody wants to be shouted at before they've filled anything in.
   useEffect(() => {
     if (!submitted) return;
-    setErrors(validateSelections(groups, selections).errors);
-  }, [submitted, groups, selections]);
+    setErrors(validateSelections(categories, selections).errors);
+  }, [submitted, categories, selections]);
 
+  // `Selections[string]`, not `Selection` — the latter is a DOM global.
   function update(key: string, patch: Partial<Selections[string]>) {
     setSelections((prev) => ({ ...prev, [key]: { ...prev[key], ...patch } }));
   }
@@ -194,24 +216,33 @@ export default function CustomizePage() {
     });
   }
 
+  function setQuantity(key: string, value: string, next: number) {
+    setSelections((prev) => {
+      const quantities = { ...(prev[key]?.quantities ?? {}) };
+      if (next <= 0) delete quantities[value];
+      else quantities[value] = next;
+      return { ...prev, [key]: { ...prev[key], quantities } };
+    });
+  }
+
   function handleContinue() {
     if (!product) return;
     setSubmitted(true);
 
-    const result = validateSelections(groups, selections);
+    const result = validateSelections(categories, selections);
     if (!result.ok) {
       setErrors(result.errors);
       // Take them to the first thing that needs fixing.
-      const firstKey = shown.find((g) => result.errors[g.key])?.key;
+      const firstKey = shown.find((c) => result.errors[c.key])?.key;
       if (firstKey) {
         document
-          .getElementById(`group-${firstKey}`)
+          .getElementById(`cat-${firstKey}`)
           ?.scrollIntoView({ behavior: "smooth", block: "center" });
       }
       return;
     }
 
-    const customization = buildCustomization(groups, selections);
+    const customization = buildCustomization(categories, selections);
     addItem(
       {
         // A distinct line per distinct customization: two cakes with different
@@ -279,15 +310,15 @@ export default function CustomizePage() {
         </p>
 
         <div className="mt-8 grid grid-cols-1 gap-8 lg:grid-cols-[1fr_340px]">
-          {/* ---- Left: the accessory groups, straight from the database ---- */}
+          {/* ---- Left: the accessory categories, straight from the database ---- */}
           <div className="space-y-5">
-            {shown.map((group) => {
-              const sel = selections[group.key] ?? {};
-              const error = errors[group.key];
+            {shown.map((cat) => {
+              const sel = selections[cat.key] ?? {};
+              const error = errors[cat.key];
               return (
                 <motion.section
-                  key={group.key}
-                  id={`group-${group.key}`}
+                  key={cat.key}
+                  id={`cat-${cat.key}`}
                   initial={{ opacity: 0, y: 12 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
@@ -298,31 +329,31 @@ export default function CustomizePage() {
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <h2 className="font-display text-lg font-bold text-darkberry">
-                        {group.label}
-                        {group.required && (
+                        {cat.name}
+                        {cat.required && (
                           <span className="ml-1.5 text-sm text-wine">*</span>
                         )}
                       </h2>
-                      {group.helpText && (
-                        <p className="mt-0.5 text-sm text-berry">{group.helpText}</p>
+                      {cat.description && (
+                        <p className="mt-0.5 text-sm text-berry">{cat.description}</p>
                       )}
                     </div>
-                    {/* Toggles and free-text groups price at the group level. */}
-                    {(group.displayType === "toggle" ||
-                      group.displayType === "text" ||
-                      group.displayType === "textarea") &&
-                      group.price > 0 && <PriceTag price={group.price} />}
+                    {/* Toggles and free-text categories price at the category level. */}
+                    {(cat.displayType === "toggle" ||
+                      cat.displayType === "text" ||
+                      cat.displayType === "textarea") &&
+                      cat.price > 0 && <PriceTag price={cat.price} />}
                   </div>
 
                   <div className="mt-4">
                     {/* RADIO */}
-                    {group.displayType === "radio" && (
+                    {cat.displayType === "radio" && (
                       <div className="space-y-2">
-                        {group.options.map((opt) => {
-                          const checked = (sel.values ?? []).includes(opt.value);
+                        {cat.accessories.map((acc) => {
+                          const checked = (sel.values ?? []).includes(acc.value);
                           return (
                             <label
-                              key={opt.value}
+                              key={acc.value}
                               className={`flex cursor-pointer items-center gap-3 rounded-2xl border-2 px-4 py-3 transition-colors ${
                                 checked
                                   ? "border-wine bg-wine/5"
@@ -331,17 +362,25 @@ export default function CustomizePage() {
                             >
                               <input
                                 type="radio"
-                                name={group.key}
+                                name={cat.key}
                                 className="h-4 w-4 accent-[#873853]"
                                 checked={checked}
                                 onChange={() =>
-                                  update(group.key, { values: [opt.value] })
+                                  update(cat.key, { values: [acc.value] })
                                 }
                               />
-                              <span className="flex-1 text-sm font-semibold text-darkberry">
-                                {opt.label}
+                              <Thumb accessory={acc} />
+                              <span className="flex-1">
+                                <span className="block text-sm font-semibold text-darkberry">
+                                  {acc.name}
+                                </span>
+                                {acc.description && (
+                                  <span className="block text-xs text-berry">
+                                    {acc.description}
+                                  </span>
+                                )}
                               </span>
-                              <PriceTag price={opt.price} />
+                              <PriceTag price={acc.price} />
                             </label>
                           );
                         })}
@@ -349,31 +388,29 @@ export default function CustomizePage() {
                     )}
 
                     {/* DROPDOWN */}
-                    {group.displayType === "dropdown" && (
+                    {cat.displayType === "dropdown" && (
                       <select
                         className={INPUT}
                         value={(sel.values ?? [])[0] ?? ""}
-                        onChange={(e) =>
-                          update(group.key, { values: [e.target.value] })
-                        }
+                        onChange={(e) => update(cat.key, { values: [e.target.value] })}
                       >
-                        {group.options.map((opt) => (
-                          <option key={opt.value} value={opt.value}>
-                            {opt.label}
-                            {opt.price > 0 ? ` (+${money(opt.price)})` : ""}
+                        {cat.accessories.map((acc) => (
+                          <option key={acc.value} value={acc.value}>
+                            {acc.name}
+                            {acc.price > 0 ? ` (+${money(acc.price)})` : ""}
                           </option>
                         ))}
                       </select>
                     )}
 
                     {/* CHECKBOX / MULTI-SELECT */}
-                    {group.displayType === "checkbox" && (
+                    {cat.displayType === "checkbox" && (
                       <div className="space-y-2">
-                        {group.options.map((opt) => {
-                          const checked = (sel.values ?? []).includes(opt.value);
+                        {cat.accessories.map((acc) => {
+                          const checked = (sel.values ?? []).includes(acc.value);
                           return (
                             <label
-                              key={opt.value}
+                              key={acc.value}
                               className={`flex cursor-pointer items-center gap-3 rounded-2xl border-2 px-4 py-3 transition-colors ${
                                 checked
                                   ? "border-wine bg-wine/5"
@@ -385,26 +422,93 @@ export default function CustomizePage() {
                                 className="h-4 w-4 rounded accent-[#873853]"
                                 checked={checked}
                                 onChange={(e) =>
-                                  toggleCheckbox(group.key, opt.value, e.target.checked)
+                                  toggleCheckbox(cat.key, acc.value, e.target.checked)
                                 }
                               />
-                              <span className="flex-1 text-sm font-semibold text-darkberry">
-                                {opt.label}
+                              <Thumb accessory={acc} />
+                              <span className="flex-1">
+                                <span className="block text-sm font-semibold text-darkberry">
+                                  {acc.name}
+                                </span>
+                                {acc.description && (
+                                  <span className="block text-xs text-berry">
+                                    {acc.description}
+                                  </span>
+                                )}
                               </span>
-                              <PriceTag price={opt.price} />
+                              <PriceTag price={acc.price} />
                             </label>
                           );
                         })}
                       </div>
                     )}
 
+                    {/* QUANTITY SELECTOR — one stepper per accessory */}
+                    {cat.displayType === "quantity" && (
+                      <div className="space-y-2">
+                        {cat.accessories.map((acc) => {
+                          const current = sel.quantities?.[acc.value] ?? 0;
+                          const max = Math.min(acc.maxQty, cat.maxQty);
+                          return (
+                            <div
+                              key={acc.value}
+                              className={`flex items-center gap-3 rounded-2xl border-2 px-4 py-3 transition-colors ${
+                                current > 0
+                                  ? "border-wine bg-wine/5"
+                                  : "border-dustyrose/40"
+                              }`}
+                            >
+                              <Thumb accessory={acc} />
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate text-sm font-semibold text-darkberry">
+                                  {acc.name}
+                                </span>
+                                <span className="block text-xs text-berry">
+                                  {acc.price > 0 ? `${money(acc.price)} each` : "Free"}
+                                  {acc.description ? ` · ${acc.description}` : ""}
+                                </span>
+                              </span>
+
+                              <div className="flex shrink-0 items-center gap-1.5 rounded-full bg-blush-50 p-1 shadow-clay-sm">
+                                <button
+                                  type="button"
+                                  aria-label={`One fewer ${acc.name}`}
+                                  disabled={current <= 0}
+                                  onClick={() =>
+                                    setQuantity(cat.key, acc.value, current - 1)
+                                  }
+                                  className="grid h-8 w-8 place-items-center rounded-full text-wine-dark transition-transform active:scale-90 disabled:opacity-30"
+                                >
+                                  <Minus className="h-3.5 w-3.5" />
+                                </button>
+                                <span className="w-5 text-center text-sm font-bold text-darkberry">
+                                  {current}
+                                </span>
+                                <button
+                                  type="button"
+                                  aria-label={`One more ${acc.name}`}
+                                  disabled={current >= max}
+                                  onClick={() =>
+                                    setQuantity(cat.key, acc.value, current + 1)
+                                  }
+                                  className="grid h-8 w-8 place-items-center rounded-full text-wine-dark transition-transform active:scale-90 disabled:opacity-30"
+                                >
+                                  <Plus className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
                     {/* TOGGLE */}
-                    {group.displayType === "toggle" && (
+                    {cat.displayType === "toggle" && (
                       <button
                         type="button"
                         role="switch"
                         aria-checked={!!sel.enabled}
-                        onClick={() => update(group.key, { enabled: !sel.enabled })}
+                        onClick={() => update(cat.key, { enabled: !sel.enabled })}
                         className={`flex w-full items-center justify-between rounded-2xl border-2 px-4 py-3 transition-colors ${
                           sel.enabled
                             ? "border-wine bg-wine/5"
@@ -429,34 +533,30 @@ export default function CustomizePage() {
                     )}
 
                     {/* TEXT / TEXTAREA */}
-                    {(group.displayType === "text" ||
-                      group.displayType === "textarea") && (
+                    {(cat.displayType === "text" ||
+                      cat.displayType === "textarea") && (
                       <>
-                        {group.displayType === "text" ? (
+                        {cat.displayType === "text" ? (
                           <input
                             className={INPUT}
                             value={sel.text ?? ""}
-                            maxLength={group.maxChars ?? undefined}
-                            placeholder={group.placeholder ?? ""}
-                            onChange={(e) =>
-                              update(group.key, { text: e.target.value })
-                            }
+                            maxLength={cat.maxChars ?? undefined}
+                            placeholder={cat.placeholder ?? ""}
+                            onChange={(e) => update(cat.key, { text: e.target.value })}
                           />
                         ) : (
                           <textarea
                             className={INPUT}
                             rows={3}
                             value={sel.text ?? ""}
-                            maxLength={group.maxChars ?? undefined}
-                            placeholder={group.placeholder ?? ""}
-                            onChange={(e) =>
-                              update(group.key, { text: e.target.value })
-                            }
+                            maxLength={cat.maxChars ?? undefined}
+                            placeholder={cat.placeholder ?? ""}
+                            onChange={(e) => update(cat.key, { text: e.target.value })}
                           />
                         )}
-                        {group.maxChars && (
+                        {cat.maxChars && (
                           <p className="mt-1.5 text-right text-xs text-berry">
-                            {(sel.text ?? "").length}/{group.maxChars}
+                            {(sel.text ?? "").length}/{cat.maxChars}
                           </p>
                         )}
                       </>
@@ -471,7 +571,7 @@ export default function CustomizePage() {
             })}
           </div>
 
-          {/* ---- Right: live summary ---- */}
+          {/* ---- Right: live summary — Cake, Accessories, Prices, Grand total ---- */}
           <aside className="h-fit rounded-clay bg-[#F9EEEA] p-6 shadow-clay-sm lg:sticky lg:top-28">
             <div className="flex items-center gap-3">
               <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-xl">
@@ -500,7 +600,7 @@ export default function CustomizePage() {
                   aria-label="Decrease quantity"
                   className="grid h-8 w-8 place-items-center rounded-full text-wine-dark transition-transform active:scale-90"
                 >
-                  −
+                  <Minus className="h-3.5 w-3.5" />
                 </button>
                 <span className="w-6 text-center font-display font-bold text-darkberry">
                   {qty}
@@ -510,12 +610,11 @@ export default function CustomizePage() {
                   aria-label="Increase quantity"
                   className="grid h-8 w-8 place-items-center rounded-full text-wine-dark transition-transform active:scale-90"
                 >
-                  +
+                  <Plus className="h-3.5 w-3.5" />
                 </button>
               </div>
             </div>
 
-            {/* Chosen accessories */}
             <dl className="mt-5 space-y-1.5 border-t border-dustyrose/40 pt-4 text-sm">
               <div className="flex justify-between text-berry">
                 <dt>Cake</dt>
@@ -523,11 +622,18 @@ export default function CustomizePage() {
                   {money(product.price * qty)}
                 </dd>
               </div>
-              {buildCustomization(groups, selections).lines.map((line) => (
-                <div key={`${line.key}-${line.value}`} className="flex justify-between gap-2 text-berry">
+              {summary.lines.map((line, i) => (
+                <div
+                  key={`${line.key}-${line.value}-${i}`}
+                  className="flex justify-between gap-2 text-berry"
+                >
                   <dt className="min-w-0 truncate">
                     {line.label}
-                    <span className="text-berry/70"> · {line.value}</span>
+                    <span className="text-berry/70">
+                      {" · "}
+                      {line.value}
+                      {line.quantity && line.quantity > 1 ? ` × ${line.quantity}` : ""}
+                    </span>
                   </dt>
                   <dd className="shrink-0 font-semibold text-darkberry">
                     {line.price > 0 ? money(line.price * qty) : "Free"}

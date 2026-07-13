@@ -11,6 +11,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/server";
 import { getStripe } from "@/lib/stripe";
 import { round2 } from "@/lib/pricing";
+import { notifyOrder } from "@/lib/notifications";
 
 export const dynamic = "force-dynamic";
 
@@ -203,8 +204,8 @@ export async function POST(req: Request) {
     });
 
     // Don't fail the whole order if items can't be written; the order is saved.
-    // If 21_cake_customization.sql hasn't been run, the two new columns don't
-    // exist yet — retry without them rather than losing the line items.
+    // If 22_accessories.sql hasn't been run, the two new columns don't exist
+    // yet — retry without them rather than losing the line items.
     const { error: itemsErr } = await supabase.from("order_items").insert(rows);
     if (itemsErr && isMissingColumn(itemsErr)) {
       await supabase.from("order_items").insert(
@@ -232,6 +233,43 @@ export async function POST(req: Request) {
     } catch {
       /* ignore — the order is already saved */
     }
+  }
+
+  // 6) Notify: the customer by email, the owner on WhatsApp. Both carry the
+  //    cake, its accessories, every message and note, the quantities and the
+  //    total. Same best-effort posture as everything above — the payment has
+  //    already succeeded and the order is saved, so an unconfigured provider or
+  //    a failed send is a log line, never an error the customer sees.
+  //    (notifyOrder resolves with a report and never rejects.)
+  try {
+    const report = await notifyOrder(supabase, {
+      // Derived from the ORDER id exactly as the confirmation page derives it
+      // (app/checkout#toOrderNumber), so the customer, the owner and the screen
+      // all quote the same number.
+      orderNumber: String(order.id).replace(/-/g, "").slice(0, 8).toUpperCase(),
+      customerName: coreOrder.customer_name,
+      email: coreOrder.email,
+      phone: coreOrder.phone,
+      address: [deliveryAddress, postcode].filter(Boolean).join(" "),
+      deliveryDate: String(body.deliveryDate ?? ""),
+      specialInstructions: instructions ?? "",
+      items: items.map((i) => ({
+        name: i.name,
+        quantity: Math.max(1, Math.trunc(Number(i.quantity)) || 1),
+        unitPrice: round2(Number(i.price) || 0),
+        addons: round2(Math.max(0, Number(i.addons) || 0)),
+        lines: i.customization?.lines ?? [],
+      })),
+      subtotal: metaSubtotal,
+      discount: metaDiscount,
+      deliveryFee: metaDelivery,
+      total: paidTotal,
+    });
+    if (report.errors.length > 0) {
+      console.error("[orders/create] notification issues:", report.errors.join(" | "));
+    }
+  } catch (e) {
+    console.error("[orders/create] notification threw:", e);
   }
 
   return NextResponse.json({ orderId: order.id });

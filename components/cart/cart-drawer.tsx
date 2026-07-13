@@ -11,6 +11,7 @@ import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Plus, Minus, Trash2, ShoppingBag } from "lucide-react";
 import { useCart, unitPriceOf } from "@/components/cart/cart-context";
+import { lineText } from "@/lib/customization";
 import { usePurchaseGate } from "@/lib/use-purchase-gate";
 import { money, FREE_DELIVERY_THRESHOLD } from "@/lib/pricing";
 
@@ -139,15 +140,22 @@ export function CartDrawer() {
                               {item.name}
                             </p>
                             <p className="text-xs text-berry">{item.category}</p>
-                            {/* The cake wizard's choices, so the basket shows
+                            {/* Cake → accessories → prices, so the basket shows
                                 exactly what's being bought. */}
-                            {item.customization?.lines.map((c) => (
+                            {item.customization?.lines.map((c, i) => (
                               <p
-                                key={c.key}
+                                key={`${c.key}-${c.value}-${i}`}
                                 className="truncate text-xs text-berry/80"
-                                title={`${c.label}: ${c.value}`}
+                                title={`${c.label}: ${lineText(c)}`}
                               >
-                                {c.label}: <span className="text-darkberry">{c.value}</span>
+                                {c.label}:{" "}
+                                <span className="text-darkberry">{lineText(c)}</span>
+                                {c.price > 0 && (
+                                  <span className="text-berry/70">
+                                    {" "}
+                                    +{money(c.price)}
+                                  </span>
+                                )}
                               </p>
                             ))}
                           </div>

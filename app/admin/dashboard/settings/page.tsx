@@ -462,7 +462,153 @@ export default function SettingsAdminPage() {
           />
         </Field>
       </SectionForm>
+
+      {/* 6. ORDER NOTIFICATIONS — saved through its own endpoint, because the
+             API key and token are secrets that never travel back to the
+             browser (same posture as the Stripe keys on the Payments page). */}
+      <NotificationsSection onError={setError} />
     </div>
+  );
+}
+
+// ---------------- order notifications ----------------
+
+type NotificationView = {
+  from_email: string;
+  from_name: string;
+  whatsapp_phone_id: string;
+  owner_phone: string;
+  has_resend_key: boolean;
+  resend_key_last4: string;
+  has_whatsapp_token: boolean;
+  whatsapp_token_last4: string;
+};
+
+const EMPTY_NOTIFICATIONS: NotificationView = {
+  from_email: "",
+  from_name: "",
+  whatsapp_phone_id: "",
+  owner_phone: "",
+  has_resend_key: false,
+  resend_key_last4: "",
+  has_whatsapp_token: false,
+  whatsapp_token_last4: "",
+};
+
+function NotificationsSection({ onError }: { onError: (msg: string) => void }) {
+  const [cfg, setCfg] = useState<NotificationView>(EMPTY_NOTIFICATIONS);
+  const [resendKey, setResendKey] = useState("");
+  const [whatsappToken, setWhatsappToken] = useState("");
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    adminGet<{ config: NotificationView }>("/api/admin/notifications")
+      .then((d) => setCfg({ ...EMPTY_NOTIFICATIONS, ...d.config }))
+      .catch(() => {
+        /* not migrated yet — the section just starts empty */
+      });
+  }, []);
+
+  async function save() {
+    setSaved(false);
+    onError("");
+    try {
+      await adminSend("/api/admin/notifications", "PUT", {
+        from_email: cfg.from_email,
+        from_name: cfg.from_name,
+        whatsapp_phone_id: cfg.whatsapp_phone_id,
+        owner_phone: cfg.owner_phone,
+        // Blank = keep the stored secret.
+        resend_key: resendKey,
+        whatsapp_token: whatsappToken,
+      });
+      setResendKey("");
+      setWhatsappToken("");
+      const fresh = await adminGet<{ config: NotificationView }>(
+        "/api/admin/notifications",
+        { force: true },
+      );
+      setCfg({ ...EMPTY_NOTIFICATIONS, ...fresh.config });
+      setSaved(true);
+    } catch (e) {
+      onError(e instanceof Error ? e.message : "Failed to save notification settings");
+    }
+  }
+
+  const set = <K extends keyof NotificationView>(k: K, v: NotificationView[K]) => {
+    setCfg((c) => ({ ...c, [k]: v }));
+    setSaved(false);
+  };
+
+  return (
+    <SectionForm title="Order notifications" saved={saved} onSave={save}>
+      <p style={{ color: BERRY, opacity: 0.75, margin: "0 0 6px", fontSize: "0.88rem" }}>
+        When an order is paid, the customer gets an email and you get a WhatsApp
+        message — both listing the cake, its accessories, every message and note,
+        and the total. Leave a field blank to switch that notification off; an
+        order is never affected either way.
+      </p>
+
+      <Field label="Customer email — Resend API key">
+        <input
+          style={inputStyle}
+          type="password"
+          value={resendKey}
+          onChange={(e) => setResendKey(e.target.value)}
+          placeholder={
+            cfg.has_resend_key
+              ? `Saved — ends ${cfg.resend_key_last4}. Type a new key to replace it.`
+              : "re_…"
+          }
+        />
+      </Field>
+      <Field label="Send from (a domain verified in Resend)">
+        <input
+          style={inputStyle}
+          value={cfg.from_email}
+          onChange={(e) => set("from_email", e.target.value)}
+          placeholder="orders@lerasa.co.uk"
+        />
+      </Field>
+      <Field label="Send from name">
+        <input
+          style={inputStyle}
+          value={cfg.from_name}
+          onChange={(e) => set("from_name", e.target.value)}
+          placeholder="Le Rasa Bakery"
+        />
+      </Field>
+
+      <Field label="Owner WhatsApp — Meta Cloud API token">
+        <input
+          style={inputStyle}
+          type="password"
+          value={whatsappToken}
+          onChange={(e) => setWhatsappToken(e.target.value)}
+          placeholder={
+            cfg.has_whatsapp_token
+              ? `Saved — ends ${cfg.whatsapp_token_last4}. Type a new token to replace it.`
+              : "EAA…"
+          }
+        />
+      </Field>
+      <Field label="WhatsApp phone number ID">
+        <input
+          style={inputStyle}
+          value={cfg.whatsapp_phone_id}
+          onChange={(e) => set("whatsapp_phone_id", e.target.value)}
+          placeholder="From Meta → WhatsApp → API setup"
+        />
+      </Field>
+      <Field label="Notify this number (country code, digits only)">
+        <input
+          style={inputStyle}
+          value={cfg.owner_phone}
+          onChange={(e) => set("owner_phone", e.target.value)}
+          placeholder="447700900123"
+        />
+      </Field>
+    </SectionForm>
   );
 }
 

@@ -1,18 +1,20 @@
 // ============================================================
-// Le Rasa Bakery — cake customization engine
+// Le Rasa Bakery — accessories / customization engine
 // ------------------------------------------------------------
-// Pure, isomorphic logic for the Cake Customization Wizard: which groups are
-// visible, what a set of selections costs, whether it's valid, and how to
-// describe it on the cart / order.
+// Pure, isomorphic logic for the Accessories Management System: which
+// accessory categories are visible, what a set of selections costs, whether
+// it's valid, and how to describe it on the cart, the order, the admin panel
+// and the notifications.
 //
-// The wizard (client) and /api/checkout/create-intent (server) BOTH import
-// this file, so the price the customer is shown and the price Stripe charges
-// are computed by the same code over the same DB config. The server always
-// re-reads the config and re-prices from scratch — a tampered client cannot
-// buy a £6 topper for £0.
+// The customization page (client) and /api/checkout/create-intent (server)
+// BOTH import this file, so the price the customer is shown and the price
+// Stripe charges are computed by the same code over the same DB config. The
+// server always re-reads the config and re-prices from scratch — a tampered
+// client cannot buy a £6 topper for £0.
 //
-// Nothing here is hardcoded about candles, cards or toppers: the groups, their
-// display types, prices and dependencies all arrive from the database.
+// Nothing here is hardcoded about candles, cards, balloons or toppers: every
+// category, item, price, limit and dependency arrives from the database
+// (supabase/sql/22_accessories.sql).
 // ============================================================
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -23,53 +25,85 @@ export type DisplayType =
   | "dropdown"
   | "checkbox"
   | "toggle"
+  | "quantity"
   | "text"
   | "textarea";
 
-export type AccessoryOption = {
+export const DISPLAY_TYPES: DisplayType[] = [
+  "radio",
+  "dropdown",
+  "checkbox",
+  "toggle",
+  "quantity",
+  "text",
+  "textarea",
+];
+
+/** One item inside a category — a Sparkler, a Rose stem, a Custom topper. */
+export type Accessory = {
+  id: string;
   value: string;
-  label: string;
+  name: string;
+  description: string | null;
+  imageUrl: string | null;
   price: number;
+  minQty: number;
+  maxQty: number;
   isDefault: boolean;
+  /** Disabled accessories reach the ADMIN only — never the storefront. */
+  active: boolean;
 };
 
-export type AccessoryGroup = {
+/** One control on the customization page. */
+export type AccessoryCategory = {
   id: string;
   key: string;
-  label: string;
+  name: string;
   displayType: DisplayType;
-  helpText: string | null;
+  description: string | null;
   placeholder: string | null;
-  /** Extra charged when a toggle is on, or a text/textarea group is filled. */
+  imageUrl: string | null;
+  /** Extra charged when a toggle is on, or a text/textarea is filled in. */
   price: number;
   required: boolean;
   maxChars: number | null;
-  /** Only shown when group `dependsOnKey` currently holds `dependsOnValue`. */
+  minQty: number;
+  maxQty: number;
+  /** Only shown while category `dependsOnKey` holds `dependsOnValue`. */
   dependsOnKey: string | null;
   dependsOnValue: string | null;
   /** Empty = offered on every customizable product. */
-  categories: string[];
-  options: AccessoryOption[];
+  productCategories: string[];
+  /** Disabled categories reach the ADMIN only — never the storefront. */
+  active: boolean;
+  accessories: Accessory[];
 };
 
-/** One group's answer. Which field is used depends on the display type. */
+/** One category's answer. Which field is used depends on the display type. */
 export type Selection = {
   /** radio / dropdown / checkbox */
   values?: string[];
+  /** quantity — accessory value → how many */
+  quantities?: Record<string, number>;
   /** toggle */
   enabled?: boolean;
   /** text / textarea */
   text?: string;
 };
 
-/** Keyed by group key. */
+/** Keyed by category key. */
 export type Selections = Record<string, Selection>;
 
-/** A resolved, human-readable line for the cart drawer / order snapshot. */
+/** A resolved, human-readable line for the cart / order / email / WhatsApp. */
 export type CustomizationLine = {
   key: string;
+  /** The category name, e.g. "Candles". */
   label: string;
+  /** What was chosen, e.g. "Sparkler" or the typed message. */
   value: string;
+  /** How many (quantity categories only). */
+  quantity?: number;
+  /** The extra charged for THIS line, quantity included. */
   price: number;
 };
 
@@ -88,95 +122,131 @@ const TEXT_TYPES: DisplayType[] = ["text", "textarea"];
 // Loading the config
 // ------------------------------------------------------------
 
-type GroupRow = {
+type CategoryRow = {
   id: string;
   key: string;
-  label: string;
+  name: string;
   display_type: string;
-  help_text: string | null;
+  description: string | null;
   placeholder: string | null;
+  image_url: string | null;
   price: number | string | null;
   required: boolean | null;
   max_chars: number | null;
+  min_qty: number | null;
+  max_qty: number | null;
   depends_on_key: string | null;
   depends_on_value: string | null;
   categories: unknown;
   sort_order: number | null;
-  cake_accessory_options?: OptionRow[] | null;
+  active: boolean | null;
+  accessories?: AccessoryRow[] | null;
 };
 
-type OptionRow = {
+type AccessoryRow = {
+  id: string;
   value: string;
-  label: string;
+  name: string;
+  description: string | null;
+  image_url: string | null;
   price: number | string | null;
+  min_qty: number | null;
+  max_qty: number | null;
   is_default: boolean | null;
   sort_order: number | null;
   active: boolean | null;
 };
 
-function toGroup(row: GroupRow): AccessoryGroup {
-  const options = (row.cake_accessory_options ?? [])
-    .filter((o) => o.active !== false)
+export const CATEGORY_COLS =
+  "id,key,name,display_type,description,placeholder,image_url,price,required," +
+  "max_chars,min_qty,max_qty,depends_on_key,depends_on_value,categories,sort_order,active";
+
+export const ACCESSORY_COLS =
+  "id,value,name,description,image_url,price,min_qty,max_qty,is_default,sort_order,active";
+
+function toAccessory(row: AccessoryRow): Accessory {
+  return {
+    id: row.id,
+    value: row.value,
+    name: row.name,
+    description: row.description,
+    imageUrl: row.image_url,
+    price: Number(row.price) || 0,
+    minQty: Math.max(0, Number(row.min_qty) || 0),
+    maxQty: Math.max(1, Number(row.max_qty) || 1),
+    isDefault: row.is_default === true,
+    active: row.active !== false,
+  };
+}
+
+function toCategory(row: CategoryRow, includeInactive: boolean): AccessoryCategory {
+  // Inactive accessories are dropped HERE, not just by RLS: the checkout prices
+  // the basket with the SERVICE-ROLE client, which bypasses RLS entirely. Were
+  // this filter left to the database, a disabled accessory would still be
+  // priced and charged for.
+  const accessories = (row.accessories ?? [])
+    .filter((a) => includeInactive || a.active !== false)
     .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
-    .map((o) => ({
-      value: o.value,
-      label: o.label,
-      price: Number(o.price) || 0,
-      isDefault: o.is_default === true,
-    }));
+    .map(toAccessory);
 
   return {
     id: row.id,
     key: row.key,
-    label: row.label,
+    name: row.name,
     displayType: row.display_type as DisplayType,
-    helpText: row.help_text,
+    description: row.description,
     placeholder: row.placeholder,
+    imageUrl: row.image_url,
     price: Number(row.price) || 0,
     required: row.required === true,
     maxChars: row.max_chars ?? null,
+    minQty: Math.max(0, Number(row.min_qty) || 0),
+    maxQty: Math.max(1, Number(row.max_qty) || 1),
     dependsOnKey: row.depends_on_key,
     dependsOnValue: row.depends_on_value,
-    categories: Array.isArray(row.categories)
+    productCategories: Array.isArray(row.categories)
       ? (row.categories as unknown[]).map(String)
       : [],
-    options,
+    active: row.active !== false,
+    accessories,
   };
 }
 
 /**
- * Read the live wizard config. Works with the anon client (storefront) and the
- * service-role client (checkout) alike — RLS already limits anon to active rows.
+ * Read the live accessories config. Works with the anon client (storefront)
+ * and the service-role client (checkout, admin) alike — RLS already limits
+ * anon to active rows.
  */
-export async function fetchAccessoryGroups(
+export async function fetchAccessoryCategories(
   supabase: SupabaseClient,
-): Promise<AccessoryGroup[]> {
-  const { data, error } = await supabase
-    .from("cake_accessory_groups")
-    .select(
-      "id,key,label,display_type,help_text,placeholder,price,required,max_chars," +
-        "depends_on_key,depends_on_value,categories,sort_order," +
-        "cake_accessory_options(value,label,price,is_default,sort_order,active)",
-    )
-    .eq("active", true)
+  opts?: { includeInactive?: boolean },
+): Promise<AccessoryCategory[]> {
+  let query = supabase
+    .from("accessory_categories")
+    .select(`${CATEGORY_COLS}, accessories(${ACCESSORY_COLS})`)
     .order("sort_order", { ascending: true });
 
+  if (!opts?.includeInactive) query = query.eq("active", true);
+
+  const { data, error } = await query;
   if (error) throw new Error(error.message);
-  // `database.types.ts` predates these tables, so the generated client can't
+  // `database.types.ts` predates these tables, so the generated client cannot
   // type the nested select — the shape is guaranteed by the query above.
-  return (((data ?? []) as unknown) as GroupRow[]).map(toGroup);
+  return ((data ?? []) as unknown as CategoryRow[]).map((row) =>
+    toCategory(row, opts?.includeInactive === true),
+  );
 }
 
-/** The groups offered for a given product category ([] on a group = all). */
-export function groupsForCategory(
-  groups: AccessoryGroup[],
-  category: string | null,
-): AccessoryGroup[] {
-  const c = (category ?? "").trim().toLowerCase();
-  return groups.filter(
-    (g) =>
-      g.categories.length === 0 ||
-      g.categories.some((x) => x.trim().toLowerCase() === c),
+/** The categories offered for a given product category ([] on one = all). */
+export function categoriesForProduct(
+  categories: AccessoryCategory[],
+  productCategory: string | null,
+): AccessoryCategory[] {
+  const c = (productCategory ?? "").trim().toLowerCase();
+  return categories.filter(
+    (cat) =>
+      cat.productCategories.length === 0 ||
+      cat.productCategories.some((x) => x.trim().toLowerCase() === c),
   );
 }
 
@@ -184,86 +254,112 @@ export function groupsForCategory(
 // Visibility, pricing, validation
 // ------------------------------------------------------------
 
-/** The value a group currently "holds", for dependency checks. */
-function heldValues(group: AccessoryGroup, sel: Selection | undefined): string[] {
+/** Clamp a requested quantity into what the config actually allows. */
+function clampQty(cat: AccessoryCategory, acc: Accessory, raw: number): number {
+  const qty = Math.trunc(Number(raw) || 0);
+  if (qty <= 0) return 0;
+  const max = Math.min(acc.maxQty || Infinity, cat.maxQty || Infinity);
+  return Math.min(Math.max(qty, 1), max);
+}
+
+/** The value a category currently "holds", for dependency checks. */
+function heldValues(cat: AccessoryCategory, sel: Selection | undefined): string[] {
   if (!sel) return [];
-  if (group.displayType === "toggle") return sel.enabled ? ["yes"] : ["no"];
-  if (TEXT_TYPES.includes(group.displayType)) {
+  if (cat.displayType === "toggle") return sel.enabled ? ["yes"] : ["no"];
+  if (cat.displayType === "quantity") {
+    return Object.entries(sel.quantities ?? {})
+      .filter(([, qty]) => Number(qty) > 0)
+      .map(([value]) => value);
+  }
+  if (TEXT_TYPES.includes(cat.displayType)) {
     return (sel.text ?? "").trim() ? ["filled"] : [];
   }
   return sel.values ?? [];
 }
 
 /**
- * A group is visible when its parent (if any) currently holds the required
+ * A category is visible when its parent (if any) currently holds the required
  * value — and when that parent is itself visible, so a chain of dependencies
  * collapses correctly.
  */
-export function isGroupVisible(
-  group: AccessoryGroup,
-  groups: AccessoryGroup[],
+export function isCategoryVisible(
+  cat: AccessoryCategory,
+  categories: AccessoryCategory[],
   selections: Selections,
 ): boolean {
-  if (!group.dependsOnKey || !group.dependsOnValue) return true;
-  const parent = groups.find((g) => g.key === group.dependsOnKey);
-  if (!parent) return false; // parent deactivated → the child cannot apply
-  if (!isGroupVisible(parent, groups, selections)) return false;
-  return heldValues(parent, selections[parent.key]).includes(group.dependsOnValue);
+  if (!cat.dependsOnKey || !cat.dependsOnValue) return true;
+  const parent = categories.find((c) => c.key === cat.dependsOnKey);
+  if (!parent) return false; // parent disabled → the child cannot apply
+  if (!isCategoryVisible(parent, categories, selections)) return false;
+  return heldValues(parent, selections[parent.key]).includes(cat.dependsOnValue);
 }
 
-export function visibleGroups(
-  groups: AccessoryGroup[],
+export function visibleCategories(
+  categories: AccessoryCategory[],
   selections: Selections,
-): AccessoryGroup[] {
-  return groups.filter((g) => isGroupVisible(g, groups, selections));
+): AccessoryCategory[] {
+  return categories.filter((c) => isCategoryVisible(c, categories, selections));
 }
 
-/** Every group's default answer — what the wizard opens with. */
-export function defaultSelections(groups: AccessoryGroup[]): Selections {
+/** Every category's default answer — what the page opens with. */
+export function defaultSelections(categories: AccessoryCategory[]): Selections {
   const out: Selections = {};
-  for (const g of groups) {
-    if (CHOICE_TYPES.includes(g.displayType)) {
-      const preset = g.options.filter((o) => o.isDefault).map((o) => o.value);
+  for (const cat of categories) {
+    if (CHOICE_TYPES.includes(cat.displayType)) {
+      const preset = cat.accessories.filter((a) => a.isDefault).map((a) => a.value);
       // A radio/dropdown must always hold exactly one value; fall back to the
-      // first option so the control is never rendered blank.
+      // first item so the control is never rendered blank.
       const single =
-        g.displayType === "checkbox"
+        cat.displayType === "checkbox"
           ? preset
           : preset.slice(0, 1).length
             ? preset.slice(0, 1)
-            : g.options.slice(0, 1).map((o) => o.value);
-      out[g.key] = { values: single };
-    } else if (g.displayType === "toggle") {
-      out[g.key] = { enabled: false };
+            : cat.accessories.slice(0, 1).map((a) => a.value);
+      out[cat.key] = { values: single };
+    } else if (cat.displayType === "quantity") {
+      const quantities: Record<string, number> = {};
+      // A category with a minimum starts at that minimum, pre-filled.
+      for (const acc of cat.accessories) {
+        if (cat.minQty > 0) quantities[acc.value] = Math.max(cat.minQty, acc.minQty);
+      }
+      out[cat.key] = { quantities };
+    } else if (cat.displayType === "toggle") {
+      out[cat.key] = { enabled: false };
     } else {
-      out[g.key] = { text: "" };
+      out[cat.key] = { text: "" };
     }
   }
   return out;
 }
 
 /**
- * The per-unit accessory extra. Only VISIBLE groups are priced, so a hidden
- * answer (e.g. a card message left behind after the card toggle was switched
+ * The per-unit accessory extra. Only VISIBLE categories are priced, so a
+ * hidden answer (a card message left behind after the card toggle was switched
  * back off) can never be charged for.
  */
 export function priceSelections(
-  groups: AccessoryGroup[],
+  categories: AccessoryCategory[],
   selections: Selections,
 ): number {
   let total = 0;
-  for (const g of visibleGroups(groups, selections)) {
-    const sel = selections[g.key];
+  for (const cat of visibleCategories(categories, selections)) {
+    const sel = selections[cat.key];
     if (!sel) continue;
 
-    if (g.displayType === "toggle") {
-      if (sel.enabled) total += g.price;
-    } else if (TEXT_TYPES.includes(g.displayType)) {
-      if ((sel.text ?? "").trim()) total += g.price;
+    if (cat.displayType === "toggle") {
+      if (sel.enabled) total += cat.price;
+    } else if (cat.displayType === "quantity") {
+      for (const [value, raw] of Object.entries(sel.quantities ?? {})) {
+        const acc = cat.accessories.find((a) => a.value === value);
+        if (!acc) continue;
+        total += acc.price * clampQty(cat, acc, raw);
+      }
+    } else if (TEXT_TYPES.includes(cat.displayType)) {
+      if ((sel.text ?? "").trim()) total += cat.price;
     } else {
       for (const value of sel.values ?? []) {
-        const opt = g.options.find((o) => o.value === value);
-        if (opt) total += opt.price;
+        const acc = cat.accessories.find((a) => a.value === value);
+        if (acc) total += acc.price;
       }
     }
   }
@@ -274,41 +370,71 @@ export type ValidationResult = { ok: boolean; errors: Record<string, string> };
 
 /**
  * Validates against the live config: required answers present, character
- * limits respected, and no unknown option values. Hidden groups are skipped
- * entirely — an invalid combination is impossible by construction.
+ * limits respected, quantities within bounds, and no unknown accessory values.
+ * Hidden categories are skipped entirely — an invalid combination is
+ * impossible by construction.
  */
 export function validateSelections(
-  groups: AccessoryGroup[],
+  categories: AccessoryCategory[],
   selections: Selections,
 ): ValidationResult {
   const errors: Record<string, string> = {};
 
-  for (const g of visibleGroups(groups, selections)) {
-    const sel = selections[g.key] ?? {};
+  for (const cat of visibleCategories(categories, selections)) {
+    const sel = selections[cat.key] ?? {};
 
-    if (TEXT_TYPES.includes(g.displayType)) {
+    if (TEXT_TYPES.includes(cat.displayType)) {
       const text = (sel.text ?? "").trim();
-      if (g.required && !text) {
-        errors[g.key] = `${g.label} is required.`;
-      } else if (g.maxChars && text.length > g.maxChars) {
-        errors[g.key] = `Please keep this to ${g.maxChars} characters or fewer.`;
+      if (cat.required && !text) {
+        errors[cat.key] = `${cat.name} is required.`;
+      } else if (cat.maxChars && text.length > cat.maxChars) {
+        errors[cat.key] = `Please keep this to ${cat.maxChars} characters or fewer.`;
       }
       continue;
     }
 
-    if (g.displayType === "toggle") {
-      if (g.required && !sel.enabled) errors[g.key] = `${g.label} is required.`;
+    if (cat.displayType === "toggle") {
+      if (cat.required && !sel.enabled) errors[cat.key] = `${cat.name} is required.`;
+      continue;
+    }
+
+    if (cat.displayType === "quantity") {
+      const entries = Object.entries(sel.quantities ?? {}).filter(
+        ([, qty]) => Number(qty) > 0,
+      );
+      const unknown = entries.filter(
+        ([value]) => !cat.accessories.some((a) => a.value === value),
+      );
+      if (unknown.length > 0) {
+        errors[cat.key] = "That item is no longer available.";
+        continue;
+      }
+      const overMax = entries.find(([value, qty]) => {
+        const acc = cat.accessories.find((a) => a.value === value)!;
+        return Number(qty) > Math.min(acc.maxQty, cat.maxQty);
+      });
+      if (overMax) {
+        const acc = cat.accessories.find((a) => a.value === overMax[0])!;
+        errors[cat.key] = `You can order up to ${Math.min(
+          acc.maxQty,
+          cat.maxQty,
+        )} × ${acc.name}.`;
+      } else if (cat.required && entries.length === 0) {
+        errors[cat.key] = `Please choose at least one ${cat.name.toLowerCase()}.`;
+      }
       continue;
     }
 
     const values = sel.values ?? [];
-    const unknown = values.filter((v) => !g.options.some((o) => o.value === v));
+    const unknown = values.filter(
+      (v) => !cat.accessories.some((a) => a.value === v),
+    );
     if (unknown.length > 0) {
-      errors[g.key] = `That option is no longer available.`;
-    } else if (g.required && values.length === 0) {
-      errors[g.key] = `Please choose an option for ${g.label}.`;
-    } else if (g.displayType !== "checkbox" && values.length > 1) {
-      errors[g.key] = `Please choose just one option for ${g.label}.`;
+      errors[cat.key] = "That option is no longer available.";
+    } else if (cat.required && values.length === 0) {
+      errors[cat.key] = `Please choose an option for ${cat.name}.`;
+    } else if (cat.displayType !== "checkbox" && values.length > 1) {
+      errors[cat.key] = `Please choose just one option for ${cat.name}.`;
     }
   }
 
@@ -316,40 +442,58 @@ export function validateSelections(
 }
 
 /**
- * The resolved customization to hang on a cart line: what was chosen, in
- * words, with what each addition costs. Only visible groups and non-empty
- * answers appear, so the cart never lists "Knife: no".
+ * The resolved customization: what was chosen, in words, with what each
+ * addition costs. Only visible categories and non-empty answers appear, so
+ * the cart never lists "Knife: no". A free DEFAULT choice ("Candles: None")
+ * is skipped as noise, but a free TEXT answer is kept — the baker needs to
+ * read the message even though it costs nothing.
  */
 export function summarize(
-  groups: AccessoryGroup[],
+  categories: AccessoryCategory[],
   selections: Selections,
 ): CustomizationLine[] {
   const lines: CustomizationLine[] = [];
 
-  for (const g of visibleGroups(groups, selections)) {
-    const sel = selections[g.key];
+  for (const cat of visibleCategories(categories, selections)) {
+    const sel = selections[cat.key];
     if (!sel) continue;
 
-    if (g.displayType === "toggle") {
+    if (cat.displayType === "toggle") {
       if (sel.enabled) {
-        lines.push({ key: g.key, label: g.label, value: "Yes", price: g.price });
+        lines.push({ key: cat.key, label: cat.name, value: "Yes", price: cat.price });
       }
       continue;
     }
 
-    if (TEXT_TYPES.includes(g.displayType)) {
+    if (cat.displayType === "quantity") {
+      for (const [value, raw] of Object.entries(sel.quantities ?? {})) {
+        const acc = cat.accessories.find((a) => a.value === value);
+        if (!acc) continue;
+        const qty = clampQty(cat, acc, raw);
+        if (qty <= 0) continue;
+        lines.push({
+          key: cat.key,
+          label: cat.name,
+          value: acc.name,
+          quantity: qty,
+          price: round2(acc.price * qty),
+        });
+      }
+      continue;
+    }
+
+    if (TEXT_TYPES.includes(cat.displayType)) {
       const text = (sel.text ?? "").trim();
       if (text) {
-        lines.push({ key: g.key, label: g.label, value: text, price: g.price });
+        lines.push({ key: cat.key, label: cat.name, value: text, price: cat.price });
       }
       continue;
     }
 
     for (const value of sel.values ?? []) {
-      const opt = g.options.find((o) => o.value === value);
-      // A £0 "None" choice is noise in the cart — skip it.
-      if (!opt || (opt.price === 0 && opt.isDefault)) continue;
-      lines.push({ key: g.key, label: g.label, value: opt.label, price: opt.price });
+      const acc = cat.accessories.find((a) => a.value === value);
+      if (!acc || (acc.price === 0 && acc.isDefault)) continue;
+      lines.push({ key: cat.key, label: cat.name, value: acc.name, price: acc.price });
     }
   }
 
@@ -358,19 +502,19 @@ export function summarize(
 
 /** Build the full customization payload for a cart line. */
 export function buildCustomization(
-  groups: AccessoryGroup[],
+  categories: AccessoryCategory[],
   selections: Selections,
 ): Customization {
   // Persist only what is visible, so a stale hidden answer never travels.
-  const visible = visibleGroups(groups, selections);
+  const visible = visibleCategories(categories, selections);
   const kept: Selections = {};
-  for (const g of visible) {
-    if (selections[g.key]) kept[g.key] = selections[g.key];
+  for (const cat of visible) {
+    if (selections[cat.key]) kept[cat.key] = selections[cat.key];
   }
   return {
-    lines: summarize(groups, selections),
+    lines: summarize(categories, selections),
     selections: kept,
-    total: priceSelections(groups, selections),
+    total: priceSelections(categories, selections),
   };
 }
 
@@ -385,6 +529,13 @@ export function signatureOf(selections: Selections): string {
     const sel = selections[key];
     const bits: string[] = [];
     if (sel.values?.length) bits.push([...sel.values].sort().join("|"));
+    if (sel.quantities) {
+      const qtys = Object.entries(sel.quantities)
+        .filter(([, qty]) => Number(qty) > 0)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([value, qty]) => `${value}x${qty}`);
+      if (qtys.length) bits.push(qtys.join("|"));
+    }
     if (sel.enabled) bits.push("yes");
     const text = (sel.text ?? "").trim();
     if (text) bits.push(text);
@@ -397,4 +548,12 @@ export function signatureOf(selections: Selections): string {
 export function cartLineId(productId: string, selections?: Selections): string {
   const sig = selections ? signatureOf(selections) : "";
   return sig ? `${productId}::${sig}` : productId;
+}
+
+/** "Sparkler × 3" — one line as a person reads it. Shared by cart, admin,
+ *  the customer email and the owner's WhatsApp message. */
+export function lineText(line: CustomizationLine): string {
+  return line.quantity && line.quantity > 1
+    ? `${line.value} × ${line.quantity}`
+    : line.value;
 }
