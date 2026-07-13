@@ -74,6 +74,11 @@ export type PublicSettings = {
   lead_time_days: number;
   blocked_dates: string[];
   delivery_days: string[];
+  // Derived from site_settings.stripe_config — safe to expose. The publishable
+  // key is public by design; the secret (secret_key_enc) NEVER appears here,
+  // only the boolean saying whether one exists somewhere.
+  stripe_publishable_key: string;
+  payments_configured: boolean;
 };
 
 export const HERO_DEFAULT: HeroBanner = {
@@ -162,7 +167,29 @@ function normaliseBanner(v: unknown): RotatingBanner {
 
 // Sensible defaults so the storefront still renders when the DB row is
 // empty or a column has not been added yet.
+// The only two Stripe values the storefront may see. Derived, never raw:
+// the DB config (set in the admin panel) wins, env vars are the fallback —
+// matching the server-side precedence in lib/stripe.ts. STRIPE_SECRET_KEY is
+// read purely as a boolean, and only ever resolves on the server (this runs
+// inside getPublicSettings), so no secret is ever serialised to the client.
+function stripePublic(raw: unknown): {
+  stripe_publishable_key: string;
+  payments_configured: boolean;
+} {
+  const cfg = (raw ?? {}) as { publishable_key?: unknown; secret_key_enc?: unknown };
+  const key =
+    str(cfg.publishable_key) ||
+    (process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? "");
+  const hasSecret =
+    Boolean(cfg.secret_key_enc) || Boolean(process.env.STRIPE_SECRET_KEY);
+  return {
+    stripe_publishable_key: key,
+    payments_configured: Boolean(key) && hasSecret,
+  };
+}
+
 export const DEFAULT_SETTINGS: PublicSettings = {
+  ...stripePublic(null),
   contact: CONTACT_DEFAULT,
   logo: "",
   instagram_url: "",
@@ -183,8 +210,10 @@ export const DEFAULT_SETTINGS: PublicSettings = {
 // Columns the storefront may read (fed to the Supabase REST select).
 // `contact` is the unified contact jsonb; phone/email/address/whatsapp are the
 // legacy columns still read as a fallback until `contact` is populated.
+// `stripe_config` is fetched only so normaliseSettings can derive the two safe
+// values above — the raw column (incl. secret_key_enc) never leaves this layer.
 export const PUBLIC_SETTINGS_SELECT =
-  "contact,logo,phone,email,address,whatsapp,instagram_url,facebook_url,tiktok_url,announcement,hero_banner,rotating_banners,whatsapp_bar,about_story,about_image_url,home_slider,delivery_zones,lead_time_days,blocked_dates,delivery_days";
+  "contact,logo,phone,email,address,whatsapp,instagram_url,facebook_url,tiktok_url,announcement,hero_banner,rotating_banners,whatsapp_bar,about_story,about_image_url,home_slider,delivery_zones,lead_time_days,blocked_dates,delivery_days,stripe_config";
 
 function str(v: unknown): string {
   return typeof v === "string" ? v : "";
@@ -228,6 +257,7 @@ export function normaliseSettings(
   const c = (r.contact ?? {}) as Partial<Contact>;
 
   return {
+    ...stripePublic(r.stripe_config),
     contact: {
       phone: str(c.phone) || str(r.phone),
       whatsapp: str(c.whatsapp) || str(r.whatsapp),

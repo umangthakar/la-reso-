@@ -9,7 +9,7 @@
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/server";
-import { getCheckoutStripe } from "@/lib/stripe-checkout";
+import { getStripe } from "@/lib/stripe";
 import { round2 } from "@/lib/pricing";
 
 export const dynamic = "force-dynamic";
@@ -49,6 +49,18 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Missing payment reference." }, { status: 400 });
   }
 
+  // The admin client is created first because the Stripe key itself now lives
+  // in site_settings (admin panel), with the env key as the fallback.
+  let supabase: SupabaseClient;
+  try {
+    supabase = createAdminClient() as unknown as SupabaseClient;
+  } catch (e) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "Server not configured." },
+      { status: 500 },
+    );
+  }
+
   // 1) Verify the payment actually succeeded, straight from Stripe.
   let paidTotal: number;
   let metaSubtotal = 0;
@@ -57,7 +69,7 @@ export async function POST(req: Request) {
   let metaCoupon: string | null = null;
   let metaOffer: string | null = null;
   try {
-    const stripe = getCheckoutStripe();
+    const { stripe } = await getStripe(supabase);
     const pi = await stripe.paymentIntents.retrieve(paymentIntentId);
     if (pi.status !== "succeeded") {
       return NextResponse.json(
@@ -74,16 +86,6 @@ export async function POST(req: Request) {
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Could not verify payment." },
-      { status: 500 },
-    );
-  }
-
-  let supabase: SupabaseClient;
-  try {
-    supabase = createAdminClient() as unknown as SupabaseClient;
-  } catch (e) {
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Server not configured." },
       { status: 500 },
     );
   }

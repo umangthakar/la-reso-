@@ -24,7 +24,7 @@ import { useCart } from "@/components/cart/cart-context";
 import { useAuth } from "@/lib/use-auth";
 import { useSiteSettings } from "@/lib/use-site-settings";
 import { createClient } from "@/utils/supabase/client";
-import { getStripePromise, stripeConfigured } from "@/lib/stripe-client";
+import { getStripePromise } from "@/lib/stripe-client";
 import { money, round2, resolveDeliveryFee } from "@/lib/pricing";
 import {
   firstDeliverableDate,
@@ -477,14 +477,14 @@ export default function CheckoutPage() {
                   Payment
                 </h2>
 
-                {!stripeConfigured ? (
+                {!settings.payments_configured ? (
                   <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
-                    Payments aren&apos;t configured yet. Add NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
-                    and STRIPE_SECRET_KEY to your environment.
+                    Payments aren&apos;t configured yet. Add your Stripe keys in the
+                    admin panel under Payments (or set them in your environment).
                   </p>
                 ) : clientSecret ? (
                   <Elements
-                    stripe={getStripePromise()}
+                    stripe={getStripePromise(settings.stripe_publishable_key)}
                     options={{ clientSecret, appearance }}
                   >
                     <PaymentForm

@@ -10,7 +10,7 @@
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/server";
-import { getCheckoutStripe } from "@/lib/stripe-checkout";
+import { getStripe } from "@/lib/stripe";
 import { resolveDeliveryFee, round2, toPence } from "@/lib/pricing";
 import {
   offerFromRow,
@@ -228,7 +228,8 @@ export async function POST(req: Request) {
   const total = round2(subtotal - discountAmount + deliveryFee);
 
   try {
-    const stripe = getCheckoutStripe();
+    // Admin-panel config first, env secret key as the fallback (lib/stripe).
+    const { stripe } = await getStripe(supabase);
     const intent = await stripe.paymentIntents.create({
       amount: toPence(total),
       currency: "gbp",
