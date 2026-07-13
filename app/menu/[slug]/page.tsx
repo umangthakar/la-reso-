@@ -7,7 +7,7 @@
 // shows related items from the same category.
 // ============================================================
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -27,6 +27,8 @@ import { useCart } from "@/components/cart/cart-context";
 import { slugify } from "@/lib/slug";
 import { money } from "@/lib/pricing";
 import { useActiveOffer } from "@/lib/use-active-offer";
+import { usePurchaseGate } from "@/lib/use-purchase-gate";
+import { consumePurchaseIntent, peekPurchaseIntent } from "@/lib/purchase-intent";
 import { PriceText } from "@/components/product-price";
 
 type DetailProduct = {
@@ -108,10 +110,22 @@ export default function ProductDetailPage() {
   const router = useRouter();
   const { addItem, openCart } = useCart();
   const { offers: activeOffers } = useActiveOffer();
+  const { requireAuth, user, ready: authReady } = usePurchaseGate();
 
   const [products, setProducts] = useState<DetailProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [qty, setQty] = useState(1);
+
+  // A "Buy Now" the customer started before signing in leaves a pending
+  // intent behind. Note it on mount (before the catalogue arrives) so the
+  // spinner stays up while we replay it, instead of flashing the product.
+  const [resuming, setResuming] = useState(false);
+  const resumed = useRef(false);
+
+  useEffect(() => {
+    const pending = peekPurchaseIntent();
+    if (pending && pending.action === "buy-now") setResuming(true);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -142,7 +156,49 @@ export default function ProductDetailPage() {
       .slice(0, 3);
   }, [products, product]);
 
-  if (loading) {
+  // Replay a "Buy Now" that was interrupted by the login gate: the customer
+  // is back on the exact product they clicked, so restore the quantity, add
+  // it to the basket and continue straight to checkout.
+  useEffect(() => {
+    if (!resuming || resumed.current) return;
+    if (!authReady || loading) return;
+
+    if (!user || !product || !product.in_stock) {
+      // Signed out again, product gone, or sold out while they were away —
+      // drop the intent and let the page behave normally.
+      setResuming(false);
+      return;
+    }
+
+    const pending = peekPurchaseIntent();
+    const matches =
+      !!pending &&
+      pending.action === "buy-now" &&
+      (pending.productId === product.id || pending.slug === slug);
+    if (!matches) {
+      setResuming(false);
+      return;
+    }
+
+    resumed.current = true;
+    consumePurchaseIntent();
+    const quantity = Math.min(99, Math.max(1, pending!.quantity ?? 1));
+    setQty(quantity);
+    addItem(
+      {
+        id: product.id,
+        name: product.name,
+        price: product.price,
+        image: product.image,
+        category: product.category,
+        slug: slugify(product.name),
+      },
+      quantity,
+    );
+    router.push("/checkout");
+  }, [resuming, authReady, loading, user, product, slug, addItem, router]);
+
+  if (loading || resuming) {
     return (
       <div className="container flex min-h-[60vh] items-center justify-center py-24">
         <div className="h-10 w-10 animate-spin rounded-full border-4 border-dustyrose border-t-wine" />
@@ -181,7 +237,18 @@ export default function ProductDetailPage() {
     addItem(cartLine, qty);
     openCart();
   };
-  const buyNow = () => {
+  // Purchasing requires a signed-in customer: if they aren't, the gate stores
+  // this exact product + quantity and sends them to Google login, and this
+  // page replays the Buy Now when they come back.
+  const buyNow = async () => {
+    const allowed = await requireAuth({
+      action: "buy-now",
+      productId: product.id,
+      slug: cartLine.slug,
+      quantity: qty,
+      href: `/menu/${cartLine.slug}`,
+    });
+    if (!allowed) return;
     addItem(cartLine, qty);
     router.push("/checkout");
   };

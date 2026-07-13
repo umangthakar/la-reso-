@@ -22,6 +22,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { Check, ChevronLeft, Lock, Loader2, ShoppingBag } from "lucide-react";
 import { useCart } from "@/components/cart/cart-context";
 import { useAuth } from "@/lib/use-auth";
+import { loginHrefFor, savePurchaseIntent } from "@/lib/purchase-intent";
 import { useSiteSettings } from "@/lib/use-site-settings";
 import { createClient } from "@/utils/supabase/client";
 import { getStripePromise } from "@/lib/stripe-client";
@@ -119,6 +120,15 @@ export default function CheckoutPage() {
 
   const set = (k: keyof Form, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
+  // Guest checkout is disabled — purchasing requires a signed-in (Google)
+  // customer. Anyone who reaches /checkout without a session is sent to the
+  // login page and returned here afterwards, basket intact.
+  useEffect(() => {
+    if (!ready || user) return;
+    savePurchaseIntent({ action: "checkout", href: "/checkout" });
+    router.replace(loginHrefFor("/checkout"));
+  }, [ready, user, router]);
+
   // Pre-fill from the signed-in customer's saved profile (once), so returning
   // customers don't retype their details. Only fills fields left blank.
   const prefilled = useRef(false);
@@ -172,6 +182,17 @@ export default function CheckoutPage() {
     form.address.trim() !== "" &&
     form.postcode.trim() !== "" &&
     dateChosenValid;
+
+  // Auth guard (after hooks, so hook order stays stable). While the session
+  // resolves — or while the effect above redirects a signed-out visitor — hold
+  // the page rather than flashing the form.
+  if (!ready || !user) {
+    return (
+      <div className="container flex min-h-[60vh] items-center justify-center py-24">
+        <Loader2 className="h-8 w-8 animate-spin text-wine" />
+      </div>
+    );
+  }
 
   // Empty-cart guard (after hooks, so hook order stays stable).
   if (count === 0 && step < 4) {

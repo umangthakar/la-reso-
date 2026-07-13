@@ -11,10 +11,12 @@ import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Plus, Minus, Trash2, ShoppingBag } from "lucide-react";
 import { useCart } from "@/components/cart/cart-context";
+import { usePurchaseGate } from "@/lib/use-purchase-gate";
 import { money, FREE_DELIVERY_THRESHOLD } from "@/lib/pricing";
 
 export function CartDrawer() {
   const router = useRouter();
+  const { requireAuth } = usePurchaseGate();
   const {
     items,
     count,
@@ -27,8 +29,12 @@ export function CartDrawer() {
     removeItem,
   } = useCart();
 
-  const goToCheckout = () => {
+  // Guest checkout is disabled: send signed-out customers to Google login and
+  // bring them straight back to checkout (the basket is persisted already).
+  const goToCheckout = async () => {
+    const allowed = await requireAuth({ action: "checkout", href: "/checkout" });
     closeCart();
+    if (!allowed) return;
     router.push("/checkout");
   };
 

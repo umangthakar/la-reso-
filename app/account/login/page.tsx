@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Cake, Loader2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/use-auth";
 
 /** Inline Google "G" mark (no external asset — CSP-safe). */
@@ -31,32 +30,46 @@ function GoogleMark({ className }: { className?: string }) {
   );
 }
 
+/** Only same-origin paths are honoured as a post-login destination. */
+function safeNext(raw: string | null): string {
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return "/account";
+  return raw;
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const { user, ready, signInWithGoogle } = useAuth();
   const [signingIn, setSigningIn] = useState(false);
   const [authError, setAuthError] = useState(false);
+  // Where to send the customer once they're in — set by the purchase gate to
+  // the product they were buying, otherwise the account page.
+  const [next, setNext] = useState("/account");
 
-  // Read a ?error= flag from the OAuth callback without useSearchParams
-  // (avoids the Suspense-boundary requirement during static generation).
+  // Read ?error= / ?next= from the URL without useSearchParams (avoids the
+  // Suspense-boundary requirement during static generation).
   useEffect(() => {
-    setAuthError(new URLSearchParams(window.location.search).has("error"));
+    const params = new URLSearchParams(window.location.search);
+    setAuthError(params.has("error"));
+    setNext(safeNext(params.get("next")));
   }, []);
 
   // Already signed in? Skip the login screen.
   useEffect(() => {
-    if (ready && user) router.replace("/account");
-  }, [ready, user, router]);
+    if (ready && user) router.replace(next);
+  }, [ready, user, next, router]);
 
   async function handleGoogle() {
     setSigningIn(true);
     try {
-      await signInWithGoogle("/account");
+      await signInWithGoogle(next);
       // A full-page redirect to Google follows; keep the spinner meanwhile.
     } catch {
       setSigningIn(false);
     }
   }
+
+  // A pending purchase means the customer was stopped mid-checkout.
+  const gated = next !== "/account";
 
   return (
     <section className="relative overflow-hidden pb-16 pt-28 sm:pt-36">
@@ -79,7 +92,9 @@ export default function LoginPage() {
               Welcome to Le Rasa
             </h1>
             <p className="mt-1 text-sm text-darkberry-light">
-              Sign in to track orders and save your details for next time.
+              {gated
+                ? "Sign in with Google to continue your order — we'll take you straight back."
+                : "Sign in to track orders and save your details for next time."}
             </p>
           </div>
 
@@ -104,23 +119,13 @@ export default function LoginPage() {
             {signingIn ? "Redirecting to Google…" : "Continue with Google"}
           </button>
 
-          {/* Divider */}
-          <div className="my-5 flex items-center gap-3 text-xs font-semibold uppercase tracking-wider text-darkberry-light/60">
-            <span className="h-px flex-1 bg-wine/15" />
-            or
-            <span className="h-px flex-1 bg-wine/15" />
-          </div>
+          {/* Google is the only way in — guest, email and password sign-in
+              are all disabled for purchasing. */}
+          <p className="mt-4 text-center text-xs font-semibold text-darkberry-light">
+            Google sign-in is required to place an order.
+          </p>
 
-          <Button
-            type="button"
-            variant="secondary"
-            className="w-full"
-            onClick={() => router.push("/menu")}
-          >
-            Continue as Guest
-          </Button>
-
-          <p className="mt-6 text-center text-xs text-darkberry-light">
+          <p className="mt-5 text-center text-xs text-darkberry-light">
             By continuing you agree to our friendly terms — we only use your
             details to bake and deliver your order.
           </p>

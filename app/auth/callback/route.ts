@@ -15,7 +15,12 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
-  const next = url.searchParams.get("next") || "/account";
+  const rawNext = url.searchParams.get("next");
+  // Only same-origin paths, so `next` can never be used as an open redirect.
+  const next =
+    rawNext && rawNext.startsWith("/") && !rawNext.startsWith("//")
+      ? rawNext
+      : "/account";
   const origin = url.origin;
 
   if (!code) {
@@ -48,6 +53,10 @@ export async function GET(req: Request) {
     !!profile.last_name &&
     !!profile.phone;
 
-  const dest = complete ? next : "/account/complete-profile";
+  // An incomplete profile still has to end up where the customer was headed
+  // (e.g. the product they were buying), so `next` is carried through.
+  const dest = complete
+    ? next
+    : `/account/complete-profile?next=${encodeURIComponent(next)}`;
   return NextResponse.redirect(`${origin}${dest}`);
 }

@@ -11,6 +11,7 @@ import type { Product } from "@/lib/data";
 import { useCart } from "@/components/cart/cart-context";
 import { slugify } from "@/lib/slug";
 import { useActiveOffer, type ActiveOffers } from "@/lib/use-active-offer";
+import { usePurchaseGate } from "@/lib/use-purchase-gate";
 import { PriceText } from "@/components/product-price";
 
 /* ------------------------------------------------------------------ *
@@ -157,6 +158,7 @@ export function AnimatedProductCard({ product }: { product: Product }) {
 
   const router = useRouter();
   const { addItem, openCart } = useCart();
+  const { requireAuth } = usePurchaseGate();
   const slug = slugify(product.name);
   const detailHref = `/menu/${slug}`;
 
@@ -177,9 +179,20 @@ export function AnimatedProductCard({ product }: { product: Product }) {
     openCart();
   };
 
-  const handleBuyNow = (e: React.MouseEvent) => {
+  // Purchasing requires a signed-in customer. When they aren't, the gate
+  // remembers this product and sends them to Google login; the product page
+  // they return to replays the Buy Now automatically.
+  const handleBuyNow = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    const allowed = await requireAuth({
+      action: "buy-now",
+      productId: product.id,
+      slug,
+      quantity: 1,
+      href: detailHref,
+    });
+    if (!allowed) return;
     addItem(cartLine);
     router.push("/checkout");
   };

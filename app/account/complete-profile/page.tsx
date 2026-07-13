@@ -23,9 +23,23 @@ type Address = { line1: string; street: string; city: string; postcode: string }
 
 const EMPTY_ADDRESS: Address = { line1: "", street: "", city: "", postcode: "" };
 
+/** Only same-origin paths are honoured as a post-save destination. */
+function safeNext(raw: string | null): string {
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return "/account";
+  return raw;
+}
+
 export default function CompleteProfilePage() {
   const router = useRouter();
   const { user, ready } = useAuth();
+
+  // Carried through from the OAuth callback: where the customer was headed
+  // before login (e.g. the product they were buying). Read from the URL
+  // directly to avoid the useSearchParams Suspense requirement.
+  const [next, setNext] = useState("/account");
+  useEffect(() => {
+    setNext(safeNext(new URLSearchParams(window.location.search).get("next")));
+  }, []);
 
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -40,6 +54,9 @@ export default function CompleteProfilePage() {
   useEffect(() => {
     if (ready && !user) router.replace("/account/login");
   }, [ready, user, router]);
+
+  // "Skip for now" must not strand a customer mid-purchase either.
+  const skip = () => router.push(next);
 
   // Pre-fill: Google name as a default, then override with any saved profile.
   useEffect(() => {
@@ -109,7 +126,7 @@ export default function CompleteProfilePage() {
       setSaving(false);
       return;
     }
-    router.push("/account");
+    router.push(next);
   }
 
   if (!ready || !user || loading) {
@@ -207,7 +224,7 @@ export default function CompleteProfilePage() {
 
             <button
               type="button"
-              onClick={() => router.push("/account")}
+              onClick={skip}
               className="w-full text-center text-sm font-semibold text-darkberry-light transition-colors hover:text-wine-dark"
             >
               Skip for now
