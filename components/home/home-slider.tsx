@@ -30,7 +30,10 @@ export function HomeSlider({ images }: { images: string[] }) {
 
   return (
     <section className="container mt-4">
-      <div className="relative aspect-[16/9] w-full overflow-hidden rounded-[24px] shadow-clay-sm sm:aspect-[21/9]">
+      {/* Height is driven purely by the aspect ratio. Mobile keeps 16/9 and
+          tablets keep 21/9; lg trims a little and xl (desktop) widens to 14/5,
+          which is ~17% shorter than 21/9 at the same width. */}
+      <div className="relative aspect-[16/9] w-full overflow-hidden rounded-[24px] shadow-clay-sm sm:aspect-[21/9] lg:aspect-[5/2] xl:aspect-[14/5]">
         <AnimatePresence mode="wait">
           <motion.div
             key={index}

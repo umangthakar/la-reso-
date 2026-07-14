@@ -1,12 +1,16 @@
 "use client";
 
 // ============================================================
-// Le Rasa Bakery — authentication hook (Supabase Auth, Google OAuth)
+// Le Rasa Bakery — authentication hook (Supabase Auth)
 // ------------------------------------------------------------
 // Real auth backed by Supabase. Exposes the current user (derived
-// from the session), a Google sign-in trigger, and sign-out. Kept a
-// small, stable surface so the navbar and account pages can consume
-// it without knowing about Supabase.
+// from the session), sign-in triggers, and sign-out. Kept a small,
+// stable surface so the navbar and account pages can consume it
+// without knowing about Supabase.
+//
+// Two ways in, one account system: Google OAuth and email + password.
+// Both end up as the same Supabase auth user, so everything downstream
+// (purchase gate, profiles, orders) is unchanged.
 // ============================================================
 
 import { useCallback, useEffect, useState } from "react";
@@ -19,6 +23,55 @@ export type AuthUser = {
   email: string;
   avatar?: string;
 };
+
+/** Result of an email/password action: a friendly message, or null on success. */
+export type EmailAuthResult = {
+  error: string | null;
+  /** True when the address exists but hasn't clicked its verification link. */
+  needsVerification?: boolean;
+};
+
+/** Where the password-reset email drops the customer once the session is live. */
+export const RESET_PATH = "/account/reset-password";
+
+/**
+ * Build the /auth/callback URL every email + OAuth flow returns to. `flow`
+ * marks the recovery link so the callback skips the profile-completeness
+ * detour and goes straight to the new-password screen.
+ */
+function callbackUrl(next: string, flow?: "recovery"): string {
+  const params = new URLSearchParams({ next });
+  if (flow) params.set("flow", flow);
+  return `${window.location.origin}/auth/callback?${params.toString()}`;
+}
+
+/** True when Supabase is refusing an address that never confirmed its email. */
+function isUnverified(message: string): boolean {
+  return /not confirmed|not verified/i.test(message);
+}
+
+/** Turn Supabase's raw auth errors into copy a customer can act on. */
+function friendlyError(message: string): string {
+  if (isUnverified(message)) {
+    return "Please verify your email first — check your inbox for the link.";
+  }
+  if (/invalid login credentials/i.test(message)) {
+    return "That email and password don't match. Please try again.";
+  }
+  if (/already registered|already been registered/i.test(message)) {
+    return "An account with this email already exists. Try signing in instead.";
+  }
+  if (/password.*(6|at least)/i.test(message)) {
+    return "Your password must be at least 6 characters.";
+  }
+  if (/rate limit|too many|after \d+ seconds/i.test(message)) {
+    return "Too many attempts. Please wait a moment and try again.";
+  }
+  if (/same.*password/i.test(message)) {
+    return "That's already your password — please choose a different one.";
+  }
+  return message || "Something went wrong. Please try again.";
+}
 
 /** Derive a friendly display user from a Supabase auth user. */
 function mapUser(u: User | null): AuthUser | null {
@@ -67,12 +120,101 @@ export function useAuth() {
   /** Kick off Google OAuth. Returns to /auth/callback which decides where next. */
   const signInWithGoogle = useCallback(async (next = "/account") => {
     const supabase = createClient();
-    const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`;
+    const redirectTo = callbackUrl(next);
     await supabase.auth.signInWithOAuth({
       provider: "google",
       options: { redirectTo },
     });
   }, []);
+
+  /**
+   * Email + password sign-in. Supabase refuses an unverified address, which we
+   * surface as `needsVerification` so the login screen can offer a resend.
+   */
+  const signInWithEmail = useCallback(
+    async (email: string, password: string): Promise<EmailAuthResult> => {
+      const supabase = createClient();
+      const { error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
+      if (!error) return { error: null };
+      return {
+        error: friendlyError(error.message),
+        needsVerification: isUnverified(error.message),
+      };
+    },
+    [],
+  );
+
+  /**
+   * Create an email + password account. Supabase sends the verification email;
+   * the customer can only sign in once they've clicked it. `name` is stored in
+   * user_metadata so the profile step (and the navbar initial) pre-fill exactly
+   * as they do for Google users.
+   */
+  const signUpWithEmail = useCallback(
+    async (
+      email: string,
+      password: string,
+      name: string,
+      next = "/account",
+    ): Promise<EmailAuthResult> => {
+      const supabase = createClient();
+      const { data, error } = await supabase.auth.signUp({
+        email: email.trim(),
+        password,
+        options: {
+          data: { full_name: name.trim() },
+          emailRedirectTo: callbackUrl(next),
+        },
+      });
+      if (error) return { error: friendlyError(error.message) };
+      // A session here means email confirmation is switched off in Supabase; no
+      // session means the verification email is on its way.
+      return { error: null, needsVerification: !data.session };
+    },
+    [],
+  );
+
+  /** Re-send the verification email for an address that never confirmed. */
+  const resendVerification = useCallback(
+    async (email: string, next = "/account"): Promise<EmailAuthResult> => {
+      const supabase = createClient();
+      const { error } = await supabase.auth.resend({
+        type: "signup",
+        email: email.trim(),
+        options: { emailRedirectTo: callbackUrl(next) },
+      });
+      return { error: error ? friendlyError(error.message) : null };
+    },
+    [],
+  );
+
+  /**
+   * Send the "forgot password" email. The link lands on /auth/callback, which
+   * establishes the session and forwards to /account/reset-password.
+   */
+  const sendPasswordReset = useCallback(
+    async (email: string): Promise<EmailAuthResult> => {
+      const supabase = createClient();
+      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+        redirectTo: callbackUrl(RESET_PATH, "recovery"),
+      });
+      return { error: error ? friendlyError(error.message) : null };
+    },
+    [],
+  );
+
+  /** Set a new password for the currently signed-in (or recovering) user. */
+  const updatePassword = useCallback(
+    async (password: string): Promise<EmailAuthResult> => {
+      const supabase = createClient();
+      const { error } = await supabase.auth.updateUser({ password });
+      return { error: error ? friendlyError(error.message) : null };
+    },
+    [],
+  );
 
   const signOut = useCallback(async () => {
     const supabase = createClient();
@@ -81,5 +223,16 @@ export function useAuth() {
   }, []);
 
   // `logout` kept as an alias for existing callers.
-  return { user, ready, signInWithGoogle, signOut, logout: signOut };
+  return {
+    user,
+    ready,
+    signInWithGoogle,
+    signInWithEmail,
+    signUpWithEmail,
+    resendVerification,
+    sendPasswordReset,
+    updatePassword,
+    signOut,
+    logout: signOut,
+  };
 }

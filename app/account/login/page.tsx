@@ -1,9 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Cake, Loader2 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/use-auth";
 
 /** Inline Google "G" mark (no external asset — CSP-safe). */
@@ -38,12 +42,22 @@ function safeNext(raw: string | null): string {
 
 export default function LoginPage() {
   const router = useRouter();
-  const { user, ready, signInWithGoogle } = useAuth();
+  const { user, ready, signInWithGoogle, signInWithEmail, resendVerification } =
+    useAuth();
   const [signingIn, setSigningIn] = useState(false);
   const [authError, setAuthError] = useState(false);
   // Where to send the customer once they're in — set by the purchase gate to
   // the product they were buying, otherwise the account page.
   const [next, setNext] = useState("/account");
+
+  // Email + password state.
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // Set when Supabase refuses an address that never clicked its verify link.
+  const [unverified, setUnverified] = useState(false);
+  const [resent, setResent] = useState(false);
 
   // Read ?error= / ?next= from the URL without useSearchParams (avoids the
   // Suspense-boundary requirement during static generation).
@@ -68,8 +82,45 @@ export default function LoginPage() {
     }
   }
 
+  async function handleEmailLogin(e: React.FormEvent) {
+    e.preventDefault();
+    if (!email.trim() || !password) {
+      setError("Please enter your email and password.");
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    setUnverified(false);
+    setResent(false);
+
+    const res = await signInWithEmail(email, password);
+    if (res.error) {
+      setError(res.error);
+      setUnverified(!!res.needsVerification);
+      setSubmitting(false);
+      return;
+    }
+    // The session is live: onAuthStateChange updates `user`, but push straight
+    // away so there's no pause on a slow connection.
+    router.replace(next);
+  }
+
+  async function handleResend() {
+    setSubmitting(true);
+    const res = await resendVerification(email, next);
+    setSubmitting(false);
+    if (res.error) {
+      setError(res.error);
+      return;
+    }
+    setError(null);
+    setUnverified(false);
+    setResent(true);
+  }
+
   // A pending purchase means the customer was stopped mid-checkout.
   const gated = next !== "/account";
+  const busy = submitting || signingIn;
 
   return (
     <section className="relative overflow-hidden pb-16 pt-28 sm:pt-36">
@@ -93,7 +144,7 @@ export default function LoginPage() {
             </h1>
             <p className="mt-1 text-sm text-darkberry-light">
               {gated
-                ? "Sign in with Google to continue your order — we'll take you straight back."
+                ? "Sign in to continue your order — we'll take you straight back."
                 : "Sign in to track orders and save your details for next time."}
             </p>
           </div>
@@ -104,11 +155,84 @@ export default function LoginPage() {
             </p>
           )}
 
+          {/* Email + password sign-in */}
+          <form onSubmit={handleEmailLogin} className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="email">Email</Label>
+              <Input
+                id="email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com"
+                autoComplete="email"
+                required
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="password">Password</Label>
+                <Link
+                  href="/account/forgot-password"
+                  className="text-xs font-semibold text-wine-dark transition-colors hover:text-plum"
+                >
+                  Forgot password?
+                </Link>
+              </div>
+              <Input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                autoComplete="current-password"
+                required
+              />
+            </div>
+
+            {error && (
+              <div className="rounded-2xl bg-wine/10 px-4 py-3 text-sm font-semibold text-wine-dark">
+                <p>{error}</p>
+                {unverified && (
+                  <button
+                    type="button"
+                    onClick={handleResend}
+                    disabled={busy}
+                    className="mt-1 underline underline-offset-2 hover:text-plum disabled:opacity-60"
+                  >
+                    Resend the verification email
+                  </button>
+                )}
+              </div>
+            )}
+
+            {resent && (
+              <p className="rounded-2xl bg-dustyrose-light/60 px-4 py-3 text-sm font-semibold text-wine-dark">
+                Verification email sent — check your inbox.
+              </p>
+            )}
+
+            <Button type="submit" disabled={busy} className="w-full" size="lg">
+              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              {submitting ? "Signing in…" : "Login"}
+            </Button>
+          </form>
+
+          {/* Divider */}
+          <div className="my-6 flex items-center gap-4">
+            <span className="h-px flex-1 bg-wine/15" />
+            <span className="text-xs font-bold uppercase tracking-widest text-darkberry-light">
+              or
+            </span>
+            <span className="h-px flex-1 bg-wine/15" />
+          </div>
+
           {/* Google sign-in */}
           <button
             type="button"
             onClick={handleGoogle}
-            disabled={signingIn || !ready}
+            disabled={busy || !ready}
             className="inline-flex w-full items-center justify-center gap-3 rounded-full border-2 border-wine/20 bg-white px-6 py-3.5 text-sm font-bold text-darkberry shadow-clay-sm transition-all hover:-translate-y-0.5 hover:shadow-clay disabled:cursor-not-allowed disabled:opacity-60"
           >
             {signingIn ? (
@@ -119,10 +243,18 @@ export default function LoginPage() {
             {signingIn ? "Redirecting to Google…" : "Continue with Google"}
           </button>
 
-          {/* Google is the only way in — guest, email and password sign-in
-              are all disabled for purchasing. */}
-          <p className="mt-4 text-center text-xs font-semibold text-darkberry-light">
-            Google sign-in is required to place an order.
+          <p className="mt-6 text-center text-sm font-semibold text-darkberry-light">
+            New to Le Rasa?{" "}
+            <Link
+              href={
+                gated
+                  ? `/account/signup?next=${encodeURIComponent(next)}`
+                  : "/account/signup"
+              }
+              className="text-wine-dark underline underline-offset-2 transition-colors hover:text-plum"
+            >
+              Create Account
+            </Link>
           </p>
 
           <p className="mt-5 text-center text-xs text-darkberry-light">

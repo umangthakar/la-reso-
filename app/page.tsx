@@ -3,26 +3,35 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { SplashScreen } from "@/components/splash-screen";
+import { hasSeenIntro, markIntroSeen } from "@/lib/intro-seen";
 
 export default function HomePage() {
   const router = useRouter();
-  // Undecided until we know the viewport, so we never flash the splash on mobile.
-  const [isMobile, setIsMobile] = useState<boolean | null>(null);
+  // Undecided until we've checked the viewport and the session flag, so we
+  // never flash the splash on mobile or on a repeat visit.
+  const [showSplash, setShowSplash] = useState(false);
 
-  // Mobile skips the video splash entirely and goes straight to /home.
   useEffect(() => {
-    if (window.innerWidth < 768) {
+    // Mobile skips the video splash entirely, and so does every visit to "/"
+    // after the first one this session — that's the Home link, browser
+    // back/forward and refresh. Straight to /home, no animation.
+    if (window.innerWidth < 768 || hasSeenIntro()) {
       router.replace("/home");
       return;
     }
-    setIsMobile(false);
+
+    // Marked before the animation plays, not after: leaving mid-splash and
+    // coming back must not restart it either.
+    markIntroSeen();
+    setShowSplash(true);
   }, [router]);
 
-  // Desktop: play the entry video, then land on /home.
-  if (isMobile === false) {
+  // Desktop, first visit: play the entry video, then land on /home.
+  if (showSplash) {
     return <SplashScreen onComplete={() => router.push("/home")} />;
   }
 
-  // Mobile (or first paint before measuring): render nothing while we redirect.
+  // Mobile / repeat visit (or first paint before measuring): render nothing
+  // while we redirect.
   return null;
 }
