@@ -29,6 +29,11 @@ export type EmailAuthResult = {
   error: string | null;
   /** True when the address exists but hasn't clicked its verification link. */
   needsVerification?: boolean;
+  /**
+   * True when Supabase answered 429. The caller must NOT retry automatically —
+   * every retry consumes the next slot and pushes the lockout further out.
+   */
+  rateLimited?: boolean;
 };
 
 /** Where the password-reset email drops the customer once the session is live. */
@@ -45,13 +50,59 @@ function callbackUrl(next: string, flow?: "recovery"): string {
   return `${window.location.origin}/auth/callback?${params.toString()}`;
 }
 
+/** The bits of Supabase's AuthError we actually branch on. */
+type AuthErrorLike = { message: string; status?: number; code?: string };
+
 /** True when Supabase is refusing an address that never confirmed its email. */
 function isUnverified(message: string): boolean {
   return /not confirmed|not verified/i.test(message);
 }
 
+/**
+ * True when Supabase is rate-limiting us. Keyed off the HTTP status and the
+ * error code rather than the message text: 429 is the contract, the wording is
+ * not. The message check is only a fallback for older gotrue builds that don't
+ * populate `code`.
+ */
+function isRateLimited(err: AuthErrorLike): boolean {
+  return (
+    err.status === 429 ||
+    /rate.?limit/i.test(err.code ?? "") ||
+    /rate limit|after \d+ seconds/i.test(err.message)
+  );
+}
+
+/**
+ * Supabase's two rate limits produce very different advice, so we split them:
+ *
+ *  - over_email_send_rate_limit — the project's outbound email allowance. The
+ *    built-in SMTP sender is only a couple of emails per hour, PROJECT-WIDE.
+ *  - "you can only request this after N seconds" — the per-address throttle,
+ *    one signup / verification / reset per 60s.
+ *
+ * Neither is retried automatically: a retry would just consume the next slot
+ * and extend the lockout.
+ */
+function rateLimitMessage(err: AuthErrorLike): string {
+  const seconds = /after (\d+) seconds?/i.exec(err.message)?.[1];
+  if (seconds) {
+    return `Please wait ${seconds} seconds before requesting another email.`;
+  }
+  if (
+    err.code === "over_email_send_rate_limit" ||
+    /email rate limit/i.test(err.message)
+  ) {
+    return "We've sent too many emails in the last hour. Please wait a few minutes and try again — your details were not lost.";
+  }
+  return "Too many attempts. Please wait a moment and try again.";
+}
+
 /** Turn Supabase's raw auth errors into copy a customer can act on. */
-function friendlyError(message: string): string {
+function friendlyError(err: AuthErrorLike): string {
+  const { message } = err;
+  if (isRateLimited(err)) {
+    return rateLimitMessage(err);
+  }
   if (isUnverified(message)) {
     return "Please verify your email first — check your inbox for the link.";
   }
@@ -64,13 +115,51 @@ function friendlyError(message: string): string {
   if (/password.*(6|at least)/i.test(message)) {
     return "Your password must be at least 6 characters.";
   }
-  if (/rate limit|too many|after \d+ seconds/i.test(message)) {
-    return "Too many attempts. Please wait a moment and try again.";
-  }
   if (/same.*password/i.test(message)) {
     return "That's already your password — please choose a different one.";
   }
   return message || "Something went wrong. Please try again.";
+}
+
+/**
+ * Dev-only trace of every auth request that costs an email. Shows one line per
+ * POST, so a duplicate request is impossible to miss in the console.
+ */
+function trace(...args: unknown[]): void {
+  if (process.env.NODE_ENV !== "production") {
+    // eslint-disable-next-line no-console
+    console.log(`[auth ${new Date().toISOString()}]`, ...args);
+  }
+}
+
+/**
+ * In-flight email requests, keyed by operation + address.
+ *
+ * `setSubmitting(true)` only disables the submit button on the NEXT render, so
+ * a fast double-click (or Enter held down) can re-enter the submit handler and
+ * fire a second POST to /auth/v1/signup milliseconds after the first. Supabase
+ * allows one signup per address per 60 seconds, so that second POST comes back
+ * 429 — which is exactly the intermittent "Too many attempts" customers hit.
+ *
+ * A module-level map is the synchronous guard React state can't be: the second
+ * caller gets handed the first call's promise, so only ONE request ever leaves
+ * the browser. It is module-level (not a ref) so it holds even if two
+ * components each hold their own useAuth().
+ */
+const inFlight = new Map<string, Promise<EmailAuthResult>>();
+
+function dedupe(
+  key: string,
+  request: () => Promise<EmailAuthResult>,
+): Promise<EmailAuthResult> {
+  const existing = inFlight.get(key);
+  if (existing) {
+    trace(`duplicate "${key}" dropped — awaiting the request already in flight`);
+    return existing;
+  }
+  const pending = request().finally(() => inFlight.delete(key));
+  inFlight.set(key, pending);
+  return pending;
 }
 
 /** Derive a friendly display user from a Supabase auth user. */
@@ -140,8 +229,9 @@ export function useAuth() {
       });
       if (!error) return { error: null };
       return {
-        error: friendlyError(error.message),
+        error: friendlyError(error),
         needsVerification: isUnverified(error.message),
+        rateLimited: isRateLimited(error),
       };
     },
     [],
@@ -154,39 +244,62 @@ export function useAuth() {
    * as they do for Google users.
    */
   const signUpWithEmail = useCallback(
-    async (
+    (
       email: string,
       password: string,
       name: string,
       next = "/account",
     ): Promise<EmailAuthResult> => {
-      const supabase = createClient();
-      const { data, error } = await supabase.auth.signUp({
-        email: email.trim(),
-        password,
-        options: {
-          data: { full_name: name.trim() },
-          emailRedirectTo: callbackUrl(next),
-        },
+      const address = email.trim();
+      // Deduped: exactly one POST /auth/v1/signup per address, however many
+      // times the button is clicked before it disables.
+      return dedupe(`signup:${address.toLowerCase()}`, async () => {
+        const supabase = createClient();
+        trace("POST /auth/v1/signup →", address);
+
+        const { data, error } = await supabase.auth.signUp({
+          email: address,
+          password,
+          options: {
+            data: { full_name: name.trim() },
+            emailRedirectTo: callbackUrl(next),
+          },
+        });
+
+        if (error) {
+          trace("signup failed", { status: error.status, code: error.code, message: error.message });
+          return { error: friendlyError(error), rateLimited: isRateLimited(error) };
+        }
+        trace("signup ok — verification email queued");
+        // A session here means email confirmation is switched off in Supabase;
+        // no session means the verification email is on its way.
+        return { error: null, needsVerification: !data.session };
       });
-      if (error) return { error: friendlyError(error.message) };
-      // A session here means email confirmation is switched off in Supabase; no
-      // session means the verification email is on its way.
-      return { error: null, needsVerification: !data.session };
     },
     [],
   );
 
   /** Re-send the verification email for an address that never confirmed. */
   const resendVerification = useCallback(
-    async (email: string, next = "/account"): Promise<EmailAuthResult> => {
-      const supabase = createClient();
-      const { error } = await supabase.auth.resend({
-        type: "signup",
-        email: email.trim(),
-        options: { emailRedirectTo: callbackUrl(next) },
+    (email: string, next = "/account"): Promise<EmailAuthResult> => {
+      const address = email.trim();
+      // Also deduped — a resend costs an email against the same rate limit.
+      return dedupe(`resend:${address.toLowerCase()}`, async () => {
+        const supabase = createClient();
+        trace("POST /auth/v1/resend →", address);
+
+        const { error } = await supabase.auth.resend({
+          type: "signup",
+          email: address,
+          options: { emailRedirectTo: callbackUrl(next) },
+        });
+
+        if (error) {
+          trace("resend failed", { status: error.status, code: error.code });
+          return { error: friendlyError(error), rateLimited: isRateLimited(error) };
+        }
+        return { error: null };
       });
-      return { error: error ? friendlyError(error.message) : null };
     },
     [],
   );
@@ -196,12 +309,22 @@ export function useAuth() {
    * establishes the session and forwards to /account/reset-password.
    */
   const sendPasswordReset = useCallback(
-    async (email: string): Promise<EmailAuthResult> => {
-      const supabase = createClient();
-      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-        redirectTo: callbackUrl(RESET_PATH, "recovery"),
+    (email: string): Promise<EmailAuthResult> => {
+      const address = email.trim();
+      return dedupe(`reset:${address.toLowerCase()}`, async () => {
+        const supabase = createClient();
+        trace("POST /auth/v1/recover →", address);
+
+        const { error } = await supabase.auth.resetPasswordForEmail(address, {
+          redirectTo: callbackUrl(RESET_PATH, "recovery"),
+        });
+
+        if (error) {
+          trace("reset failed", { status: error.status, code: error.code });
+          return { error: friendlyError(error), rateLimited: isRateLimited(error) };
+        }
+        return { error: null };
       });
-      return { error: error ? friendlyError(error.message) : null };
     },
     [],
   );
@@ -211,7 +334,7 @@ export function useAuth() {
     async (password: string): Promise<EmailAuthResult> => {
       const supabase = createClient();
       const { error } = await supabase.auth.updateUser({ password });
-      return { error: error ? friendlyError(error.message) : null };
+      return { error: error ? friendlyError(error) : null };
     },
     [],
   );
