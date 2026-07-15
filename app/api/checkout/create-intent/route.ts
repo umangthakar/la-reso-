@@ -314,7 +314,14 @@ export async function POST(req: Request) {
     const intent = await stripe.paymentIntents.create({
       amount: toPence(total),
       currency: "gbp",
-      automatic_payment_methods: { enabled: true },
+      // Card only. This restricts the Payment Element to Credit/Debit cards
+      // (Stripe card wallets like Apple/Google Pay ride along under "card"),
+      // and deliberately excludes dashboard-enabled alternatives such as
+      // Revolut Pay and Amazon Pay for this checkout — without changing them
+      // elsewhere in the Stripe account. Replaces the previous
+      // `automatic_payment_methods: { enabled: true }`, which surfaced every
+      // method enabled in the dashboard.
+      payment_method_types: ["card"],
       metadata: {
         subtotal: subtotal.toFixed(2),
         delivery_fee: deliveryFee.toFixed(2),
