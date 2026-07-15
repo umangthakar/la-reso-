@@ -30,6 +30,7 @@ const NAV = [
   { href: "/admin/dashboard/payments", label: "Payments" },
   { href: "/admin/dashboard/delivery", label: "Delivery Settings" },
   { href: "/admin/dashboard/settings", label: "Content & Settings" },
+  { href: "/admin/dashboard/reviews", label: "Google Reviews" },
   { href: "/admin/dashboard/policies", label: "Policies" },
   { href: "/admin/dashboard/analytics", label: "Analytics" },
 ];

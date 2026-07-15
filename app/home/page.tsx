@@ -8,6 +8,7 @@ import { PolicyCards } from "@/components/home/policy-cards";
 import { Marquee } from "@/components/marquee";
 import { Testimonials } from "@/components/testimonials";
 import { getPolicies } from "@/lib/policies-server";
+import { getGoogleReviews } from "@/lib/google-reviews";
 
 // Fetch settings + products fresh on every request so admin edits show
 // immediately with no redeploy.
@@ -49,10 +50,11 @@ async function fetchHomeProducts(): Promise<HomeProduct[]> {
 export default async function HomeLandingPage() {
   // Policies are read here (not inside the component) so the three reads share
   // one round trip, like settings and products already do.
-  const [settings, products, policies] = await Promise.all([
+  const [settings, products, policies, googleReviews] = await Promise.all([
     getPublicSettings(),
     fetchHomeProducts(),
     getPolicies(),
+    getGoogleReviews(),
   ]);
 
   const waDigits = settings.contact.whatsapp.replace(/[^0-9]/g, "");
@@ -99,7 +101,7 @@ export default async function HomeLandingPage() {
 
       {/* Moved from the Menu page — scrolling marquee + customer reviews */}
       <Marquee />
-      <Testimonials />
+      <Testimonials google={googleReviews} />
 
       {/* 7. WHATSAPP FLOATING BUTTON */}
       <WhatsappFloat number={settings.contact.whatsapp} />

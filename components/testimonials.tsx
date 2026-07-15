@@ -9,8 +9,28 @@ type Review = CardStackItem & {
   quote: string;
   customer: string;
   orderType: string;
+  // Per-review star rating (Google reviews). Local fallback reviews omit it
+  // and render the original all-5-stars look.
+  rating?: number;
 };
 
+// Shape passed from the server (lib/google-reviews → StorefrontReviews). Kept
+// as a local type so this client component never imports the server-only lib.
+type GoogleReviewsData = {
+  rating: number;
+  total: number;
+  reviews: {
+    author_name: string;
+    profile_photo_url: string;
+    rating: number;
+    text: string;
+    relative_time: string;
+  }[];
+  placeUrl: string;
+};
+
+// Built-in local reviews — the fallback whenever Google Reviews are off or
+// unavailable, so the section is never empty. (Unchanged from before.)
 const reviews: Review[] = [
   {
     id: 1,
@@ -69,6 +89,23 @@ function useCardSize() {
   return size;
 }
 
+/** Five star icons with the first `filled` filled — identical markup to the
+ *  original all-5 row (filled === 5 reproduces the previous look exactly). */
+function Stars({ filled }: { filled: number }) {
+  const n = Math.max(0, Math.min(5, Math.round(filled)));
+  return (
+    <div className="flex gap-1">
+      {Array.from({ length: 5 }).map((_, i) =>
+        i < n ? (
+          <Star key={i} className="h-5 w-5 fill-amber-400 text-amber-400" />
+        ) : (
+          <Star key={i} className="h-5 w-5 fill-transparent text-amber-400/30" />
+        ),
+      )}
+    </div>
+  );
+}
+
 function ReviewCard({ review, active }: { review: Review; active: boolean }) {
   return (
     <div
@@ -77,11 +114,7 @@ function ReviewCard({ review, active }: { review: Review; active: boolean }) {
         border: active ? "2px solid #873853" : "2px solid rgba(213, 164, 164, 0.3)",
       }}
     >
-      <div className="flex gap-1">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <Star key={i} className="h-5 w-5 fill-amber-400 text-amber-400" />
-        ))}
-      </div>
+      <Stars filled={review.rating ?? 5} />
 
       <blockquote
         className="mt-5 line-clamp-3 flex-1 text-base italic leading-relaxed"
@@ -97,8 +130,25 @@ function ReviewCard({ review, active }: { review: Review; active: boolean }) {
   );
 }
 
-export function Testimonials() {
+export function Testimonials({ google }: { google?: GoogleReviewsData | null }) {
   const { width, height } = useCardSize();
+
+  // Use live Google reviews when available; otherwise fall back to the local
+  // set so the carousel is never empty. Only the DATA changes — the carousel,
+  // card design, animations, spacing and layout are all unchanged.
+  const useGoogle = Boolean(google && google.reviews.length > 0);
+  const displayReviews: Review[] = useGoogle
+    ? google!.reviews.map((r, i) => ({
+        id: `g-${i}`,
+        title: r.author_name,
+        customer: r.author_name,
+        // The card's second caption slot carries the relative time for Google
+        // reviews (e.g. "2 weeks ago"), keeping the exact same markup.
+        orderType: r.relative_time || "Google review",
+        quote: r.text,
+        rating: r.rating,
+      }))
+    : reviews;
 
   return (
     <section className="section-padding relative overflow-hidden" style={{ backgroundColor: "#F9EEEA" }}>
@@ -121,11 +171,27 @@ export function Testimonials() {
           <p className="mt-4 text-base text-darkberry-light text-balance md:text-lg">
             2,400+ happy boxes delivered across the UK
           </p>
+
+          {/* Google rating header — only when live Google data is present, so
+              the local-fallback view is byte-identical to before. */}
+          {useGoogle && (
+            <div className="mt-5 flex flex-col items-center gap-2">
+              <div className="flex items-center gap-3">
+                <span className="font-display text-2xl font-bold text-darkberry">
+                  {google!.rating ? google!.rating.toFixed(1) : "5.0"}
+                </span>
+                <Stars filled={google!.rating || 5} />
+              </div>
+              <p className="text-sm font-semibold text-wine-dark">
+                {google!.total} Google Reviews
+              </p>
+            </div>
+          )}
         </motion.div>
 
         <div className="mt-12 md:mt-16">
           <CardStack<Review>
-            items={reviews}
+            items={displayReviews}
             renderCard={(item, { active }) => (
               <ReviewCard review={item} active={active} />
             )}
@@ -137,6 +203,21 @@ export function Testimonials() {
             showDots
           />
         </div>
+
+        {/* Leave a Google Review — only in Google mode. */}
+        {useGoogle && google!.placeUrl && (
+          <div className="mt-8 flex justify-center">
+            <a
+              href={google!.placeUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 rounded-full bg-wine px-6 py-3 text-sm font-bold text-blush-50 shadow-clay-sm transition-transform hover:-translate-y-0.5"
+            >
+              <Star className="h-4 w-4 fill-current" />
+              Leave a Google Review
+            </a>
+          </div>
+        )}
       </div>
     </section>
   );
