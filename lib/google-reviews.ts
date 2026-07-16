@@ -173,6 +173,7 @@ async function saveCache(
     : await supabase.from("site_settings").insert(payload);
   // A cache-write failure must never break a page render; log and move on.
   if (res.error) console.error("[google-reviews] cache write failed:", res.error.message);
+  else console.log("[google-reviews] cache written:", cache.status, `${cache.reviews.length} reviews`);
 }
 
 // ---- Google Places API -------------------------------------
@@ -215,8 +216,10 @@ async function callPlaces(apiKey: string, placeId: string): Promise<PlacesResult
     };
   };
   try {
+    console.log("[google-reviews] calling Places API for place_id:", placeId);
     const res = await fetch(url.toString(), { cache: "no-store" });
     json = await res.json();
+    console.log("[google-reviews] Places API responded:", json.status);
   } catch (e) {
     throw new GoogleError(
       "failed",

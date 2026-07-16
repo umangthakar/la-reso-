@@ -17,7 +17,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Not authorised" }, { status: 401 });
   }
   try {
+    console.log("[reviews] refresh route hit — syncing from Google");
     const result = await syncGoogleReviews();
+    console.log("[reviews] sync result:", result.status, result.message);
     const state = await getAdminReviewsState();
     const ok = result.status === "connected";
     return NextResponse.json({ ok, result, config: state });

@@ -155,6 +155,7 @@ export default function ReviewsPage() {
   }
 
   async function refresh() {
+    console.log("[reviews] Refresh clicked — POSTing /api/admin/reviews/refresh");
     setRefreshing(true);
     setError("");
     setNotice("");
@@ -164,10 +165,12 @@ export default function ReviewsPage() {
         result: { status: Status; message: string };
         config: ReviewsConfig;
       }>("/api/admin/reviews/refresh", "POST");
+      console.log("[reviews] Refresh response:", result);
       applyConfig(config);
       if (result.status === "connected") setNotice(`Reviews refreshed ✓ — ${result.message}`);
       else setError(result.message || "Refresh failed");
     } catch (e) {
+      console.error("[reviews] Refresh failed:", e);
       setError(e instanceof Error ? e.message : "Refresh failed");
     } finally {
       setRefreshing(false);
@@ -335,10 +338,10 @@ export default function ReviewsPage() {
         <Row label="Cached for carousel">{reviewCount || 0}</Row>
 
         <div style={{ display: "flex", gap: 10, marginTop: 16, flexWrap: "wrap" }}>
-          <button onClick={refresh} disabled={refreshing} style={primaryBtn}>
+          <button type="button" onClick={refresh} disabled={refreshing} style={primaryBtn}>
             {refreshing ? "Refreshing…" : "Refresh Reviews"}
           </button>
-          <button onClick={test} disabled={testing} style={secondaryBtn}>
+          <button type="button" onClick={test} disabled={testing} style={secondaryBtn}>
             {testing ? "Testing…" : "Test Connection"}
           </button>
         </div>
