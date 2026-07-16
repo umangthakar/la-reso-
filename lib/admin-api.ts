@@ -11,6 +11,22 @@
 
 import { ADMIN_AUTH_HEADER, ADMIN_AUTH_KEY } from "./admin-auth";
 
+/**
+ * A failed admin API call. `message` is unchanged from what callers have
+ * always received; `fields` carries per-field validation messages when a
+ * route returns them alongside the error (currently the WhatsApp config PUT).
+ */
+export class AdminApiError extends Error {
+  status: number;
+  fields?: Record<string, string>;
+  constructor(message: string, status: number, fields?: Record<string, string>) {
+    super(message);
+    this.name = "AdminApiError";
+    this.status = status;
+    this.fields = fields;
+  }
+}
+
 function authHeader(): Record<string, string> {
   const pw =
     typeof window !== "undefined"
@@ -45,7 +61,7 @@ export async function adminGet<T>(url: string, opts?: { force?: boolean }): Prom
   // live. (The in-memory GET_CACHE above is the only intended cache; bypass it
   // with { force: true } when freshness matters, e.g. the dashboard.)
   const res = await fetch(url, { headers: { ...authHeader() }, cache: "no-store" });
-  if (!res.ok) throw new Error((await safeMsg(res)) || `Request failed (${res.status})`);
+  if (!res.ok) throw await fail(res, `Request failed (${res.status})`);
   const data = (await res.json()) as T;
   GET_CACHE.set(url, { ts: Date.now(), data });
   return data;
@@ -62,7 +78,7 @@ export async function adminSend<T>(
     headers: { "Content-Type": "application/json", ...authHeader() },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  if (!res.ok) throw new Error((await safeMsg(res)) || `Request failed (${res.status})`);
+  if (!res.ok) throw await fail(res, `Request failed (${res.status})`);
   // A write may have changed any list/stat — invalidate the read cache.
   clearAdminCache();
   return res.json() as Promise<T>;
@@ -84,15 +100,23 @@ export async function adminUpload(
     headers: { ...authHeader() }, // do NOT set Content-Type; browser sets multipart boundary
     body: form,
   });
-  if (!res.ok) throw new Error((await safeMsg(res)) || "Image upload failed");
+  if (!res.ok) throw await fail(res, "Image upload failed");
   return res.json() as Promise<{ url: string }>;
 }
 
-async function safeMsg(res: Response): Promise<string | null> {
+/** Build the error for a non-ok response, preserving the caller's fallback
+ *  message and capturing any per-field validation detail. */
+async function fail(res: Response, fallback: string): Promise<AdminApiError> {
+  let message: string | null = null;
+  let fields: Record<string, string> | undefined;
   try {
     const data = await res.json();
-    return typeof data?.error === "string" ? data.error : null;
+    if (typeof data?.error === "string") message = data.error;
+    if (data?.fields && typeof data.fields === "object") {
+      fields = data.fields as Record<string, string>;
+    }
   } catch {
-    return null;
+    // Non-JSON body — fall through to the caller's default message.
   }
+  return new AdminApiError(message || fallback, res.status, fields);
 }
