@@ -4,25 +4,42 @@
 // the checkout UI, and the Stripe API routes alike.
 // ============================================================
 
-/** Flat delivery fee applied to any paid basket below the free threshold. */
+/**
+ * Fallback delivery fee, used only when no admin-configured zone matches the
+ * postcode. A matching zone's fee always wins — see resolveDeliveryFee.
+ */
 export const DELIVERY_FEE = 4.99;
 
-/** Baskets at or above this subtotal ship free. */
-export const FREE_DELIVERY_THRESHOLD = 50;
-
-/** Delivery fee for a given subtotal. Empty basket ships for £0. */
+/**
+ * Delivery fee before a postcode is known (i.e. the cart drawer). Empty
+ * basket ships for £0; anything else pays. The basket total never earns free
+ * delivery — the real, postcode-derived fee is applied at checkout by
+ * resolveDeliveryFee.
+ */
 export function deliveryFeeFor(subtotal: number): number {
   if (subtotal <= 0) return 0;
-  return subtotal >= FREE_DELIVERY_THRESHOLD ? 0 : DELIVERY_FEE;
+  return DELIVERY_FEE;
 }
 
 type ZoneLike = { postcode_prefix?: string; fee?: number };
 
 /**
- * Delivery fee taking admin-configured delivery zones into account.
- * Empty basket ships free; baskets over the free threshold ship free.
- * Otherwise, if any zone's postcode prefix matches (longest match wins),
- * that zone's fee applies; failing that, the flat DELIVERY_FEE is used.
+ * Delivery fee for an order, derived from the POSTCODE alone.
+ *
+ * The subtotal deliberately does not influence the fee: a £20 basket and a
+ * £5,000 basket to the same postcode both pay that postcode's configured fee.
+ * The only subtotal check is the empty-basket guard, which keeps a £0 order
+ * at £0.
+ *
+ * The zones come from the admin delivery settings, so changing a zone's fee
+ * in the panel immediately changes what checkout charges — nothing is
+ * hardcoded here. The longest matching postcode prefix wins, so a specific
+ * "HA2 0" zone beats a broader "HA". With no matching zone, DELIVERY_FEE is
+ * the fallback (an unrecognised postcode must never ship free).
+ *
+ * NOTE: a free-delivery OFFER can still waive the fee. That is an explicit
+ * admin/coupon decision handled by the callers, not the automatic
+ * spend-enough-and-it's-free rule that used to live here.
  */
 export function resolveDeliveryFee(
   subtotal: number,
@@ -30,7 +47,6 @@ export function resolveDeliveryFee(
   zones: ZoneLike[] | undefined,
 ): number {
   if (subtotal <= 0) return 0;
-  if (subtotal >= FREE_DELIVERY_THRESHOLD) return 0;
 
   const pc = (postcode ?? "").toUpperCase().replace(/\s+/g, "");
   if (Array.isArray(zones) && zones.length > 0 && pc) {

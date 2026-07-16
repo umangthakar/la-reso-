@@ -12,6 +12,9 @@ type Review = CardStackItem & {
   // Per-review star rating (Google reviews). Local fallback reviews omit it
   // and render the original all-5-stars look.
   rating?: number;
+  // Reviewer's Google profile photo. Local fallback reviews omit it, so their
+  // card renders exactly as it did before.
+  avatar?: string;
 };
 
 // Shape passed from the server (lib/google-reviews → StorefrontReviews). Kept
@@ -106,6 +109,27 @@ function Stars({ filled }: { filled: number }) {
   );
 }
 
+/** Reviewer's Google profile photo. Renders nothing when there's no URL (the
+ *  local fallback reviews) or when the image 404s, so the card silently keeps
+ *  its original look rather than showing a broken image. */
+function Avatar({ src, name }: { src: string; name: string }) {
+  const [failed, setFailed] = React.useState(false);
+  if (!src || failed) return null;
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={src}
+      alt={name}
+      loading="lazy"
+      // Google's lh3.googleusercontent.com CDN rejects requests that carry a
+      // referrer, so the photo would 403 without this.
+      referrerPolicy="no-referrer"
+      onError={() => setFailed(true)}
+      className="h-10 w-10 shrink-0 rounded-full object-cover"
+    />
+  );
+}
+
 function ReviewCard({ review, active }: { review: Review; active: boolean }) {
   return (
     <div
@@ -114,7 +138,13 @@ function ReviewCard({ review, active }: { review: Review; active: boolean }) {
         border: active ? "2px solid #873853" : "2px solid rgba(213, 164, 164, 0.3)",
       }}
     >
-      <Stars filled={review.rating ?? 5} />
+      {/* Photo sits at the top-left, beside the existing stars row. With no
+          photo this wrapper collapses to just <Stars/>, which is what the
+          local fallback rendered before — so that view is unchanged. */}
+      <div className="flex items-center gap-3">
+        {review.avatar ? <Avatar src={review.avatar} name={review.customer} /> : null}
+        <Stars filled={review.rating ?? 5} />
+      </div>
 
       <blockquote
         className="mt-5 line-clamp-3 flex-1 text-base italic leading-relaxed"
@@ -136,6 +166,9 @@ export function Testimonials({ google }: { google?: GoogleReviewsData | null }) 
   // Use live Google reviews when available; otherwise fall back to the local
   // set so the carousel is never empty. Only the DATA changes — the carousel,
   // card design, animations, spacing and layout are all unchanged.
+  //
+  // Every review Google returns is mapped and handed to the carousel; nothing
+  // is sliced or capped here, so however many arrive is however many cycle.
   const useGoogle = Boolean(google && google.reviews.length > 0);
   const displayReviews: Review[] = useGoogle
     ? google!.reviews.map((r, i) => ({
@@ -147,6 +180,7 @@ export function Testimonials({ google }: { google?: GoogleReviewsData | null }) 
         orderType: r.relative_time || "Google review",
         quote: r.text,
         rating: r.rating,
+        avatar: r.profile_photo_url,
       }))
     : reviews;
 

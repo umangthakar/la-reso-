@@ -13,7 +13,7 @@ import { X, Plus, Minus, Trash2, ShoppingBag } from "lucide-react";
 import { useCart, unitPriceOf } from "@/components/cart/cart-context";
 import { lineText } from "@/lib/customization";
 import { usePurchaseGate } from "@/lib/use-purchase-gate";
-import { money, FREE_DELIVERY_THRESHOLD } from "@/lib/pricing";
+import { money } from "@/lib/pricing";
 
 export function CartDrawer() {
   const router = useRouter();
@@ -38,8 +38,6 @@ export function CartDrawer() {
     if (!allowed) return;
     router.push("/checkout");
   };
-
-  const remaining = Math.max(0, FREE_DELIVERY_THRESHOLD - subtotal);
 
   return (
     <AnimatePresence>
@@ -109,13 +107,6 @@ export function CartDrawer() {
               </div>
             ) : (
               <>
-                {/* Free-delivery nudge */}
-                {deliveryFee > 0 && remaining > 0 && (
-                  <p className="bg-dustyrose-light/50 px-5 py-2 text-center text-xs font-semibold text-wine-dark">
-                    Add {money(remaining)} more for free delivery 🚚
-                  </p>
-                )}
-
                 {/* Items */}
                 <ul className="flex-1 space-y-3 overflow-y-auto px-5 py-4">
                   {items.map((item) => (

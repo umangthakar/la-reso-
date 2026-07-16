@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/use-auth";
 import { useSiteSettings } from "@/lib/use-site-settings";
 import { CartButton } from "@/components/cart/cart-button";
+import { HeaderSearch } from "@/components/header-search";
 
 const links = [
   { href: "/", label: "Home" },
@@ -127,7 +128,13 @@ export function Navbar() {
             })}
           </div>
 
+          {/* Product search — desktop: inline between the nav links and the
+              cart/profile group. Mobile: the icon inside that group below. */}
+          <HeaderSearch variant="desktop" />
+
           <div className="flex items-center gap-2">
+            <HeaderSearch variant="mobile" />
+
             {/* Cart: opens the slide-in drawer; badge shows live item count. */}
             <CartButton />
 
