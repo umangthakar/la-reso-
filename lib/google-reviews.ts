@@ -190,8 +190,29 @@ type PlacesResult = { rating: number; total: number; reviews: GoogleReview[] };
 
 /**
  * Call the Google Places "Place Details" endpoint. Returns the business
- * rating, total review count and up to 5 published reviews. Throws a
- * GoogleError with a typed `status` on any API-level failure.
+ * rating, total review count and the published reviews. Throws a GoogleError
+ * with a typed `status` on any API-level failure.
+ *
+ * ── HOW MANY REVIEWS COME BACK ──────────────────────────────────────────
+ * Google caps this at FIVE. That is the API's limit, not ours: nothing in
+ * this file, testimonials.tsx or card-stack.tsx slices, takes or limits the
+ * list — whatever Google sends is what the carousel cycles.
+ *
+ * Verified live against this place (ChIJj8S80eW5HQIRMITvrr-GZzE):
+ *
+ *   reviews_sort=newest        → user_ratings_total=60, reviews returned: 5
+ *   reviews_sort=most_relevant → user_ratings_total=60, reviews returned: 5
+ *
+ * So Google reports 60 ratings and hands over 5 review bodies. There is no
+ * pagination parameter, no page token, and no field mask that raises it.
+ * `reviews_sort=newest` at least guarantees the 5 are the most recent, so a
+ * new review does rotate in on the next sync.
+ *
+ * Fetching all 60 is only possible via the Google Business Profile API
+ * (accounts.locations.reviews), which is a different product requiring OAuth
+ * as the verified business owner rather than an API key. That is a separate
+ * integration — see the note in this module's header.
+ * ────────────────────────────────────────────────────────────────────────
  */
 async function callPlaces(apiKey: string, placeId: string): Promise<PlacesResult> {
   const url = new URL("https://maps.googleapis.com/maps/api/place/details/json");

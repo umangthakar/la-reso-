@@ -10,6 +10,7 @@ import { LogoMark } from "@/components/logo-mark";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/use-auth";
 import { useSiteSettings } from "@/lib/use-site-settings";
+import { useGoogleRating } from "@/lib/use-google-rating";
 import { CartButton } from "@/components/cart/cart-button";
 import { HeaderSearch } from "@/components/header-search";
 
@@ -26,6 +27,9 @@ export function Navbar() {
   const pathname = usePathname();
   const { user, ready } = useAuth();
   const { settings } = useSiteSettings();
+  // Live Google Business rating — the only source for the figure below. 0 =
+  // nothing to show yet, in which case the badge is hidden rather than faked.
+  const { rating } = useGoogleRating();
   const initial = user?.name.trim().charAt(0).toUpperCase();
 
   // Phone comes solely from the DB (site_settings.contact.phone). No hardcoded number.
@@ -69,10 +73,17 @@ export function Navbar() {
           ) : (
             <span />
           )}
-          <span className="inline-flex items-center gap-1.5">
-            <Star className="h-3.5 w-3.5 fill-dustyrose text-dustyrose" />
-            <span>4.9/5 · 2,400+ Happy Boxes</span>
-          </span>
+          {/* Live Google rating. Hidden until it loads (and whenever there's
+              no live figure), so the bar keeps its two-item justify-between
+              balance via the empty span rather than showing a stale number. */}
+          {rating > 0 ? (
+            <span className="inline-flex items-center gap-1.5">
+              <Star className="h-3.5 w-3.5 fill-dustyrose text-dustyrose" />
+              <span>{rating.toFixed(1)}/5 on Google</span>
+            </span>
+          ) : (
+            <span />
+          )}
         </div>
       </div>
 

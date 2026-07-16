@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
 import Image from "next/image";
-import { Heart, Sparkles, Leaf, Award, Users, Cake } from "lucide-react";
+import { Heart, Sparkles, Leaf, Award, Users } from "lucide-react";
 import { PageHero } from "@/components/page-hero";
 import { SectionHeading } from "@/components/section-heading";
 import { Reveal, StaggerGroup, StaggerItem } from "@/components/motion";
 import { OrderCTA } from "@/components/order-cta";
+import { getGoogleReviews } from "@/lib/google-reviews";
+import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = {
   title: "About — Le Rasa Bakery",
@@ -12,12 +14,20 @@ export const metadata: Metadata = {
     "Our story: how Le Rasa Bakery became the house of eggless desserts, baking inclusive, premium treats everyone can share.",
 };
 
-const stats = [
-  { value: "2,400+", label: "Celebrations baked", icon: Cake },
-  { value: "100%", label: "Eggless recipes", icon: Leaf },
-  { value: "4.9★", label: "Average rating", icon: Award },
-  { value: "12", label: "Pastry artisans", icon: Users },
-];
+/**
+ * Stat cards. The "Average rating" figure is NOT hardcoded — it comes from the
+ * live Google Business rating and is omitted entirely when there is no live
+ * figure, so the page can never drift out of step with Google.
+ */
+function buildStats(googleRating: number) {
+  return [
+    { value: "100%", label: "Eggless recipes", icon: Leaf },
+    ...(googleRating > 0
+      ? [{ value: `${googleRating.toFixed(1)}★`, label: "Average rating", icon: Award }]
+      : []),
+    { value: "12", label: "Pastry artisans", icon: Users },
+  ];
+}
 
 const values = [
   {
@@ -37,7 +47,16 @@ const values = [
   },
 ];
 
-export default function AboutPage() {
+// The rating below is live, so this page must not be cached at build time —
+// a Google sync has to reflect on the next request, like the menu.
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+export default async function AboutPage() {
+  // Single source of truth for the rating; null when the integration is off.
+  const google = await getGoogleReviews();
+  const stats = buildStats(google?.rating ?? 0);
+
   return (
     <>
       <PageHero
@@ -94,9 +113,25 @@ export default function AboutPage() {
       {/* Stats */}
       <section className="pb-4">
         <div className="container">
-          <StaggerGroup className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-            {stats.map((s) => (
-              <StaggerItem key={s.label}>
+          {/* Columns track the live card count so a row is never left with a
+              hole: 3 cards → 2-up on mobile with the last spanning the full
+              width, 3-up from sm. 2 cards (no live rating) → 2-up throughout. */}
+          <StaggerGroup
+            className={cn(
+              "grid grid-cols-2 gap-4",
+              stats.length === 3 && "sm:grid-cols-3",
+            )}
+          >
+            {stats.map((s, i) => (
+              <StaggerItem
+                key={s.label}
+                // Odd card count: the last one fills the leftover cell.
+                className={cn(
+                  stats.length % 2 === 1 &&
+                    i === stats.length - 1 &&
+                    "col-span-2 sm:col-span-1",
+                )}
+              >
                 <div className="rounded-clay bg-blush-50 p-6 text-center shadow-clay-sm">
                   <s.icon className="mx-auto h-7 w-7 text-wine" />
                   <p className="mt-3 font-display text-3xl font-semibold text-darkberry">

@@ -202,19 +202,16 @@ export function Testimonials({ google }: { google?: GoogleReviewsData | null }) 
           <h2 className="font-display text-3xl font-semibold leading-tight text-darkberry text-balance sm:text-4xl md:text-5xl">
             Loved by Our Customers
           </h2>
-          <p className="mt-4 text-base text-darkberry-light text-balance md:text-lg">
-            2,400+ happy boxes delivered across the UK
-          </p>
-
-          {/* Google rating header — only when live Google data is present, so
-              the local-fallback view is byte-identical to before. */}
-          {useGoogle && (
-            <div className="mt-5 flex flex-col items-center gap-2">
+          {/* Google rating header — only when live Google data is present. The
+              mt-4 matches the spacing the removed counter line used to carry,
+              so the gap under the heading is unchanged. */}
+          {useGoogle && google!.rating > 0 && (
+            <div className="mt-4 flex flex-col items-center gap-2">
               <div className="flex items-center gap-3">
                 <span className="font-display text-2xl font-bold text-darkberry">
-                  {google!.rating ? google!.rating.toFixed(1) : "5.0"}
+                  {google!.rating.toFixed(1)}
                 </span>
-                <Stars filled={google!.rating || 5} />
+                <Stars filled={google!.rating} />
               </div>
               <p className="text-sm font-semibold text-wine-dark">
                 {google!.total} Google Reviews

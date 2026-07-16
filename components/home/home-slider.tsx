@@ -30,10 +30,16 @@ export function HomeSlider({ images }: { images: string[] }) {
 
   return (
     <section className="container mt-4">
-      {/* Height is driven purely by the aspect ratio. Mobile keeps 16/9 and
-          tablets keep 21/9; lg trims a little and xl (desktop) widens to 14/5,
-          which is ~17% shorter than 21/9 at the same width. */}
-      <div className="relative aspect-[16/9] w-full overflow-hidden rounded-[24px] shadow-clay-sm sm:aspect-[21/9] lg:aspect-[5/2] xl:aspect-[14/5]">
+      {/* Height is driven purely by the aspect ratio: at a fixed width, a wider
+          ratio is a shorter slider. Mobile (16/9) and tablets (21/9) are
+          deliberately untouched — only the desktop breakpoints were shortened:
+
+            lg  5/2  (2.5) → 16/5 (3.2)  ≈ 22% shorter
+            xl  14/5 (2.8) → 18/5 (3.6)  ≈ 22% shorter
+
+          Nothing else changes: same radius, shadow, overlay, arrows, dots,
+          autoplay and transitions. */}
+      <div className="relative aspect-[16/9] w-full overflow-hidden rounded-[24px] shadow-clay-sm sm:aspect-[21/9] lg:aspect-[16/5] xl:aspect-[18/5]">
         <AnimatePresence mode="wait">
           <motion.div
             key={index}
