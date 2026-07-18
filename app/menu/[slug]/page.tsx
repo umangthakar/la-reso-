@@ -31,6 +31,7 @@ import { useActiveOffer } from "@/lib/use-active-offer";
 import { usePurchaseGate } from "@/lib/use-purchase-gate";
 import { useCustomization } from "@/lib/use-customization";
 import { useSiteSettings } from "@/lib/use-site-settings";
+import { isCustomCakeCategory, customCakeWhatsappHref } from "@/lib/custom-cake";
 import { consumePurchaseIntent, peekPurchaseIntent } from "@/lib/purchase-intent";
 import { PriceText } from "@/components/product-price";
 
@@ -416,25 +417,11 @@ export default function ProductDetailPage() {
     router.push("/checkout");
   };
 
-  // Products in the "Custom Cakes" category swap "Buy Now" for a WhatsApp
-  // enquiry (matched case-insensitively). Every other category is untouched.
-  const isCustomCake = (product.category ?? "").trim().toLowerCase() === "custom cakes";
-  // The number comes solely from the admin-configured contact WhatsApp — never
-  // hardcoded — matching the site's existing wa.me links (digits only).
-  const waDigits = (settings.contact.whatsapp ?? "").replace(/[^0-9]/g, "");
-  const waMessage =
-    `Hello Le Rasa,\n\n` +
-    `I would like to order a custom cake.\n\n` +
-    `Product:\n${product.name}\n\n` +
-    `Please help me with:\n\n` +
-    `• Design\n` +
-    `• Size\n` +
-    `• Flavour\n` +
-    `• Number of servings\n` +
-    `• Delivery date\n` +
-    `• Budget\n\n` +
-    `Thank you.`;
-  const waHref = `https://wa.me/${waDigits}?text=${encodeURIComponent(waMessage)}`;
+  // Products in the "Custom Cakes" category are enquiry-only: no Add to Cart /
+  // Buy Now, just a WhatsApp enquiry. Every other category is untouched. The
+  // number and message come from the shared helper (admin-configured number).
+  const isCustomCake = isCustomCakeCategory(product.category);
+  const waHref = customCakeWhatsappHref(settings.contact.whatsapp, product.name);
 
   return (
     <div className="pb-24 pt-6">
@@ -629,25 +616,29 @@ export default function ProductDetailPage() {
               </div>
 
               {product.in_stock ? (
-                <div className="flex flex-1 flex-col gap-3 sm:flex-row">
-                  <button
-                    onClick={addToCart}
-                    className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-wine px-6 py-3.5 text-sm font-bold uppercase tracking-wide text-blush-50 shadow-clay-sm transition-all hover:bg-wine-dark hover:-translate-y-0.5"
-                  >
-                    <ShoppingCart className="h-4 w-4" />
-                    Add to Cart
-                  </button>
-                  {isCustomCake ? (
+                isCustomCake ? (
+                  // Custom Cakes are enquiry-only — a single, full-width
+                  // WhatsApp button (no Add to Cart / Buy Now).
+                  <div className="flex flex-1">
                     <a
                       href={waHref}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex flex-1 items-center justify-center gap-2 rounded-full border-2 border-wine/40 bg-transparent px-6 py-3.5 text-sm font-bold uppercase tracking-wide text-wine-dark transition-all hover:bg-wine/10"
+                      className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-wine px-6 py-3.5 text-sm font-bold uppercase tracking-wide text-blush-50 shadow-clay-sm transition-all hover:bg-wine-dark hover:-translate-y-0.5"
                     >
                       <MessageCircle className="h-4 w-4" />
                       Contact on WhatsApp
                     </a>
-                  ) : (
+                  </div>
+                ) : (
+                  <div className="flex flex-1 flex-col gap-3 sm:flex-row">
+                    <button
+                      onClick={addToCart}
+                      className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-wine px-6 py-3.5 text-sm font-bold uppercase tracking-wide text-blush-50 shadow-clay-sm transition-all hover:bg-wine-dark hover:-translate-y-0.5"
+                    >
+                      <ShoppingCart className="h-4 w-4" />
+                      Add to Cart
+                    </button>
                     <button
                       onClick={buyNow}
                       className="inline-flex flex-1 items-center justify-center gap-2 rounded-full border-2 border-wine/40 bg-transparent px-6 py-3.5 text-sm font-bold uppercase tracking-wide text-wine-dark transition-all hover:bg-wine/10"
@@ -655,8 +646,8 @@ export default function ProductDetailPage() {
                       <Zap className="h-4 w-4" />
                       Buy Now
                     </button>
-                  )}
-                </div>
+                  </div>
+                )
               ) : (
                 <div className="flex flex-1 items-center justify-center rounded-full bg-dustyrose-light/50 px-6 py-3.5 text-sm font-bold uppercase tracking-wide text-wine-dark">
                   Currently unavailable

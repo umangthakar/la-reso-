@@ -6,13 +6,15 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence, type Variants } from "framer-motion";
-import { Star, ShoppingCart, Zap, X, ArrowRight, Leaf } from "lucide-react";
+import { Star, ShoppingCart, Zap, X, ArrowRight, Leaf, MessageCircle } from "lucide-react";
 import type { Product } from "@/lib/data";
 import { useCart } from "@/components/cart/cart-context";
 import { slugify } from "@/lib/slug";
 import { useActiveOffer, type ActiveOffers } from "@/lib/use-active-offer";
 import { usePurchaseGate } from "@/lib/use-purchase-gate";
 import { useCustomization } from "@/lib/use-customization";
+import { useSiteSettings } from "@/lib/use-site-settings";
+import { isCustomCakeCategory, customCakeWhatsappHref } from "@/lib/custom-cake";
 import { PriceText } from "@/components/product-price";
 
 /* ------------------------------------------------------------------ *
@@ -130,6 +132,13 @@ export function AnimatedProductCard({ product }: { product: Product }) {
   const open = hovered || pinned;
   const rating = PRODUCT_RATING;
   const { offers: activeOffers } = useActiveOffer();
+  const { settings } = useSiteSettings();
+
+  // Custom Cakes are enquiry-only: the card swaps Add to Cart + Buy Now for a
+  // single "Contact on WhatsApp" (Read More is kept). Every other category is
+  // unchanged. Number + message come from the shared helper.
+  const isCustomCake = isCustomCakeCategory(product.category);
+  const waHref = customCakeWhatsappHref(settings.contact.whatsapp, product.name);
 
   // Portal target only exists on the client.
   useEffect(() => setMounted(true), []);
@@ -310,23 +319,38 @@ export function AnimatedProductCard({ product }: { product: Product }) {
             className="flex gap-2"
             style={{ pointerEvents: open ? "auto" : "none" }}
           >
-            <button
-              type="button"
-              onClick={handleAdd}
-              className="inline-flex flex-1 items-center justify-center gap-1 rounded-full bg-[#873853] px-2.5 py-2 text-[11px] font-bold uppercase tracking-wide text-white transition-transform hover:-translate-y-0.5"
-            >
-              <ShoppingCart className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Add to Cart</span>
-              <span className="sm:hidden">Cart</span>
-            </button>
-            <button
-              type="button"
-              onClick={handleBuyNow}
-              className="inline-flex flex-1 items-center justify-center gap-1 rounded-full bg-white px-2.5 py-2 text-[11px] font-bold uppercase tracking-wide text-[#743249] transition-transform hover:-translate-y-0.5"
-            >
-              <Zap className="h-3.5 w-3.5" />
-              Buy Now
-            </button>
+            {isCustomCake ? (
+              <a
+                href={waHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="inline-flex flex-1 items-center justify-center gap-1 rounded-full bg-[#873853] px-2.5 py-2 text-[11px] font-bold uppercase tracking-wide text-white transition-transform hover:-translate-y-0.5"
+              >
+                <MessageCircle className="h-3.5 w-3.5" />
+                Contact on WhatsApp
+              </a>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={handleAdd}
+                  className="inline-flex flex-1 items-center justify-center gap-1 rounded-full bg-[#873853] px-2.5 py-2 text-[11px] font-bold uppercase tracking-wide text-white transition-transform hover:-translate-y-0.5"
+                >
+                  <ShoppingCart className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Add to Cart</span>
+                  <span className="sm:hidden">Cart</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleBuyNow}
+                  className="inline-flex flex-1 items-center justify-center gap-1 rounded-full bg-white px-2.5 py-2 text-[11px] font-bold uppercase tracking-wide text-[#743249] transition-transform hover:-translate-y-0.5"
+                >
+                  <Zap className="h-3.5 w-3.5" />
+                  Buy Now
+                </button>
+              </>
+            )}
           </motion.div>
         </div>
 
@@ -352,6 +376,8 @@ export function AnimatedProductCard({ product }: { product: Product }) {
               handleAdd={handleAdd}
               handleBuyNow={handleBuyNow}
               offers={activeOffers}
+              isCustomCake={isCustomCake}
+              waHref={waHref}
             />
           )}
         </AnimatePresence>,
@@ -427,6 +453,8 @@ function ProductModal({
   handleAdd,
   handleBuyNow,
   offers,
+  isCustomCake,
+  waHref,
 }: {
   product: Product;
   rating: number;
@@ -434,6 +462,8 @@ function ProductModal({
   handleAdd: (e: React.MouseEvent) => void;
   handleBuyNow: (e: React.MouseEvent) => void;
   offers: ActiveOffers;
+  isCustomCake: boolean;
+  waHref: string;
 }) {
   return (
     <motion.div
@@ -530,25 +560,41 @@ function ProductModal({
 
         {/* Sticky action footer */}
         <div className="flex shrink-0 gap-3 border-t border-[#F2DCD6] bg-white p-4 sm:p-5">
-          <button
-            type="button"
-            onClick={(e) => {
-              handleAdd(e);
-              onClose();
-            }}
-            className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-[#873853] px-4 py-3 text-sm font-semibold text-white shadow-[0_6px_16px_-6px_rgba(135,56,83,0.7)] transition-transform hover:-translate-y-0.5"
-          >
-            <ShoppingCart className="h-4 w-4" />
-            Add to Cart
-          </button>
-          <button
-            type="button"
-            onClick={handleBuyNow}
-            className="inline-flex flex-1 items-center justify-center gap-2 rounded-full border-2 border-[#873853] bg-white px-4 py-3 text-sm font-semibold text-[#743249] transition-transform hover:-translate-y-0.5"
-          >
-            <Zap className="h-4 w-4" />
-            Buy Now
-          </button>
+          {isCustomCake ? (
+            // Custom Cakes are enquiry-only — a single WhatsApp button.
+            <a
+              href={waHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={onClose}
+              className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-[#873853] px-4 py-3 text-sm font-semibold text-white shadow-[0_6px_16px_-6px_rgba(135,56,83,0.7)] transition-transform hover:-translate-y-0.5"
+            >
+              <MessageCircle className="h-4 w-4" />
+              Contact on WhatsApp
+            </a>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={(e) => {
+                  handleAdd(e);
+                  onClose();
+                }}
+                className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-[#873853] px-4 py-3 text-sm font-semibold text-white shadow-[0_6px_16px_-6px_rgba(135,56,83,0.7)] transition-transform hover:-translate-y-0.5"
+              >
+                <ShoppingCart className="h-4 w-4" />
+                Add to Cart
+              </button>
+              <button
+                type="button"
+                onClick={handleBuyNow}
+                className="inline-flex flex-1 items-center justify-center gap-2 rounded-full border-2 border-[#873853] bg-white px-4 py-3 text-sm font-semibold text-[#743249] transition-transform hover:-translate-y-0.5"
+              >
+                <Zap className="h-4 w-4" />
+                Buy Now
+              </button>
+            </>
+          )}
         </div>
       </motion.div>
     </motion.div>
