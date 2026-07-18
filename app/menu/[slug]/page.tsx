@@ -21,6 +21,7 @@ import {
   Zap,
   ChevronLeft,
   Leaf,
+  MessageCircle,
 } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
 import { useCart } from "@/components/cart/cart-context";
@@ -29,6 +30,7 @@ import { money } from "@/lib/pricing";
 import { useActiveOffer } from "@/lib/use-active-offer";
 import { usePurchaseGate } from "@/lib/use-purchase-gate";
 import { useCustomization } from "@/lib/use-customization";
+import { useSiteSettings } from "@/lib/use-site-settings";
 import { consumePurchaseIntent, peekPurchaseIntent } from "@/lib/purchase-intent";
 import { PriceText } from "@/components/product-price";
 
@@ -115,6 +117,7 @@ export default function ProductDetailPage() {
   const { offers: activeOffers } = useActiveOffer();
   const { requireAuth, user, ready: authReady } = usePurchaseGate();
   const { isCustomizable, loading: configLoading } = useCustomization();
+  const { settings } = useSiteSettings();
 
   const [products, setProducts] = useState<DetailProduct[]>([]);
   const [loading, setLoading] = useState(true);
@@ -413,6 +416,26 @@ export default function ProductDetailPage() {
     router.push("/checkout");
   };
 
+  // Products in the "Custom Cakes" category swap "Buy Now" for a WhatsApp
+  // enquiry (matched case-insensitively). Every other category is untouched.
+  const isCustomCake = (product.category ?? "").trim().toLowerCase() === "custom cakes";
+  // The number comes solely from the admin-configured contact WhatsApp — never
+  // hardcoded — matching the site's existing wa.me links (digits only).
+  const waDigits = (settings.contact.whatsapp ?? "").replace(/[^0-9]/g, "");
+  const waMessage =
+    `Hello Le Rasa,\n\n` +
+    `I would like to order a custom cake.\n\n` +
+    `Product:\n${product.name}\n\n` +
+    `Please help me with:\n\n` +
+    `• Design\n` +
+    `• Size\n` +
+    `• Flavour\n` +
+    `• Number of servings\n` +
+    `• Delivery date\n` +
+    `• Budget\n\n` +
+    `Thank you.`;
+  const waHref = `https://wa.me/${waDigits}?text=${encodeURIComponent(waMessage)}`;
+
   return (
     <div className="pb-24 pt-6">
       <div className="container">
@@ -614,13 +637,25 @@ export default function ProductDetailPage() {
                     <ShoppingCart className="h-4 w-4" />
                     Add to Cart
                   </button>
-                  <button
-                    onClick={buyNow}
-                    className="inline-flex flex-1 items-center justify-center gap-2 rounded-full border-2 border-wine/40 bg-transparent px-6 py-3.5 text-sm font-bold uppercase tracking-wide text-wine-dark transition-all hover:bg-wine/10"
-                  >
-                    <Zap className="h-4 w-4" />
-                    Buy Now
-                  </button>
+                  {isCustomCake ? (
+                    <a
+                      href={waHref}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex flex-1 items-center justify-center gap-2 rounded-full border-2 border-wine/40 bg-transparent px-6 py-3.5 text-sm font-bold uppercase tracking-wide text-wine-dark transition-all hover:bg-wine/10"
+                    >
+                      <MessageCircle className="h-4 w-4" />
+                      Contact on WhatsApp
+                    </a>
+                  ) : (
+                    <button
+                      onClick={buyNow}
+                      className="inline-flex flex-1 items-center justify-center gap-2 rounded-full border-2 border-wine/40 bg-transparent px-6 py-3.5 text-sm font-bold uppercase tracking-wide text-wine-dark transition-all hover:bg-wine/10"
+                    >
+                      <Zap className="h-4 w-4" />
+                      Buy Now
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div className="flex flex-1 items-center justify-center rounded-full bg-dustyrose-light/50 px-6 py-3.5 text-sm font-bold uppercase tracking-wide text-wine-dark">
