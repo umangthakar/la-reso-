@@ -22,7 +22,6 @@ export function CartDrawer() {
     items,
     count,
     subtotal,
-    deliveryFee,
     total,
     isOpen,
     closeCart,
@@ -131,6 +130,11 @@ export function CartDrawer() {
                               {item.name}
                             </p>
                             <p className="text-xs text-berry">{item.category}</p>
+                            {item.sizeLabel && (
+                              <p className="text-xs font-semibold text-wine-dark">
+                                Size: {item.sizeLabel}
+                              </p>
+                            )}
                             {/* Cake → accessories → prices, so the basket shows
                                 exactly what's being bought. */}
                             {item.customization?.lines.map((c, i) => (
@@ -204,8 +208,10 @@ export function CartDrawer() {
                     </div>
                     <div className="flex justify-between text-berry">
                       <dt>Delivery</dt>
-                      <dd className="font-semibold text-darkberry">
-                        {deliveryFee === 0 ? "Free" : money(deliveryFee)}
+                      <dd className="font-normal text-berry/70">
+                        {/* The fee depends on the postcode, which is entered at
+                            checkout — so no amount is shown here. */}
+                        Calculate at checkout
                       </dd>
                     </div>
                     <div className="flex justify-between border-t border-dustyrose/40 pt-2 text-base">

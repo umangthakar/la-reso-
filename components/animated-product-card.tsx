@@ -32,13 +32,9 @@ import { PriceText } from "@/components/product-price";
  *                      ADD TO CART + BUY NOW surface over the image.
  * ------------------------------------------------------------------ */
 
-// The live products table has no rating column, so derive a stable,
-// pleasant-looking value (4.3–5.0) from the product id.
-function ratingFor(id: string): number {
-  let h = 0;
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
-  return Math.round((4.3 + (h % 8) / 10) * 10) / 10; // one decimal, ≤ 5.0
-}
+// Every product shows a static five-star display (visual only — no review
+// system, no calculation), matching the product cards and detail page.
+const PRODUCT_RATING = 5;
 
 function StarRow({ value, className = "" }: { value: number; className?: string }) {
   const full = Math.floor(value);
@@ -132,7 +128,7 @@ export function AnimatedProductCard({ product }: { product: Product }) {
   const [modalOpen, setModalOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const open = hovered || pinned;
-  const rating = ratingFor(product.id);
+  const rating = PRODUCT_RATING;
   const { offers: activeOffers } = useActiveOffer();
 
   // Portal target only exists on the client.

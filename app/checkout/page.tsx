@@ -101,12 +101,19 @@ export default function CheckoutPage() {
     { subtotal: number; discount: number; deliveryFee: number; total: number; couponCode: string | null } | null
   >(null);
 
-  // Zone-based delivery fee for the entered postcode, minus any offer discount
-  // (display only; the server re-computes it authoritatively so the charge
-  // always matches). A free-delivery offer waives the fee.
-  const deliveryFee = freeDelivery
-    ? 0
-    : resolveDeliveryFee(subtotal, form.postcode, settings.delivery_zones);
+  // Delivery is derived from the POSTCODE, so no amount is shown (or added to
+  // the total) until one is entered — the summary reads "Calculate after
+  // postcode" instead of a default fee. Once a postcode is present the zone
+  // rule prices it immediately; a free-delivery offer waives it. The server
+  // re-computes the fee authoritatively so the charge always matches.
+  const postcodeEntered = form.postcode.trim() !== "";
+  // Known once the server has priced it (charged) or a postcode/free-delivery
+  // makes the amount definite.
+  const deliveryKnown = charged != null || postcodeEntered || freeDelivery;
+  const deliveryFee =
+    freeDelivery || !postcodeEntered
+      ? 0
+      : resolveDeliveryFee(subtotal, form.postcode, settings.delivery_zones);
   const total = round2(subtotal - discount + deliveryFee);
 
   // The breakdown shown in the summary: the server's authoritative numbers once
@@ -280,6 +287,9 @@ export default function CheckoutPage() {
           items: items.map((i) => ({
             id: i.id,
             productId: productIdOf(i),
+            // The chosen size (if any) — the server re-prices from it so the
+            // Stripe amount always matches the selected size.
+            sizeId: i.sizeId,
             quantity: i.quantity,
             customization: i.customization
               ? { selections: i.customization.selections }
@@ -473,6 +483,9 @@ export default function CheckoutPage() {
                       </div>
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-bold text-darkberry">{i.name}</p>
+                        {i.sizeLabel && (
+                          <p className="text-xs text-berry/80">Size: {i.sizeLabel}</p>
+                        )}
                         <p className="text-xs text-berry">Qty {i.quantity}</p>
                         {/* Accessories + prices, so they can check it before paying */}
                         {i.customization?.lines.map((c, n) => (
@@ -556,7 +569,10 @@ export default function CheckoutPage() {
                                 // The PRODUCT id — order_items.product_id is a
                                 // real FK, so a cart-line id would not resolve.
                                 id: productIdOf(i),
-                                name: i.name,
+                                // The chosen size rides on the stored name so it
+                                // shows in order history, the baker's WhatsApp
+                                // and the customer's email.
+                                name: i.sizeLabel ? `${i.name} — ${i.sizeLabel}` : i.name,
                                 price: i.price,
                                 quantity: i.quantity,
                                 addons: i.addons ?? 0,
@@ -579,7 +595,7 @@ export default function CheckoutPage() {
                           orderId,
                           orderNumber: toOrderNumber(orderId),
                           items: items.map((i) => ({
-                            name: i.name,
+                            name: i.sizeLabel ? `${i.name} — ${i.sizeLabel}` : i.name,
                             quantity: i.quantity,
                             // Accessories included, so the confirmation's line
                             // totals add up to what was actually charged.
@@ -655,6 +671,7 @@ export default function CheckoutPage() {
                 <li key={i.id} className="flex justify-between gap-2 text-berry">
                   <span className="min-w-0 truncate">
                     {i.quantity} × {i.name}
+                    {i.sizeLabel ? ` (${i.sizeLabel})` : ""}
                   </span>
                   <span className="shrink-0 font-semibold text-darkberry">
                     {money(unitPriceOf(i) * i.quantity)}
@@ -713,7 +730,15 @@ export default function CheckoutPage() {
               <div className="flex justify-between text-berry">
                 <dt>Delivery</dt>
                 <dd className="font-semibold text-darkberry">
-                  {summary.deliveryFee === 0 ? "Free" : money(summary.deliveryFee)}
+                  {!deliveryKnown ? (
+                    <span className="font-normal text-berry/70">
+                      Calculate after postcode
+                    </span>
+                  ) : summary.deliveryFee === 0 ? (
+                    "Free"
+                  ) : (
+                    money(summary.deliveryFee)
+                  )}
                 </dd>
               </div>
               <div className="flex justify-between border-t border-dustyrose/40 pt-2">

@@ -15,7 +15,7 @@ import {
   useMemo,
   useState,
 } from "react";
-import { deliveryFeeFor, round2 } from "@/lib/pricing";
+import { round2 } from "@/lib/pricing";
 import { useActiveOffer } from "@/lib/use-active-offer";
 import type { Customization } from "@/lib/customization";
 import {
@@ -47,6 +47,11 @@ export type CartItem = {
   addons?: number;
   /** What the customer chose in the wizard. */
   customization?: Customization;
+  /** Selected size variant, when the product offers sizes. `price` above is
+   *  already the chosen size's absolute price; these carry the identity so the
+   *  server can re-price it and the basket / checkout / order can show it. */
+  sizeId?: string;
+  sizeLabel?: string;
 };
 
 /** The product a line refers to, tolerating baskets saved before customization. */
@@ -195,8 +200,13 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     }
     discount = round2(Math.min(Math.max(discount, 0), subtotal));
 
-    const deliveryFee = freeDelivery ? 0 : deliveryFeeFor(subtotal);
-    const total = round2(subtotal - discount + deliveryFee);
+    // Delivery is derived from the POSTCODE, which isn't known in the basket —
+    // it's only entered at checkout (see resolveDeliveryFee). So the drawer
+    // never shows or adds a delivery charge before then: deliveryFee stays 0
+    // here and the total is just subtotal minus any discount. The real,
+    // postcode-based fee is applied on the checkout page.
+    const deliveryFee = 0;
+    const total = round2(subtotal - discount);
     return { count, subtotal, discount, freeDelivery, deliveryFee, total };
   }, [items, activeOffers]);
 

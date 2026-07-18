@@ -50,10 +50,18 @@ type IncomingItem = {
   id: string;
   quantity: number;
   productId?: string;
+  /** Selected size variant, when the product offers sizes. Re-priced here from
+   *  the DB (product_sizes) so the client can never dictate the size price. */
+  sizeId?: string;
   customization?: { selections?: Selections };
 };
 type DeliveryZone = { postcode_prefix?: string; fee?: number };
-type CartLine = { productId: string; quantity: number; selections: Selections };
+type CartLine = {
+  productId: string;
+  quantity: number;
+  sizeId: string | null;
+  selections: Selections;
+};
 
 export async function POST(req: Request) {
   let body: {
@@ -85,6 +93,7 @@ export async function POST(req: Request) {
     lines.push({
       productId,
       quantity: qty,
+      sizeId: it.sizeId ? String(it.sizeId) : null,
       selections: it.customization?.selections ?? {},
     });
   }
@@ -127,7 +136,6 @@ export async function POST(req: Request) {
     category: string | null;
   }[];
 
-  let productSubtotal = 0;
   for (const row of rows) {
     if (row.in_stock === false) {
       return NextResponse.json(
@@ -135,9 +143,57 @@ export async function POST(req: Request) {
         { status: 409 },
       );
     }
-    productSubtotal += (Number(row.price) || 0) * (wanted.get(row.id) ?? 0);
   }
-  productSubtotal = round2(productSubtotal);
+
+  // ---- SIZE VARIANT PRICES (re-priced from the DB, migration-tolerant) -----
+  // A line that names a size is charged that size's ABSOLUTE price — never the
+  // client's number. Products/lines without a size keep the base product price
+  // exactly as before. If product_sizes isn't migrated (or a size was deleted
+  // after it was added to the basket) we simply fall back to the base price, so
+  // checkout never fails for a stale/absent size.
+  const basePrice = new Map(rows.map((r) => [r.id, Number(r.price) || 0]));
+  const sizePrice = new Map<string, { productId: string; price: number }>();
+  if (lines.some((l) => l.sizeId)) {
+    try {
+      const { data: sizeRows, error: sizeErr } = await supabase
+        .from("product_sizes")
+        .select("id,product_id,price")
+        .in("product_id", Array.from(wanted.keys()));
+      if (!sizeErr && Array.isArray(sizeRows)) {
+        for (const s of sizeRows) {
+          sizePrice.set(String(s.id), {
+            productId: String(s.product_id),
+            price: Number(s.price) || 0,
+          });
+        }
+      }
+    } catch {
+      /* table not migrated → base prices used (unchanged behavior) */
+    }
+  }
+
+  /** The absolute unit price for one line: its size's price when it names a
+   *  valid size for that product, otherwise the base product price. */
+  function unitPriceForLine(line: CartLine): number {
+    const base = basePrice.get(line.productId) ?? 0;
+    if (!line.sizeId) return base;
+    const s = sizePrice.get(line.sizeId);
+    return s && s.productId === line.productId ? s.price : base;
+  }
+
+  // Effective per-product subtotal (size-aware). Kept per-product so the offer
+  // engine sees exactly the product-level numbers it always has; the only
+  // change is that a chosen size's price now feeds in instead of the base.
+  const productEffective = new Map<string, number>();
+  for (const line of lines) {
+    productEffective.set(
+      line.productId,
+      round2((productEffective.get(line.productId) ?? 0) + unitPriceForLine(line) * line.quantity),
+    );
+  }
+  const productSubtotal = round2(
+    Array.from(productEffective.values()).reduce((s, v) => s + v, 0),
+  );
 
   // ---- ACCESSORY EXTRAS (re-priced from the live wizard config) ----------
   // Only what the config currently says is visible and available is charged;
@@ -196,12 +252,15 @@ export async function POST(req: Request) {
   // offers tables aren't migrated yet) leaves the discount at 0, so checkout
   // with no active offer stays byte-identical to before this phase.
   const serverCartItems: OfferCartItem[] = rows
-    .map((r) => ({
-      id: r.id,
-      category: r.category ?? null,
-      price: Number(r.price) || 0,
-      quantity: wanted.get(r.id) ?? 0,
-    }))
+    .map((r) => {
+      const quantity = wanted.get(r.id) ?? 0;
+      const eff = productEffective.get(r.id) ?? 0;
+      // Weighted per-unit price so price × quantity equals the size-adjusted
+      // subtotal for this product (matters when a product's sizes differ per
+      // line). With no sizes this is exactly the base price, as before.
+      const price = quantity > 0 ? round2(eff / quantity) : Number(r.price) || 0;
+      return { id: r.id, category: r.category ?? null, price, quantity };
+    })
     .filter((i) => Number(i.quantity) > 0);
   const cartQuantity = serverCartItems.reduce((s, i) => s + Number(i.quantity), 0);
 

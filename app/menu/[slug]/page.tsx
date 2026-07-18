@@ -73,12 +73,14 @@ function toDetail(r: SupaRow): DetailProduct {
   };
 }
 
-// Deterministic rating so the stars match the menu card.
-function ratingFor(id: string): number {
-  let h = 0;
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
-  return Math.round((4.3 + (h % 8) / 10) * 10) / 10;
-}
+// A size variant (Small / Medium / Large …). Empty for products with a
+// single price — those keep behaving exactly as before.
+type SizeVariant = {
+  id: string;
+  label: string;
+  serves: number | null;
+  price: number;
+};
 
 function Stars({ value }: { value: number }) {
   const full = Math.floor(value);
@@ -117,6 +119,18 @@ export default function ProductDetailPage() {
   const [products, setProducts] = useState<DetailProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [qty, setQty] = useState(1);
+
+  // Product extras (gallery, size variants, ingredients). Loaded once the
+  // product resolves; all degrade to empty if 26_product_variants.sql hasn't
+  // been run, so old products keep working unchanged.
+  const [gallery, setGallery] = useState<string[]>([]);
+  const [activeImage, setActiveImage] = useState(0);
+  const [sizes, setSizes] = useState<SizeVariant[]>([]);
+  const [selectedSizeId, setSelectedSizeId] = useState<string | null>(null);
+  const [ingredients, setIngredients] = useState<string[]>([]);
+  // Flips true once the extras (esp. sizes) have loaded for this product, so a
+  // resumed "Buy Now" can restore the exact size the customer had chosen.
+  const [extrasReady, setExtrasReady] = useState(false);
 
   // A "Buy Now" the customer started before signing in leaves a pending
   // intent behind. Note it on mount (before the catalogue arrives) so the
@@ -158,6 +172,91 @@ export default function ProductDetailPage() {
       .slice(0, 3);
   }, [products, product]);
 
+  // Load the product's extras once it resolves: gallery images, size variants
+  // and ingredients. Each reads with the public anon client (RLS allows public
+  // SELECT on product_images / product_sizes) and each is wrapped so a missing
+  // table/column (26_product_variants.sql not run) simply leaves that extra
+  // empty — old single-image, single-price products keep working unchanged.
+  const productId = product?.id;
+  useEffect(() => {
+    if (!productId) return;
+    let cancelled = false;
+    setActiveImage(0);
+    setExtrasReady(false);
+    (async () => {
+      const db = createClient() as unknown as SupabaseClient;
+
+      try {
+        const { data, error } = await db
+          .from("product_images")
+          .select("url,sort_order,is_primary")
+          .eq("product_id", productId)
+          .order("sort_order", { ascending: true });
+        if (!cancelled) {
+          const urls =
+            !error && Array.isArray(data)
+              ? data.map((r) => String(r.url)).filter(Boolean)
+              : [];
+          setGallery(urls);
+        }
+      } catch {
+        if (!cancelled) setGallery([]);
+      }
+
+      try {
+        const { data, error } = await db
+          .from("product_sizes")
+          .select("id,label,serves,price,sort_order")
+          .eq("product_id", productId)
+          .order("sort_order", { ascending: true });
+        if (!cancelled) {
+          const list: SizeVariant[] =
+            !error && Array.isArray(data)
+              ? data.map((r) => ({
+                  id: String(r.id),
+                  label: String(r.label),
+                  serves:
+                    r.serves === null || r.serves === undefined
+                      ? null
+                      : Number(r.serves),
+                  price: Number(r.price) || 0,
+                }))
+              : [];
+          setSizes(list);
+          setSelectedSizeId(list.length > 0 ? list[0].id : null);
+        }
+      } catch {
+        if (!cancelled) {
+          setSizes([]);
+          setSelectedSizeId(null);
+        }
+      }
+
+      try {
+        const { data } = await db
+          .from("products")
+          .select("ingredients")
+          .eq("id", productId)
+          .maybeSingle();
+        if (!cancelled) {
+          const raw = (data as { ingredients?: unknown } | null)?.ingredients;
+          setIngredients(
+            Array.isArray(raw)
+              ? raw.map((x) => String(x ?? "").trim()).filter(Boolean)
+              : [],
+          );
+        }
+      } catch {
+        if (!cancelled) setIngredients([]);
+      }
+
+      if (!cancelled) setExtrasReady(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [productId]);
+
   // Replay a "Buy Now" that was interrupted by the login gate: the customer
   // is back on the exact product they clicked, so restore the quantity, add
   // it to the basket and continue straight to checkout.
@@ -165,7 +264,9 @@ export default function ProductDetailPage() {
     if (!resuming || resumed.current) return;
     // `configLoading` matters: until it settles we don't know whether this is
     // a cake, and a cake must land in the wizard rather than the cart.
-    if (!authReady || loading || configLoading) return;
+    // `extrasReady` matters too: we wait for the sizes to load so a resumed
+    // Buy Now restores the exact size the customer picked before logging in.
+    if (!authReady || loading || configLoading || !extrasReady) return;
 
     if (!user || !product || !product.in_stock) {
       // Signed out again, product gone, or sold out while they were away —
@@ -194,14 +295,23 @@ export default function ProductDetailPage() {
       router.push(`/customize/${slugify(product.name)}?qty=${quantity}`);
       return;
     }
+    // Restore the chosen size (stashed as `variant`) if it still exists; its
+    // absolute price becomes the line price, mirroring a fresh Buy Now.
+    const resumeSize =
+      sizes.find((s) => s.id === pending!.variant) ??
+      (sizes.length > 0 ? sizes[0] : null);
     addItem(
       {
-        id: product.id,
+        id: resumeSize ? `${product.id}::size:${resumeSize.id}` : product.id,
+        productId: product.id,
         name: product.name,
-        price: product.price,
+        price: resumeSize ? resumeSize.price : product.price,
         image: product.image,
         category: product.category,
         slug: slugify(product.name),
+        ...(resumeSize
+          ? { sizeId: resumeSize.id, sizeLabel: resumeSize.label }
+          : {}),
       },
       quantity,
     );
@@ -211,6 +321,8 @@ export default function ProductDetailPage() {
     authReady,
     loading,
     configLoading,
+    extrasReady,
+    sizes,
     user,
     product,
     slug,
@@ -244,14 +356,33 @@ export default function ProductDetailPage() {
     );
   }
 
-  const rating = ratingFor(product.id);
+  // Every product is shown with a full five-star rating (static display).
+  const rating = 5;
+
+  // The chosen size (if the product offers any). Its price is ABSOLUTE and
+  // replaces the base product price for pricing, display and the cart line.
+  const selectedSize =
+    sizes.find((s) => s.id === selectedSizeId) ?? (sizes.length > 0 ? sizes[0] : null);
+  const effectivePrice = selectedSize ? selectedSize.price : product.price;
+
+  // Images to show: the gallery when present, otherwise the single image_url.
+  const images = gallery.length > 0 ? gallery : [product.image];
+  const heroImage = images[Math.min(activeImage, images.length - 1)] ?? product.image;
+
+  // A product with size variants makes each size its own cart line (so Small
+  // and Large don't merge), carrying the size identity + its absolute price.
+  const productSlug = slugify(product.name);
   const cartLine = {
-    id: product.id,
+    id: selectedSize ? `${product.id}::size:${selectedSize.id}` : product.id,
+    productId: product.id,
     name: product.name,
-    price: product.price,
+    price: effectivePrice,
     image: product.image,
     category: product.category,
-    slug: slugify(product.name),
+    slug: productSlug,
+    ...(selectedSize
+      ? { sizeId: selectedSize.id, sizeLabel: selectedSize.label }
+      : {}),
   };
 
   const addToCart = () => {
@@ -259,8 +390,8 @@ export default function ProductDetailPage() {
     openCart();
   };
   // Purchasing requires a signed-in customer: if they aren't, the gate stores
-  // this exact product + quantity and sends them to Google login, and this
-  // page replays the Buy Now when they come back.
+  // this exact product + quantity (and chosen size) and sends them to Google
+  // login, and this page replays the Buy Now when they come back.
   //
   // A cake then goes through the customization wizard before the cart; every
   // other product keeps the existing straight-to-checkout flow.
@@ -269,6 +400,7 @@ export default function ProductDetailPage() {
       action: "buy-now",
       productId: product.id,
       slug: cartLine.slug,
+      variant: selectedSize ? selectedSize.id : null,
       quantity: qty,
       href: `/menu/${cartLine.slug}`,
     });
@@ -293,27 +425,58 @@ export default function ProductDetailPage() {
         </Link>
 
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-2 lg:gap-12">
-          {/* Image */}
-          <motion.div
-            initial={{ opacity: 0, scale: 0.96 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-            className="relative aspect-square w-full overflow-hidden rounded-clay bg-[#F9EEEA] shadow-clay"
-          >
-            <Image
-              src={product.image}
-              alt={product.name}
-              fill
-              priority
-              sizes="(max-width: 1024px) 90vw, 45vw"
-              className="object-cover"
-            />
-            {product.badge && (
-              <span className="absolute left-4 top-4 rounded-full bg-[#743249] px-3 py-1 text-xs font-bold uppercase tracking-wide text-white shadow-sm">
-                {product.badge}
-              </span>
+          {/* Image gallery — main image plus a thumbnail strip. Old products
+              with a single image_url simply show one image, no thumbnails. */}
+          <div>
+            <motion.div
+              key={heroImage}
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+              className="relative aspect-square w-full overflow-hidden rounded-clay bg-[#F9EEEA] shadow-clay"
+            >
+              <Image
+                src={heroImage}
+                alt={product.name}
+                fill
+                priority
+                sizes="(max-width: 1024px) 90vw, 45vw"
+                className="object-cover"
+              />
+              {product.badge && (
+                <span className="absolute left-4 top-4 rounded-full bg-[#743249] px-3 py-1 text-xs font-bold uppercase tracking-wide text-white shadow-sm">
+                  {product.badge}
+                </span>
+              )}
+            </motion.div>
+
+            {images.length > 1 && (
+              <div className="mt-4 flex flex-wrap gap-3">
+                {images.map((src, i) => (
+                  <button
+                    key={`${src}-${i}`}
+                    type="button"
+                    onClick={() => setActiveImage(i)}
+                    aria-label={`View image ${i + 1}`}
+                    aria-current={i === activeImage}
+                    className={`relative h-16 w-16 shrink-0 overflow-hidden rounded-2xl bg-[#F9EEEA] shadow-clay-sm transition-all ${
+                      i === activeImage
+                        ? "ring-2 ring-wine ring-offset-2 ring-offset-blush-50"
+                        : "opacity-70 hover:opacity-100"
+                    }`}
+                  >
+                    <Image
+                      src={src}
+                      alt={`${product.name} thumbnail ${i + 1}`}
+                      fill
+                      sizes="64px"
+                      className="object-cover"
+                    />
+                  </button>
+                ))}
+              </div>
             )}
-          </motion.div>
+          </div>
 
           {/* Details */}
           <motion.div
@@ -338,12 +501,75 @@ export default function ProductDetailPage() {
             </div>
 
             <p className="mt-4 font-display text-3xl font-bold text-wine-dark">
-              <PriceText product={product} offers={activeOffers} badge />
+              <PriceText
+                product={{ ...product, price: effectivePrice }}
+                offers={activeOffers}
+                badge
+              />
             </p>
 
             <p className="mt-4 leading-relaxed text-darkberry-light">
               {product.description || "A handcrafted Le Rasa treat, baked fresh."}
             </p>
+
+            {/* Size variants — selecting one updates the price above and the
+                cart line. Only shown when the product actually offers sizes. */}
+            {sizes.length > 0 && (
+              <div className="mt-6">
+                <p className="mb-2 text-xs font-bold uppercase tracking-wide text-wine-dark">
+                  Choose a size
+                </p>
+                <div className="flex flex-wrap gap-2.5">
+                  {sizes.map((s) => {
+                    const active = s.id === selectedSize?.id;
+                    return (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => setSelectedSizeId(s.id)}
+                        aria-pressed={active}
+                        className={`flex flex-col items-start rounded-2xl border-2 px-4 py-2.5 text-left transition-all ${
+                          active
+                            ? "border-wine bg-wine/10 text-darkberry"
+                            : "border-dustyrose/50 bg-blush-50 text-darkberry-light hover:border-wine/50"
+                        }`}
+                      >
+                        <span className="text-sm font-bold">{s.label}</span>
+                        {s.serves != null && s.serves > 0 && (
+                          <span className="text-xs text-berry">
+                            Serves {s.serves}
+                          </span>
+                        )}
+                        <span className="mt-0.5 text-sm font-semibold text-wine-dark">
+                          {money(s.price)}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Ingredients — an ordered list from the admin. Only rendered when
+                the product has any (so old products are unaffected). */}
+            {ingredients.length > 0 && (
+              <div className="mt-5 rounded-2xl bg-[#F9EEEA] p-4">
+                <p className="mb-2 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-wine-dark">
+                  <Leaf className="h-4 w-4 shrink-0" />
+                  Ingredients
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {ingredients.map((ing, i) => (
+                    <span
+                      key={`${ing}-${i}`}
+                      className="rounded-full bg-blush-50 px-3 py-1 text-sm text-darkberry shadow-clay-sm"
+                    >
+                      {ing}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {product.allergens && (
               <div className="mt-5 flex items-start gap-2 rounded-2xl bg-dustyrose-light/40 p-4">
@@ -431,6 +657,10 @@ export default function ProductDetailPage() {
                     <h3 className="line-clamp-2 font-display text-sm font-bold text-darkberry">
                       {r.name}
                     </h3>
+                    {/* Static five-star display, matching the product cards. */}
+                    <span className="mt-1 inline-flex">
+                      <Stars value={5} />
+                    </span>
                     <span className="mt-2 font-display text-base font-bold text-wine-dark">
                       {money(r.price)}
                     </span>

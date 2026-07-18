@@ -7,6 +7,7 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/server";
 import { isAuthedRequest } from "@/lib/admin-auth";
+import { persistExtras } from "@/lib/product-variants";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +40,12 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Best-effort extras — ingredients, gallery images, size variants. Only the
+  // keys the form sends are touched; migration-tolerant so an un-migrated DB
+  // still saves the core product fields.
+  await persistExtras(supabase, params.id, body);
+
   return NextResponse.json({ product: data });
 }
 

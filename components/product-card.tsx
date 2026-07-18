@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { Heart, Plus } from "lucide-react";
+import { Heart, Plus, Star } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import type { Product } from "@/lib/data";
 import { useActiveOffer } from "@/lib/use-active-offer";
@@ -51,6 +51,19 @@ export function ProductCard({ product }: { product: Product }) {
         <h3 className="mt-1 font-display text-lg font-semibold leading-snug text-darkberry">
           {product.name}
         </h3>
+        {/* Static five-star display (visual only — no review system). */}
+        <span
+          className="mt-1.5 inline-flex items-center gap-0.5"
+          aria-label="Rated 5 out of 5"
+        >
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Star
+              key={i}
+              className="h-3.5 w-3.5 fill-amber-400 text-amber-400"
+              strokeWidth={1.5}
+            />
+          ))}
+        </span>
         <p className="mt-1.5 flex-1 text-sm text-darkberry-light">
           {product.description}
         </p>

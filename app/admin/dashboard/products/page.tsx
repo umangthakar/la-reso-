@@ -57,6 +57,10 @@ type Product = {
   sort_order: number;
 };
 
+// Gallery image + size variant shapes used by the form (client-side only).
+type ImageItem = { url: string; is_primary: boolean };
+type SizeItem = { id?: string; label: string; serves: string; price: string };
+
 type FormState = {
   id: string | null;
   name: string;
@@ -68,6 +72,10 @@ type FormState = {
   allergens: string;
   in_stock: boolean;
   visible: boolean;
+  // New: ingredients list, multiple gallery images, and size variants.
+  ingredients: string[];
+  images: ImageItem[];
+  sizes: SizeItem[];
 };
 
 const EMPTY_FORM: FormState = {
@@ -81,6 +89,9 @@ const EMPTY_FORM: FormState = {
   allergens: "",
   in_stock: true,
   visible: true,
+  ingredients: [],
+  images: [],
+  sizes: [],
 };
 
 export default function ProductsAdminPage() {
@@ -95,6 +106,8 @@ export default function ProductsAdminPage() {
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [loadingDetails, setLoadingDetails] = useState(false);
+  const [ingredientInput, setIngredientInput] = useState("");
   const [categoryNames, setCategoryNames] = useState<string[]>([]);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
@@ -147,10 +160,14 @@ export default function ProductsAdminPage() {
 
   function openAdd() {
     setForm(EMPTY_FORM);
+    setIngredientInput("");
     setShowForm(true);
   }
 
   function openEdit(p: Product) {
+    // Seed the gallery with the product's single image so old products keep
+    // showing (and preserving) it; the details fetch below replaces this with
+    // the full gallery / sizes / ingredients once it arrives.
     setForm({
       id: p.id,
       name: p.name,
@@ -162,27 +179,152 @@ export default function ProductsAdminPage() {
       allergens: p.allergens ?? "",
       in_stock: p.in_stock,
       visible: p.visible,
+      ingredients: [],
+      images: p.image_url ? [{ url: p.image_url, is_primary: true }] : [],
+      sizes: [],
     });
+    setIngredientInput("");
     setShowForm(true);
+
+    // Pull ingredients / gallery / sizes for this product. Degrades to the
+    // seeded single image if the extras tables aren't migrated.
+    setLoadingDetails(true);
+    (async () => {
+      try {
+        const d = await adminGet<{
+          ingredients: string[];
+          images: { url: string; is_primary: boolean }[];
+          sizes: { id: string; label: string; serves: number | null; price: number }[];
+        }>(`/api/admin/products/${p.id}/details`, { force: true });
+        setForm((f) => {
+          if (f.id !== p.id) return f; // a different product was opened meanwhile
+          const images: ImageItem[] =
+            d.images && d.images.length > 0
+              ? d.images.map((im) => ({ url: im.url, is_primary: !!im.is_primary }))
+              : f.images;
+          return {
+            ...f,
+            ingredients: Array.isArray(d.ingredients) ? d.ingredients : [],
+            images,
+            sizes: (d.sizes || []).map((s) => ({
+              id: s.id,
+              label: s.label,
+              serves: s.serves === null || s.serves === undefined ? "" : String(s.serves),
+              price: String(s.price ?? ""),
+            })),
+          };
+        });
+      } catch {
+        /* leave the seeded single image + empty lists in place */
+      } finally {
+        setLoadingDetails(false);
+      }
+    })();
   }
 
   function closeForm() {
     setShowForm(false);
     setForm(EMPTY_FORM);
+    setIngredientInput("");
+  }
+
+  // ---- Ingredient tag helpers ----
+  function addIngredient() {
+    const v = ingredientInput.trim();
+    if (!v) return;
+    setForm((f) =>
+      f.ingredients.some((x) => x.toLowerCase() === v.toLowerCase())
+        ? f
+        : { ...f, ingredients: [...f.ingredients, v] },
+    );
+    setIngredientInput("");
+  }
+  function removeIngredient(i: number) {
+    setForm((f) => ({ ...f, ingredients: f.ingredients.filter((_, n) => n !== i) }));
+  }
+
+  // ---- Gallery image helpers ----
+  function removeImage(i: number) {
+    setForm((f) => {
+      const images = f.images.filter((_, n) => n !== i);
+      // Keep exactly one primary: if we removed it, promote the first.
+      if (images.length > 0 && !images.some((im) => im.is_primary)) {
+        images[0] = { ...images[0], is_primary: true };
+      }
+      return { ...f, images, image_url: images.find((im) => im.is_primary)?.url ?? images[0]?.url ?? "" };
+    });
+  }
+  function setPrimaryImage(i: number) {
+    setForm((f) => {
+      const images = f.images.map((im, n) => ({ ...im, is_primary: n === i }));
+      return { ...f, images, image_url: images[i]?.url ?? f.image_url };
+    });
+  }
+  function moveImage(i: number, dir: -1 | 1) {
+    setForm((f) => {
+      const j = i + dir;
+      if (j < 0 || j >= f.images.length) return f;
+      const images = [...f.images];
+      [images[i], images[j]] = [images[j], images[i]];
+      return { ...f, images };
+    });
+  }
+
+  // ---- Size variant helpers ----
+  function addSize() {
+    setForm((f) => ({ ...f, sizes: [...f.sizes, { label: "", serves: "", price: "" }] }));
+  }
+  function updateSize(i: number, patch: Partial<SizeItem>) {
+    setForm((f) => ({
+      ...f,
+      sizes: f.sizes.map((s, n) => (n === i ? { ...s, ...patch } : s)),
+    }));
+  }
+  function removeSize(i: number) {
+    setForm((f) => ({ ...f, sizes: f.sizes.filter((_, n) => n !== i) }));
+  }
+  function moveSize(i: number, dir: -1 | 1) {
+    setForm((f) => {
+      const j = i + dir;
+      if (j < 0 || j >= f.sizes.length) return f;
+      const sizes = [...f.sizes];
+      [sizes[i], sizes[j]] = [sizes[j], sizes[i]];
+      return { ...f, sizes };
+    });
   }
 
   async function handleImage(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files ?? []);
+    if (files.length === 0) return;
     setUploading(true);
     setError("");
     try {
-      const { url } = await adminUpload(file);
-      setForm((f) => ({ ...f, image_url: url }));
+      // Upload each selected file and append to the gallery. The first image
+      // ever added becomes primary so a product always has one.
+      const uploaded: string[] = [];
+      for (const file of files) {
+        const { url } = await adminUpload(file);
+        uploaded.push(url);
+      }
+      setForm((f) => {
+        const existing = f.images;
+        const additions: ImageItem[] = uploaded.map((url) => ({ url, is_primary: false }));
+        let images = [...existing, ...additions];
+        if (!images.some((im) => im.is_primary) && images.length > 0) {
+          images = images.map((im, i) => ({ ...im, is_primary: i === 0 }));
+        }
+        return {
+          ...f,
+          images,
+          image_url: images.find((im) => im.is_primary)?.url ?? images[0]?.url ?? f.image_url,
+        };
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed");
     } finally {
       setUploading(false);
+      // Allow re-selecting the same file(s) again.
+      e.target.value = "";
     }
   }
 
@@ -194,16 +336,35 @@ export default function ProductsAdminPage() {
     }
     setSaving(true);
     setError("");
+    // Primary image drives the legacy single image_url (used by every card
+    // query); the full gallery + sizes + ingredients ride alongside.
+    const primaryUrl =
+      form.images.find((im) => im.is_primary)?.url ?? form.images[0]?.url ?? form.image_url;
     const payload = {
       name: form.name.trim(),
       category: form.category || null,
       description: form.description,
       price: form.price,
       badge: form.badge,
-      image_url: form.image_url,
+      image_url: primaryUrl,
       allergens: form.allergens,
       in_stock: form.in_stock,
       visible: form.visible,
+      ingredients: form.ingredients,
+      images: form.images.map((im, i) => ({
+        url: im.url,
+        sort_order: i,
+        is_primary: !!im.is_primary,
+      })),
+      // Only keep size rows that have a label; blank draft rows are dropped.
+      sizes: form.sizes
+        .filter((s) => s.label.trim())
+        .map((s, i) => ({
+          label: s.label.trim(),
+          serves: s.serves === "" ? null : Number(s.serves),
+          price: Number(s.price) || 0,
+          sort_order: i,
+        })),
     };
     try {
       if (form.id) {
@@ -410,14 +571,159 @@ export default function ProductsAdminPage() {
               <input style={inputStyle} value={form.allergens} onChange={(e) => setForm({ ...form, allergens: e.target.value })} placeholder="e.g. Contains nuts, gluten, dairy" />
             </div>
 
+            {/* Ingredients — free-text tags. Only shown to customers when set. */}
             <div style={{ marginBottom: 14 }}>
-              <label style={labelStyle}>Image</label>
-              {form.image_url && (
-                /* eslint-disable-next-line @next/next/no-img-element */
-                <img src={form.image_url} alt="preview" style={{ width: 90, height: 90, objectFit: "cover", borderRadius: 10, display: "block", marginBottom: 8 }} />
+              <label style={labelStyle}>Ingredients (optional)</label>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <input
+                  style={{ ...inputStyle, flex: 1, minWidth: 160 }}
+                  value={ingredientInput}
+                  onChange={(e) => setIngredientInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      addIngredient();
+                    }
+                  }}
+                  placeholder="e.g. Fresh Cream, then press Add"
+                />
+                <button type="button" onClick={addIngredient} style={{ ...secondaryBtn, padding: "8px 14px" }}>
+                  Add
+                </button>
+              </div>
+              {form.ingredients.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
+                  {form.ingredients.map((ing, i) => (
+                    <span
+                      key={`${ing}-${i}`}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
+                        background: "rgba(135,56,83,0.08)",
+                        color: BERRY,
+                        borderRadius: 999,
+                        padding: "5px 10px",
+                        fontSize: "0.85rem",
+                        fontWeight: 600,
+                      }}
+                    >
+                      {ing}
+                      <button
+                        type="button"
+                        onClick={() => removeIngredient(i)}
+                        aria-label={`Remove ${ing}`}
+                        style={{ background: "none", border: "none", cursor: "pointer", color: WINE, fontWeight: 800, lineHeight: 1, fontSize: "1rem" }}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
               )}
-              <input type="file" accept="image/*" onChange={handleImage} disabled={uploading} />
+            </div>
+
+            {/* Images — multiple, with primary + reorder + delete. */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={labelStyle}>
+                Images {loadingDetails && <span style={{ opacity: 0.6, fontWeight: 500 }}>· loading…</span>}
+              </label>
+              {form.images.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 10 }}>
+                  {form.images.map((im, i) => (
+                    <div
+                      key={`${im.url}-${i}`}
+                      style={{
+                        position: "relative",
+                        width: 90,
+                        border: im.is_primary ? `2px solid ${WINE}` : "2px solid transparent",
+                        borderRadius: 12,
+                        padding: 2,
+                      }}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={im.url} alt={`image ${i + 1}`} style={{ width: "100%", height: 84, objectFit: "cover", borderRadius: 9, display: "block" }} />
+                      {im.is_primary && (
+                        <span style={{ position: "absolute", top: 4, left: 4, background: WINE, color: "white", fontSize: "0.6rem", fontWeight: 800, padding: "2px 5px", borderRadius: 6, textTransform: "uppercase", letterSpacing: "0.03em" }}>
+                          Primary
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => removeImage(i)}
+                        aria-label="Delete image"
+                        style={{ position: "absolute", top: 4, right: 4, width: 20, height: 20, borderRadius: "50%", border: "none", background: "rgba(0,0,0,0.55)", color: "white", cursor: "pointer", fontWeight: 800, lineHeight: 1, fontSize: "0.8rem" }}
+                      >
+                        ×
+                      </button>
+                      <div style={{ display: "flex", justifyContent: "center", gap: 4, marginTop: 4 }}>
+                        <button type="button" onClick={() => moveImage(i, -1)} disabled={i === 0} title="Move left" style={miniBtn(i === 0)}>‹</button>
+                        {!im.is_primary && (
+                          <button type="button" onClick={() => setPrimaryImage(i)} title="Set as primary" style={{ ...miniBtn(false), width: "auto", padding: "0 6px", fontSize: "0.65rem", fontWeight: 700 }}>★</button>
+                        )}
+                        <button type="button" onClick={() => moveImage(i, 1)} disabled={i === form.images.length - 1} title="Move right" style={miniBtn(i === form.images.length - 1)}>›</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <input type="file" accept="image/*" multiple onChange={handleImage} disabled={uploading} />
               {uploading && <span style={{ color: BERRY, opacity: 0.7, marginLeft: 8 }}>Uploading…</span>}
+              <p style={{ color: BERRY, opacity: 0.6, fontSize: "0.78rem", marginTop: 6 }}>
+                Upload one or more images. The ★ Primary image is used on cards and listings.
+              </p>
+            </div>
+
+            {/* Size variants — optional. Empty = single-price product (unchanged). */}
+            <div style={{ marginBottom: 18 }}>
+              <label style={labelStyle}>Sizes (optional)</label>
+              {form.sizes.length > 0 && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 8 }}>
+                  {form.sizes.map((s, i) => (
+                    <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                      <input
+                        style={{ ...inputStyle, flex: 2, minWidth: 110 }}
+                        value={s.label}
+                        onChange={(e) => updateSize(i, { label: e.target.value })}
+                        placeholder="Label e.g. Medium"
+                      />
+                      <input
+                        style={{ ...inputStyle, flex: 1, minWidth: 80 }}
+                        type="number"
+                        min="0"
+                        value={s.serves}
+                        onChange={(e) => updateSize(i, { serves: e.target.value })}
+                        placeholder="Serves"
+                      />
+                      <input
+                        style={{ ...inputStyle, flex: 1, minWidth: 80 }}
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={s.price}
+                        onChange={(e) => updateSize(i, { price: e.target.value })}
+                        placeholder="Price £"
+                      />
+                      <button type="button" onClick={() => moveSize(i, -1)} disabled={i === 0} title="Move up" style={miniBtn(i === 0)}>↑</button>
+                      <button type="button" onClick={() => moveSize(i, 1)} disabled={i === form.sizes.length - 1} title="Move down" style={miniBtn(i === form.sizes.length - 1)}>↓</button>
+                      <button
+                        type="button"
+                        onClick={() => removeSize(i)}
+                        aria-label="Delete size"
+                        style={{ ...miniBtn(false), color: "#d9534f", borderColor: "#d9534f" }}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <button type="button" onClick={addSize} style={{ ...secondaryBtn, padding: "8px 14px" }}>
+                + Add size
+              </button>
+              <p style={{ color: BERRY, opacity: 0.6, fontSize: "0.78rem", marginTop: 6 }}>
+                Add sizes to let customers pick (e.g. Small / Medium / Large). The selected size price is charged. Leave empty to keep a single price.
+              </p>
             </div>
 
             <div style={{ display: "flex", gap: 24, marginBottom: 22 }}>
@@ -777,6 +1083,23 @@ function CategoriesSection({ onChanged }: { onChanged: () => void }) {
 }
 
 const inputStyle: React.CSSProperties = { width: "100%", boxSizing: "border-box", padding: "10px 12px", borderRadius: 10, border: "1px solid rgba(135,56,83,0.25)", fontSize: "0.95rem", color: BERRY, outline: "none" };
+// Small square control used by the image/size reorder + primary buttons.
+const miniBtn = (disabled: boolean): React.CSSProperties => ({
+  width: 24,
+  height: 24,
+  borderRadius: 7,
+  border: `1px solid ${WINE}`,
+  background: "white",
+  color: WINE,
+  fontWeight: 800,
+  cursor: disabled ? "not-allowed" : "pointer",
+  opacity: disabled ? 0.35 : 1,
+  lineHeight: 1,
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: 0,
+});
 const labelStyle: React.CSSProperties = { display: "block", fontWeight: 600, color: BERRY, marginBottom: 6, fontSize: "0.9rem" };
 const checkRow: React.CSSProperties = { display: "flex", alignItems: "center", gap: 10, color: BERRY, fontWeight: 600 };
 const th: React.CSSProperties = { padding: "12px 14px", fontSize: "0.8rem", fontWeight: 700, color: BERRY, textTransform: "uppercase", letterSpacing: "0.03em" };

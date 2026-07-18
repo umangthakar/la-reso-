@@ -10,6 +10,7 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/server";
 import { isAuthedRequest } from "@/lib/admin-auth";
+import { persistExtras } from "@/lib/product-variants";
 
 export const dynamic = "force-dynamic";
 
@@ -91,6 +92,14 @@ export async function POST(req: Request) {
       .single();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    // Best-effort extras (ingredients, gallery images, size variants). Each is
+    // tolerant of the 26_product_variants.sql migration not being run yet, so a
+    // product still saves even when the new tables/column are absent.
+    if (data?.id) {
+      await persistExtras(supabase, data.id, body);
+    }
+
     return NextResponse.json({ product: data });
   } catch (e) {
     return NextResponse.json(
