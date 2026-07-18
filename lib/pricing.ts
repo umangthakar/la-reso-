@@ -24,6 +24,30 @@ export function deliveryFeeFor(subtotal: number): number {
 type ZoneLike = { postcode_prefix?: string; fee?: number };
 
 /**
+ * Normalise a postcode for comparison: uppercase, all whitespace removed.
+ * "ha2 0wr", "HA2 0WR" and "HA20WR" all normalise to "HA20WR". Used for both
+ * the customer input and the stored zone prefixes so matching is case- and
+ * space-insensitive on both sides.
+ */
+export function normalizePostcode(pc: string | undefined | null): string {
+  return String(pc ?? "").toUpperCase().replace(/\s+/g, "");
+}
+
+/**
+ * The OUTWARD code of a postcode (the part delivery zones match on), normalised.
+ * A UK inward code is always one digit followed by two letters, so when the
+ * input carries a full postcode we strip that trailing block; a value that is
+ * already just an outward code (e.g. "HA2") is returned unchanged.
+ *
+ *   "HA2 0WR" -> "HA2"   "WD17 8XX" -> "WD17"   "E3 1AA" -> "E3"   "HA2" -> "HA2"
+ */
+export function extractOutwardCode(pc: string | undefined | null): string {
+  const norm = normalizePostcode(pc);
+  if (norm.length > 3 && /[0-9][A-Z]{2}$/.test(norm)) return norm.slice(0, -3);
+  return norm;
+}
+
+/**
  * Delivery fee for an order, derived from the POSTCODE alone.
  *
  * The subtotal deliberately does not influence the fee: a £20 basket and a
@@ -48,18 +72,29 @@ export function resolveDeliveryFee(
 ): number {
   if (subtotal <= 0) return 0;
 
-  const pc = (postcode ?? "").toUpperCase().replace(/\s+/g, "");
+  // Normalise both sides and work from the OUTWARD code so a full postcode
+  // ("HA2 0WR"), its spaced/lowercase variants, and a bare outward code
+  // ("HA2") all match the stored prefix ("HA2"). Longest prefix wins.
+  const pc = normalizePostcode(postcode);
+  const outward = extractOutwardCode(postcode);
   if (Array.isArray(zones) && zones.length > 0 && pc) {
-    let best: { fee: number; len: number } | null = null;
+    let best: { fee: number; len: number; prefix: string } | null = null;
     for (const z of zones) {
-      const prefix = String(z?.postcode_prefix ?? "")
-        .toUpperCase()
-        .replace(/\s+/g, "");
-      if (prefix && pc.startsWith(prefix)) {
+      const prefix = normalizePostcode(z?.postcode_prefix);
+      if (prefix && (outward.startsWith(prefix) || pc.startsWith(prefix))) {
         const fee = Number(z?.fee) || 0;
-        if (!best || prefix.length > best.len) best = { fee, len: prefix.length };
+        if (!best || prefix.length > best.len) best = { fee, len: prefix.length, prefix };
       }
     }
+    // [debug] TEMPORARY — remove once postcode matching is confirmed.
+    console.log("[delivery] match", {
+      customerPostcode: postcode,
+      normalized: pc,
+      outwardCode: outward,
+      matchedPrefix: best?.prefix ?? null,
+      appliedFee: best ? round2(best.fee) : DELIVERY_FEE,
+      reason: best ? "zone matched" : "no zone prefix matched → fallback fee",
+    });
     if (best) return round2(best.fee);
   }
 

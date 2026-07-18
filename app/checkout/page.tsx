@@ -27,7 +27,7 @@ import { lineText } from "@/lib/customization";
 import { useSiteSettings } from "@/lib/use-site-settings";
 import { createClient } from "@/utils/supabase/client";
 import { getStripePromise } from "@/lib/stripe-client";
-import { money, round2, resolveDeliveryFee } from "@/lib/pricing";
+import { money, round2, resolveDeliveryFee, extractOutwardCode } from "@/lib/pricing";
 import {
   firstDeliverableDate,
   isDeliverableDate,
@@ -53,9 +53,11 @@ const STEPS = ["Contact", "Delivery", "Review", "Payment"] as const;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-// UK postcode format — used ONLY to decide what the delivery line renders
-// (an amount vs. a placeholder). It does not touch the delivery calculation.
-const UK_POSTCODE_RE = /^[A-Z]{1,2}[0-9][A-Z0-9]?\s*[0-9][A-Z]{2}$/i;
+// A postcode is "valid" for the delivery line once we can read a well-formed
+// OUTWARD code from it (the part zones match on): full postcode "HA2 0WR", its
+// spaced/lowercase variants, or an outward code on its own "HA2" all qualify.
+// Format check only — it never touches the delivery calculation.
+const OUTWARD_CODE_RE = /^[A-Z]{1,2}[0-9][A-Z0-9]?$/;
 
 /** Short, human order number from a DB uuid or a Stripe PaymentIntent id. */
 function toOrderNumber(id: string): string {
@@ -116,7 +118,9 @@ export default function CheckoutPage() {
   // (resolveDeliveryFee) is unchanged.
   const postcodeRaw = form.postcode.trim();
   const postcodeEntered = postcodeRaw !== "";
-  const postcodeLooksValid = UK_POSTCODE_RE.test(postcodeRaw);
+  // Validate the OUTWARD code (reusing the shared extractor) so "HA2 0WR",
+  // "ha2 0wr", "HA20WR" and a bare "HA2" all count as valid.
+  const postcodeLooksValid = OUTWARD_CODE_RE.test(extractOutwardCode(postcodeRaw));
   const deliveryFee =
     freeDelivery || !postcodeLooksValid
       ? 0
