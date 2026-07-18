@@ -48,6 +48,52 @@ export function extractOutwardCode(pc: string | undefined | null): string {
 }
 
 /**
+ * Find the delivery zone whose stored OUTWARD prefix matches a postcode, or
+ * null when none does. Delivery zones store ONLY the outward prefix (e.g.
+ * "HA2"), so both sides are normalised and compared on the outward code: a
+ * bare "HA2", a full "HA2 0WR", "ha2 0wr" and "HA20WR" all match "HA2". The
+ * longest matching prefix wins ("WD17" beats a broader "WD1"; "UB10" beats
+ * "UB1"). A null result means the postcode is not in any delivery zone.
+ */
+export function matchDeliveryZone(
+  postcode: string | undefined | null,
+  zones: ZoneLike[] | undefined,
+): { prefix: string; fee: number } | null {
+  const normalized = normalizePostcode(postcode);
+  const outward = extractOutwardCode(postcode);
+  const prefixesLoaded = Array.isArray(zones)
+    ? zones.map((z) => normalizePostcode(z?.postcode_prefix)).filter(Boolean)
+    : [];
+
+  let best: { prefix: string; fee: number; len: number } | null = null;
+  if (Array.isArray(zones) && outward) {
+    for (const z of zones) {
+      const prefix = normalizePostcode(z?.postcode_prefix);
+      // The customer's outward code matches a stored prefix when it equals it
+      // or falls under it (e.g. "HA2" under a broader "HA"). The full
+      // normalised postcode is also checked as a belt-and-braces fallback.
+      if (prefix && (outward.startsWith(prefix) || normalized.startsWith(prefix))) {
+        const fee = Number(z?.fee) || 0;
+        if (!best || prefix.length > best.len) best = { prefix, fee, len: prefix.length };
+      }
+    }
+  }
+
+  // [debug] TEMPORARY — remove once postcode matching is confirmed.
+  console.log("[delivery] postcode match", {
+    customerInput: postcode ?? "",
+    normalizedInput: normalized,
+    extractedPrefix: outward,
+    deliveryPrefixesLoaded: prefixesLoaded,
+    matchedPrefix: best?.prefix ?? null,
+    appliedFee: best ? round2(best.fee) : null,
+    reason: best ? "matched stored prefix" : "no stored prefix matched → invalid postcode",
+  });
+
+  return best ? { prefix: best.prefix, fee: round2(best.fee) } : null;
+}
+
+/**
  * Delivery fee for an order, derived from the POSTCODE alone.
  *
  * The subtotal deliberately does not influence the fee: a £20 basket and a
@@ -57,9 +103,9 @@ export function extractOutwardCode(pc: string | undefined | null): string {
  *
  * The zones come from the admin delivery settings, so changing a zone's fee
  * in the panel immediately changes what checkout charges — nothing is
- * hardcoded here. The longest matching postcode prefix wins, so a specific
- * "HA2 0" zone beats a broader "HA". With no matching zone, DELIVERY_FEE is
- * the fallback (an unrecognised postcode must never ship free).
+ * hardcoded here. Matching is delegated to matchDeliveryZone (outward-prefix,
+ * longest wins). With no matching zone, DELIVERY_FEE is the fallback (an
+ * unrecognised postcode must never ship free) — unchanged.
  *
  * NOTE: a free-delivery OFFER can still waive the fee. That is an explicit
  * admin/coupon decision handled by the callers, not the automatic
@@ -71,34 +117,8 @@ export function resolveDeliveryFee(
   zones: ZoneLike[] | undefined,
 ): number {
   if (subtotal <= 0) return 0;
-
-  // Normalise both sides and work from the OUTWARD code so a full postcode
-  // ("HA2 0WR"), its spaced/lowercase variants, and a bare outward code
-  // ("HA2") all match the stored prefix ("HA2"). Longest prefix wins.
-  const pc = normalizePostcode(postcode);
-  const outward = extractOutwardCode(postcode);
-  if (Array.isArray(zones) && zones.length > 0 && pc) {
-    let best: { fee: number; len: number; prefix: string } | null = null;
-    for (const z of zones) {
-      const prefix = normalizePostcode(z?.postcode_prefix);
-      if (prefix && (outward.startsWith(prefix) || pc.startsWith(prefix))) {
-        const fee = Number(z?.fee) || 0;
-        if (!best || prefix.length > best.len) best = { fee, len: prefix.length, prefix };
-      }
-    }
-    // [debug] TEMPORARY — remove once postcode matching is confirmed.
-    console.log("[delivery] match", {
-      customerPostcode: postcode,
-      normalized: pc,
-      outwardCode: outward,
-      matchedPrefix: best?.prefix ?? null,
-      appliedFee: best ? round2(best.fee) : DELIVERY_FEE,
-      reason: best ? "zone matched" : "no zone prefix matched → fallback fee",
-    });
-    if (best) return round2(best.fee);
-  }
-
-  return DELIVERY_FEE;
+  const match = matchDeliveryZone(postcode, zones);
+  return match ? match.fee : DELIVERY_FEE;
 }
 
 // ============================================================

@@ -27,7 +27,7 @@ import { lineText } from "@/lib/customization";
 import { useSiteSettings } from "@/lib/use-site-settings";
 import { createClient } from "@/utils/supabase/client";
 import { getStripePromise } from "@/lib/stripe-client";
-import { money, round2, resolveDeliveryFee, extractOutwardCode } from "@/lib/pricing";
+import { money, round2, matchDeliveryZone } from "@/lib/pricing";
 import {
   firstDeliverableDate,
   isDeliverableDate,
@@ -52,12 +52,6 @@ type Form = {
 const STEPS = ["Contact", "Delivery", "Review", "Payment"] as const;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-// A postcode is "valid" for the delivery line once we can read a well-formed
-// OUTWARD code from it (the part zones match on): full postcode "HA2 0WR", its
-// spaced/lowercase variants, or an outward code on its own "HA2" all qualify.
-// Format check only — it never touches the delivery calculation.
-const OUTWARD_CODE_RE = /^[A-Z]{1,2}[0-9][A-Z0-9]?$/;
 
 /** Short, human order number from a DB uuid or a Stripe PaymentIntent id. */
 function toOrderNumber(id: string): string {
@@ -107,28 +101,22 @@ export default function CheckoutPage() {
     { subtotal: number; discount: number; deliveryFee: number; total: number; couponCode: string | null } | null
   >(null);
 
-  // Delivery is derived from the POSTCODE, so no amount is shown (or added to
-  // the total) until a VALID postcode has been entered — the summary reads
-  // "Calculated after postcode" (empty) or "Invalid postcode" (malformed)
-  // instead of a default fee. Once a valid postcode is present the zone rule
-  // prices it immediately; a free-delivery offer waives it. The server
-  // re-computes the fee authoritatively so the charge always matches.
-  //
-  // `postcodeLooksValid` gates DISPLAY only; the delivery calculation itself
-  // (resolveDeliveryFee) is unchanged.
+  // Delivery is priced by matching the postcode's OUTWARD prefix against the
+  // admin delivery zones (matchDeliveryZone): a match shows that zone's fee, no
+  // match shows "Invalid postcode", and an empty field shows "Calculated after
+  // postcode". Zones can still be loading (they default to []), so a
+  // non-matching postcode is only called "invalid" once zones are present.
+  // A free-delivery offer waives the fee. The server re-prices authoritatively.
   const postcodeRaw = form.postcode.trim();
   const postcodeEntered = postcodeRaw !== "";
-  // Validate the OUTWARD code (reusing the shared extractor) so "HA2 0WR",
-  // "ha2 0wr", "HA20WR" and a bare "HA2" all count as valid.
-  const postcodeLooksValid = OUTWARD_CODE_RE.test(extractOutwardCode(postcodeRaw));
-  const deliveryFee =
-    freeDelivery || !postcodeLooksValid
-      ? 0
-      : resolveDeliveryFee(subtotal, form.postcode, settings.delivery_zones);
+  const zonesLoaded =
+    Array.isArray(settings.delivery_zones) && settings.delivery_zones.length > 0;
+  const zoneMatch = matchDeliveryZone(form.postcode, settings.delivery_zones);
+  const deliveryFee = freeDelivery ? 0 : zoneMatch ? zoneMatch.fee : 0;
   const total = round2(subtotal - discount + deliveryFee);
-  // The delivery amount is only known once the server has priced it (charged),
-  // a valid postcode lets us estimate it, or a free-delivery offer waives it.
-  const deliveryKnown = charged != null || postcodeLooksValid || freeDelivery;
+  // The amount is known once the server has priced it (charged), an offer
+  // waives it, or the postcode matched a delivery zone.
+  const deliveryKnown = charged != null || freeDelivery || zoneMatch != null;
 
   // The breakdown shown in the summary: the server's authoritative numbers once
   // the PaymentIntent exists, otherwise the live client estimate.
@@ -750,7 +738,7 @@ export default function CheckoutPage() {
                     ) : (
                       money(summary.deliveryFee)
                     )
-                  ) : postcodeEntered ? (
+                  ) : postcodeEntered && zonesLoaded ? (
                     <span className="font-normal text-berry/70">
                       Invalid postcode
                     </span>
