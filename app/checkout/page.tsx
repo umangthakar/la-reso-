@@ -53,6 +53,10 @@ const STEPS = ["Contact", "Delivery", "Review", "Payment"] as const;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+// UK postcode format — used ONLY to decide what the delivery line renders
+// (an amount vs. a placeholder). It does not touch the delivery calculation.
+const UK_POSTCODE_RE = /^[A-Z]{1,2}[0-9][A-Z0-9]?\s*[0-9][A-Z]{2}$/i;
+
 /** Short, human order number from a DB uuid or a Stripe PaymentIntent id. */
 function toOrderNumber(id: string): string {
   return id.replace(/^pi_/, "").replace(/-/g, "").slice(0, 8).toUpperCase();
@@ -102,19 +106,25 @@ export default function CheckoutPage() {
   >(null);
 
   // Delivery is derived from the POSTCODE, so no amount is shown (or added to
-  // the total) until one is entered — the summary reads "Calculate after
-  // postcode" instead of a default fee. Once a postcode is present the zone
-  // rule prices it immediately; a free-delivery offer waives it. The server
+  // the total) until a VALID postcode has been entered — the summary reads
+  // "Calculated after postcode" (empty) or "Invalid postcode" (malformed)
+  // instead of a default fee. Once a valid postcode is present the zone rule
+  // prices it immediately; a free-delivery offer waives it. The server
   // re-computes the fee authoritatively so the charge always matches.
-  const postcodeEntered = form.postcode.trim() !== "";
-  // Known once the server has priced it (charged) or a postcode/free-delivery
-  // makes the amount definite.
-  const deliveryKnown = charged != null || postcodeEntered || freeDelivery;
+  //
+  // `postcodeLooksValid` gates DISPLAY only; the delivery calculation itself
+  // (resolveDeliveryFee) is unchanged.
+  const postcodeRaw = form.postcode.trim();
+  const postcodeEntered = postcodeRaw !== "";
+  const postcodeLooksValid = UK_POSTCODE_RE.test(postcodeRaw);
   const deliveryFee =
-    freeDelivery || !postcodeEntered
+    freeDelivery || !postcodeLooksValid
       ? 0
       : resolveDeliveryFee(subtotal, form.postcode, settings.delivery_zones);
   const total = round2(subtotal - discount + deliveryFee);
+  // The delivery amount is only known once the server has priced it (charged),
+  // a valid postcode lets us estimate it, or a free-delivery offer waives it.
+  const deliveryKnown = charged != null || postcodeLooksValid || freeDelivery;
 
   // The breakdown shown in the summary: the server's authoritative numbers once
   // the PaymentIntent exists, otherwise the live client estimate.
@@ -730,14 +740,20 @@ export default function CheckoutPage() {
               <div className="flex justify-between text-berry">
                 <dt>Delivery</dt>
                 <dd className="font-semibold text-darkberry">
-                  {!deliveryKnown ? (
+                  {deliveryKnown ? (
+                    summary.deliveryFee === 0 ? (
+                      "Free"
+                    ) : (
+                      money(summary.deliveryFee)
+                    )
+                  ) : postcodeEntered ? (
                     <span className="font-normal text-berry/70">
-                      Calculate after postcode
+                      Invalid postcode
                     </span>
-                  ) : summary.deliveryFee === 0 ? (
-                    "Free"
                   ) : (
-                    money(summary.deliveryFee)
+                    <span className="font-normal text-berry/70">
+                      Calculated after postcode
+                    </span>
                   )}
                 </dd>
               </div>
