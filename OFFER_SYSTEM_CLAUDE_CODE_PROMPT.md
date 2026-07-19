@@ -143,7 +143,11 @@ TABLES TO CREATE
    - hero_highlight_text text                 -- the big watermark: "30%", "FREE", "BUY 1 GET 1"
    - cta_text text
    - cta_link text
-   - banner_image_url text
+   - banner_image_url text                    -- decorative banner graphic (optional)
+   - background_image_url text                -- full section background image (optional, separate from banner_image_url)
+   - banner_bg_color text                     -- hex override for the banner section background; null = theme default (#F9EEEA)
+   - banner_text_color text                   -- hex override for heading/subtext color; null = theme default (#612437)
+   - cta_button_color text                    -- hex override for the CTA button; null = theme default (wine)
    - created_at timestamptz not null default now()
    - updated_at timestamptz not null default now()
 
@@ -395,6 +399,25 @@ discount calculation inside the existing checkout flow.
       discount_amount) — best-effort, same "don't fail the whole order if
       this write fails" posture as the existing order_items insert.
 
+3F. PER-OFFER ANALYTICS — app/api/admin/offers/[id]/analytics/route.ts (GET,
+    isAuthedRequest-guarded, admin client). Aggregates purely from
+    offer_redemptions joined to orders (no new tables needed):
+    - timesUsed: count of offer_redemptions for this offer_id.
+    - revenueGenerated: sum of orders.total for orders in those redemptions.
+    - totalDiscountGiven: sum of offer_redemptions.discount_amount.
+    - activeOrders: count where orders.status not in
+      ('delivered','cancelled','refunded').
+    - redemptions: the raw list (order id, email, discount_amount,
+      created_at) for a small drill-down table, most recent first, capped
+      at e.g. 100 rows.
+    - conversionRate: timesUsed / total orders placed within the offer's
+      [start_at, end_at] window (or since the offer's created_at if either
+      date is null) — guard divide-by-zero by returning null, not 0 or
+      Infinity, when there were zero orders in that window. Document in a
+      comment that this is a proxy (orders-with-offer / all-orders-in-window),
+      not true funnel conversion, since there is no page-view/impression
+      tracking in this app and adding one is out of scope here.
+
 CONSTRAINTS
 - Do not change the existing subtotal/delivery-fee logic that's already
   correct — only insert the discount step between them.
@@ -409,71 +432,145 @@ DONE WHEN
   amount reflects the 10% discount and the metadata carries discount_amount.
 - Existing checkout flow with NO active offer produces byte-identical
   totals to before this phase (no regression).
+- The analytics endpoint returns correct numbers against a couple of
+  manually-inserted test redemptions, including the null-conversion-rate
+  edge case.
 
 STOP after this phase and wait for confirmation before Phase 4.
 ```
 
 ---
 
-## PHASE 4 — Admin UI
+## PHASE 4 — Admin UI (independent Offers module)
 
 ```
 GOAL
-Build the admin-facing Offer Management screens.
+Build the Offer Management module as a fully independent admin section —
+its own nav entry, its own route tree, its own pages. This is a hard
+requirement, not a style preference:
 
-1. app/admin/dashboard/layout.tsx — add `{ href: "/admin/dashboard/offers",
-   label: "Offers" }` to the nav array right after the "Products" entry
-   (~line 27), before "Orders".
+DO NOT add or edit any offer/banner field inside
+app/admin/dashboard/settings/page.tsx. That file (Content & Settings)
+must end this phase with ZERO new offer-related code in it. Everything
+offer- or banner-related lives under app/admin/dashboard/offers/** and its
+own API routes. If you find yourself about to touch settings/page.tsx for
+anything other than reading it as a styling reference, stop — that's the
+wrong file.
 
-2. app/admin/dashboard/offers/page.tsx — list view, styled consistently
-   with app/admin/dashboard/products/page.tsx (reuse the same WINE/BERRY
-   color constants, inputStyle/primaryBtn/ghostBtn button styles, and
-   adminGet/adminSend calls — do not invent new styling primitives).
-   Columns: Name, Type, Status (computed pill: "Active now" / "Scheduled" /
-   "Expired" / "Off" — derive this client-side from
-   isOfferCurrentlyActive() in lib/offers.ts, don't hardcode it), Priority,
-   Start/End dates. Row actions: Edit, Duplicate (calls the Phase 3
-   duplicate endpoint), the enabled Toggle (calls PATCH), Delete (confirm
-   dialog first, same pattern as any existing delete button in this repo).
-   "+ New Offer" button at the top.
+1. app/admin/dashboard/layout.tsx — add a new nav entry
+   `{ href: "/admin/dashboard/offers", label: "Offers" }` to the array
+   (~line 25-31) in this exact order: Dashboard, Products, Offers, Orders,
+   Payments, Delivery Settings, Content & Settings, Analytics — i.e. insert
+   it right after "Products" (~line 27) and before "Orders". Change nothing
+   else in this file.
 
-3. app/admin/dashboard/offers/[id]/page.tsx (and a "new" variant, or one
-   page handling both via an `id === "new"` param — pick whichever pattern
-   products/[id]-equivalent already uses, if one exists, otherwise a single
-   page with an id param is fine) — the create/edit form, organized into
-   clearly separated sections matching the spec exactly:
-   - Basics: name, type selector (changes which fields below are shown/
-     required), stackable toggle, priority.
-   - Discount value: fields relevant to the selected type only (percentage
-     value / fixed amount / buy X get Y quantities + get-Y-discount% /
-     free delivery toggle / coupon code + coupon discount type).
-   - Eligibility: scope selector (all/categories/products) +
-     include-list picker (reuse whatever multi-select pattern already
-     exists for categories in this admin — check
-     app/api/admin/products/categories/route.ts for the category source)
-     + a separate "Exclude" picker for categories and products (always
-     visible regardless of scope).
-   - Cart conditions: min/max order amount, min/max quantity.
-   - Audience: everyone / first order only / new customers only / specific
-     emails (textarea, one per line, parsed to the offer_emails table) +
-     usage_limit_total + usage_limit_per_customer.
-   - Schedule: start/end date-time pickers, optional daily time-of-day
-     range, optional days-of-week checkboxes.
-   - Storefront content: announcement_text, hero_heading, hero_subtext,
-     hero_highlight_text (label this clearly: "Large watermark shown on the
-     Special Offer banner — e.g. 30%, 50%, FREE, BUY 1 GET 1. Leave blank
-     to show the product count instead."), cta_text, cta_link,
-     banner_image_url (optional upload via the existing adminUpload()
-     helper against a new/appropriate storage path).
-   - Save button persists via the Phase 3 admin API; Delete via the same
-     confirm-then-DELETE pattern used elsewhere.
+2. app/admin/dashboard/offers/page.tsx — the Offer Dashboard (list view).
+   Styled consistently with app/admin/dashboard/products/page.tsx (reuse
+   the same WINE/BERRY color constants, inputStyle/primaryBtn/ghostBtn
+   button styles, and adminGet/adminSend calls — do not invent new styling
+   primitives). Include:
+   - A search input (filters the fetched list client-side by name/coupon
+     code — no need for server-side search given expected offer volumes).
+   - A status filter (All / Active now / Scheduled / Expired / Disabled)
+     and a type filter (the 6 offer types) — both client-side dropdowns
+     over the same fetched list.
+   - Table columns: Name, Type, Status (computed pill — "Active now" /
+     "Scheduled" / "Expired" / "Off" — derive this from
+     isOfferCurrentlyActive() in lib/offers.ts, never hardcode it),
+
+
+     Priority, Start/End dates.
+   - Row actions: Edit, Duplicate (calls the Phase 3 duplicate endpoint),
+     the enabled Toggle (calls PATCH), Delete (confirm dialog first, same
+     pattern as any existing delete button in this repo).
+   - "+ New Offer" button at the top.
+
+3. app/admin/dashboard/offers/[id]/page.tsx (an `id === "new"` route is
+   fine for create — one page handling both create and edit) — the
+   create/edit form, organized into clearly separated sections. Use a
+   left-side (or top) tab/section nav within this one page rather than
+   separate routes per section, so Save/state stays simple:
+
+   a) Basics — name, type selector (changes which fields below are shown/
+      required), stackable toggle, priority.
+
+   b) Discount value — fields relevant to the selected type only
+      (percentage value / fixed amount / buy X get Y quantities +
+      get-Y-discount% / free delivery toggle / coupon code + coupon
+      discount type).
+
+   c) Eligibility — scope selector (all/categories/products) + include-list
+      picker (reuse whatever multi-select pattern already exists for
+      categories in this admin — check
+      app/api/admin/products/categories/route.ts for the category source)
+      + a separate "Exclude" picker for categories and products (always
+      visible regardless of scope).
+
+   d) Offer conditions — min/max order amount, min/max quantity,
+      usage_limit_total, usage_limit_per_customer.
+
+   e) Schedule — start/end date-time pickers, optional daily time-of-day
+      range, optional days-of-week checkboxes, the enabled toggle.
+
+   f) Customer rules (audience) — everyone / first order only / new
+      customers only / specific emails (textarea, one per line, parsed to
+      the offer_emails table).
+
+   g) Coupon management — only shown when type='coupon': coupon_code input
+      (uniqueness enforced by the DB, surface a clear inline error on
+      conflict), coupon_discount_type, discount value, and the
+      start/end schedule from (e) doubles as the expiry — do not build a
+      second separate expiry field.
+
+   h) Banner Management — this is what drives the live Special Offer
+      banner. Fields: hero_heading, hero_subtext, hero_highlight_text
+      (label clearly: "Large watermark shown on the Special Offer banner —
+      e.g. 30%, 50%, FREE, BUY 1 GET 1. Leave blank to show the product
+      count instead."), cta_text, cta_link, announcement_text (label:
+      "Overrides the top announcement bar while this offer is active"),
+      banner_image_url + background_image_url (both optional uploads via
+      the existing adminUpload() helper), banner_bg_color, banner_text_color,
+      cta_button_color (simple `<input type="color">` paired with a hex
+      text input for each — no new color-picker dependency; do not add an
+      npm package for this).
+
+   i) Live Preview — a panel (sidebar on desktop, section below the form on
+      mobile) that renders, from the CURRENTLY-EDITED in-memory form state
+      (not the saved DB row), a miniature but real preview of: the
+      announcement bar text, the Special Offer banner (heading/subtext/
+      highlight watermark/CTA/colors), and one sample product card showing
+      strikethrough original price + discounted price using the form's
+      current discount settings against a representative product. Update
+      on every field change (debounce ~300ms is fine). To avoid duplicating
+      markup, extract the presentational JSX of the banner slide and the
+      announcement bar into small prop-driven subcomponents (e.g.
+      `<BannerPreview heading subtext highlightText ctaText bgColor
+      textColor />`) that both the real site components (fed by live data
+      in Phase 5) and this preview panel (fed by form state) import and
+      render identically — do not hand-roll a second copy of the banner
+      markup here.
+
+   j) Analytics tab — only shown when editing an existing offer (not on
+      create). Calls the Phase 3 `/api/admin/offers/[id]/analytics`
+      endpoint and renders it as stat cards in the same visual style as
+      the existing Dashboard stat cards in app/admin/dashboard/page.tsx
+      (~line 122, the `stats` array/map pattern) — Times Used, Revenue
+      Generated, Total Discount Given, Active Orders, Conversion Rate
+      (show "—" when null, not "NaN%" or "0%"), plus a small table of
+      recent redemptions.
+
+   Save persists via the Phase 3 admin API; Delete via the same
+   confirm-then-DELETE pattern used elsewhere.
 
 CONSTRAINTS
 - Reuse existing visual language (colors, spacing, button styles, Toggle
   component) from app/admin/dashboard/settings/page.tsx and
-  app/admin/dashboard/products/ rather than introducing a new design.
+  app/admin/dashboard/products/ as a STYLING reference only — no shared
+  state, imports, or fields with that file.
 - Client-side validation should mirror (not replace) the server-side
   validation from Phase 3 — the server is still the source of truth.
+- The Live Preview panel must never call any write/save endpoint — it is
+  read-only rendering of local form state.
 
 STOP after this phase and wait for confirmation before Phase 5.
 ```
@@ -524,6 +621,13 @@ app already is.
    - This component is a client component — fetch the active offer via the
      new useActiveOffer() hook from step 1, passed down or called directly
      inside RotatingBanners.
+   - If Phase 4 already extracted a prop-driven `<BannerPreview>` /
+     announcement-bar presentational subcomponent for the admin Live
+     Preview panel, reuse that SAME subcomponent here (fed by real
+     server/live data instead of form state) rather than keeping two
+     copies of the banner markup in sync by hand. If Phase 4 hasn't run yet
+     or didn't extract one, do it now and retrofit Phase 4's preview to use
+     it — one implementation, two data sources.
 
 4. Product pricing display — create ONE small shared piece (a component
    `components/product-price.tsx` or a pure formatter in lib/offers.ts —
@@ -601,6 +705,17 @@ this done.
    supabase/sql/00_full_setup.sql, lib/pricing.ts's existing exports, or
    the Stripe/admin-auth integration — if anything did, flag it explicitly
    for review rather than silently shipping it.
+4. Confirm module independence: `git diff` (or grep) shows ZERO changes to
+   app/admin/dashboard/settings/page.tsx, and every offer-related file
+   lives under app/admin/dashboard/offers/**, app/api/admin/offers/**,
+   app/api/offers/**, lib/offers.ts, or the new supabase/sql/15_/16_ files.
+5. Manually verify the Live Preview panel matches the live site: set a
+   percentage offer's banner fields in the editor, confirm the preview
+   panel shows them immediately (before Save), then Save and confirm the
+   live /menu page now matches what the preview showed.
+6. Manually verify the Analytics tab against the redemptions inserted
+   during step 5's checkout test — Times Used, Revenue Generated, and
+   Total Discount Given should match exactly.
 
 Report back: files changed per phase, any deviations from this spec and
 why, and the QA checklist results.
