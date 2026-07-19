@@ -28,6 +28,18 @@ function isMissingColumn(err: { code?: string; message?: string } | null): boole
   );
 }
 
+/**
+ * True when an insert failed because a CHECK constraint rejected the value
+ * (Postgres 23514) — e.g. status='pending' before 27_order_lifecycle.sql has
+ * widened the allowed statuses. Lets us fall back to the legacy 'received'
+ * status so checkout NEVER breaks before the migration is run.
+ */
+function isCheckViolation(err: { code?: string; message?: string } | null): boolean {
+  if (!err) return false;
+  if (err.code === "23514") return true;
+  return /violates check constraint|check constraint/i.test(err.message ?? "");
+}
+
 type OrderItemCustomization = {
   lines?: { key: string; label: string; value: string; price: number }[];
   selections?: Record<string, unknown>;
@@ -131,13 +143,20 @@ export async function POST(req: Request) {
     delivery_charge: metaDelivery,
     total: paidTotal,
     amount: paidTotal,
-    status: "received",
+    // NEW ORDERS WAIT FOR OWNER APPROVAL. Every order starts Pending; the
+    // owner accepts it in the admin panel to move it to Received. (Falls back
+    // to 'received' below only if the status-constraint migration isn't run.)
+    status: "pending",
     stripe_payment_intent: paymentIntentId,
   };
 
   // Extra columns added by the latest setup SQL (may not exist yet).
   const fullOrder = {
     ...coreOrder,
+    // Payment is captured at checkout, so it is Paid the moment the order
+    // exists. (27_order_lifecycle.sql adds this column; dropped by the
+    // isMissingColumn fallback if the migration hasn't run.)
+    payment_status: "paid",
     payment_method: "stripe",
     delivery_address: deliveryAddress || null,
     postcode: postcode || null,
@@ -169,6 +188,18 @@ export async function POST(req: Request) {
     ({ data: order, error: orderErr } = await supabase
       .from("orders")
       .insert(fallbackOrder)
+      .select("id")
+      .single());
+  }
+
+  // Safety net: if this DB's status CHECK constraint predates the 'pending'
+  // state (27_order_lifecycle.sql not yet run), inserting 'pending' fails.
+  // Retry with the legacy 'received' status so checkout is never blocked —
+  // the owner-approval step simply won't apply until the migration is run.
+  if (orderErr && isCheckViolation(orderErr)) {
+    ({ data: order, error: orderErr } = await supabase
+      .from("orders")
+      .insert({ ...coreOrder, status: "received" })
       .select("id")
       .single());
   }

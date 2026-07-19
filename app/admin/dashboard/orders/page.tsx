@@ -52,20 +52,50 @@ type OrderItem = {
   } | null;
 };
 
+/** Payment / refund detail for one order (from GET /api/admin/orders/[id]). */
+type OrderDetail = {
+  id: string;
+  status: string;
+  payment_status: string;
+  accepted_at: string | null;
+  cancelled_at: string | null;
+  refunded_at: string | null;
+  refund_id: string | null;
+  refund_error: string | null;
+  total: number;
+};
+
 // Order total (paid orders carry one; older enquiry orders don't).
 function fmtMoney(o: Order): string {
   const v = o.total ?? o.amount;
   return v == null ? "—" : `£${Number(v).toFixed(2)}`;
 }
 
-const STATUS_ORDER = ["received", "preparing", "out_for_delivery", "delivered", "cancelled"];
+// Full status set (drives the filter dropdown). 'pending' = awaiting the
+// owner's acceptance; 'ready' = baked and ready to go out.
+const STATUS_ORDER = [
+  "pending",
+  "received",
+  "preparing",
+  "ready",
+  "out_for_delivery",
+  "delivered",
+  "cancelled",
+];
+
+// The fulfilment stages an accepted order advances through (excludes
+// 'pending', which is pre-acceptance, and 'cancelled').
+const FULFILMENT_ORDER = ["received", "preparing", "ready", "out_for_delivery", "delivered"];
 
 const STATUS_META: Record<string, { label: string; bg: string; fg: string }> = {
+  pending: { label: "Pending", bg: "#fef3c7", fg: "#92400e" },
   received: { label: "Received", bg: "#e8e8e8", fg: "#555555" },
   preparing: { label: "Preparing", bg: "#fdebd0", fg: "#92400e" },
+  ready: { label: "Ready", bg: "#ede9fe", fg: "#5b21b6" },
   out_for_delivery: { label: "Out for Delivery", bg: "#dbeafe", fg: "#1e40af" },
   delivered: { label: "Delivered", bg: "#dcfce7", fg: "#166534" },
   cancelled: { label: "Cancelled", bg: "#fee2e2", fg: "#991b1b" },
+  refunded: { label: "Refunded", bg: "#e5e7eb", fg: "#374151" },
 };
 
 function meta(status: string) {
@@ -118,6 +148,12 @@ export default function OrdersAdminPage() {
   const [selected, setSelected] = useState<Order | null>(null);
   const [updating, setUpdating] = useState(false);
 
+  // Payment / refund detail for the open order (fetched per-order alongside
+  // its items). Powers the "Accept", cancel-with-refund and refund-retry
+  // actions and the refund info on a cancelled order.
+  const [detail, setDetail] = useState<OrderDetail | null>(null);
+  const [refunding, setRefunding] = useState(false);
+
   // The selected order's line items — the cakes, their accessories, the
   // messages, the notes and the quantities. Fetched per-order (they're only
   // needed when the drawer is open) from the order's own saved snapshot.
@@ -128,11 +164,13 @@ export default function OrdersAdminPage() {
     if (!selected) {
       setItems(null);
       setItemsError("");
+      setDetail(null);
       return;
     }
     let active = true;
     setItems(null);
     setItemsError("");
+    setDetail(null);
     adminGet<{ items: OrderItem[] }>(`/api/admin/orders/${selected.id}/items`, {
       force: true,
     })
@@ -144,10 +182,31 @@ export default function OrdersAdminPage() {
           setItemsError(e instanceof Error ? e.message : "Could not load items");
         }
       });
+    // Payment / refund detail (best-effort — the drawer still works without it).
+    adminGet<{ order: OrderDetail }>(`/api/admin/orders/${selected.id}`, { force: true })
+      .then((data) => {
+        if (active) setDetail(data.order ?? null);
+      })
+      .catch(() => {
+        /* leave detail null — actions fall back to status-only behaviour */
+      });
     return () => {
       active = false;
     };
   }, [selected]);
+
+  // Re-fetch just the payment/refund detail for the open order (after an
+  // accept, cancel or refund retry) so the drawer reflects the new state.
+  const refreshDetail = useCallback(async (id: string) => {
+    try {
+      const data = await adminGet<{ order: OrderDetail }>(`/api/admin/orders/${id}`, {
+        force: true,
+      });
+      setDetail(data.order ?? null);
+    } catch {
+      /* non-fatal */
+    }
+  }, []);
 
   // Live "new order" toast + detection. knownIdsRef holds the ids we've
   // already shown so a refetch only toasts genuinely new orders (null until
@@ -231,6 +290,9 @@ export default function OrdersAdminPage() {
       // authoritative server data (no page reload). adminSend already cleared
       // the GET cache; force:true guarantees a fresh fetch regardless.
       await load({ silent: true });
+      // Refresh the open order's payment/refund detail too (a cancel issues a
+      // refund; an accept records the acceptance time).
+      await refreshDetail(order.id);
     } catch (e) {
       // Save failed — revert the optimistic change back to the previous status.
       setOrders((prev) => prev.map((o) => (o.id === order.id ? { ...o, status: prevStatus } : o)));
@@ -238,6 +300,20 @@ export default function OrdersAdminPage() {
       setError(e instanceof Error ? e.message : "Failed to update status — change reverted.");
     } finally {
       setUpdating(false);
+    }
+  }
+
+  // Retry a refund that previously failed (order sits in payment 'refund_pending').
+  async function retryRefund(order: Order) {
+    setRefunding(true);
+    setError("");
+    try {
+      await adminSend(`/api/admin/orders/${order.id}/refund`, "POST");
+      await refreshDetail(order.id);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Refund retry failed.");
+    } finally {
+      setRefunding(false);
     }
   }
 
@@ -474,33 +550,15 @@ export default function OrdersAdminPage() {
             <OrderItems items={items} error={itemsError} />
 
             <div style={divider} />
-            <label style={{ ...filterLabel, marginBottom: 8 }}>Update status</label>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-              {STATUS_ORDER.map((s) => {
-                const active = selected.status === s;
-                const m = meta(s);
-                return (
-                  <button
-                    key={s}
-                    disabled={updating || active}
-                    onClick={() => updateStatus(selected, s)}
-                    style={{
-                      padding: isMobile ? "10px 16px" : "8px 14px",
-                      minHeight: isMobile ? 44 : undefined,
-                      borderRadius: 999,
-                      border: active ? `2px solid ${m.fg}` : "1px solid rgba(135,56,83,0.25)",
-                      background: active ? m.bg : "white",
-                      color: active ? m.fg : BERRY,
-                      fontWeight: 700,
-                      fontSize: "0.85rem",
-                      cursor: active ? "default" : "pointer",
-                    }}
-                  >
-                    {m.label}
-                  </button>
-                );
-              })}
-            </div>
+            <OrderActions
+              order={selected}
+              detail={detail}
+              updating={updating}
+              refunding={refunding}
+              isMobile={isMobile}
+              onSetStatus={(s) => updateStatus(selected, s)}
+              onRetryRefund={() => retryRefund(selected)}
+            />
 
             <button onClick={() => downloadInvoice(selected)} style={{ ...primaryBtn, marginTop: 24, width: "100%", minHeight: isMobile ? 44 : undefined }}>
               Download Invoice (PDF)
@@ -605,6 +663,162 @@ const sectionLabel: React.CSSProperties = {
   color: BERRY,
   opacity: 0.6,
 };
+
+/** Human label for the payment side of an order. */
+function paymentLabel(detail: OrderDetail | null, status: string): string {
+  const ps = (detail?.payment_status ?? "").toLowerCase();
+  if (ps === "refunded") return "Refunded";
+  if (ps === "refund_pending") return "Refund Pending";
+  if (status.toLowerCase() === "refunded") return "Refunded";
+  return "Paid";
+}
+
+/**
+ * The workflow actions for the open order, driven by its current status:
+ *   • Pending   → Accept Order (→ Received) + Cancel & Refund
+ *   • In-kitchen (received…out_for_delivery) → advance-stage pills
+ *   • Cancelled → read-only refund info (+ Retry Refund if it's pending)
+ */
+function OrderActions({
+  order,
+  detail,
+  updating,
+  refunding,
+  isMobile,
+  onSetStatus,
+  onRetryRefund,
+}: {
+  order: Order;
+  detail: OrderDetail | null;
+  updating: boolean;
+  refunding: boolean;
+  isMobile: boolean;
+  onSetStatus: (status: string) => void;
+  onRetryRefund: () => void;
+}) {
+  const status = String(order.status ?? "").toLowerCase();
+  const isPending = status === "pending";
+  const isCancelled = status === "cancelled" || status === "refunded";
+  const payment = paymentLabel(detail, status);
+
+  // --- Cancelled: read-only refund information. ---
+  if (isCancelled) {
+    const pending = payment === "Refund Pending";
+    return (
+      <div>
+        <label style={{ ...filterLabel, marginBottom: 8 }}>Refund information</label>
+        <div
+          style={{
+            background: pending ? "#fef3c7" : "#dcfce7",
+            color: pending ? "#92400e" : "#166534",
+            borderRadius: 12,
+            padding: "12px 14px",
+            fontWeight: 700,
+          }}
+        >
+          Payment: {payment}
+        </div>
+        {detail?.refund_id && (
+          <DetailRow label="Refund ID" value={detail.refund_id} />
+        )}
+        {detail?.refunded_at && (
+          <DetailRow label="Refunded at" value={fmtDateTime(detail.refunded_at)} />
+        )}
+        {detail?.cancelled_at && (
+          <DetailRow label="Cancelled at" value={fmtDateTime(detail.cancelled_at)} />
+        )}
+        {pending && detail?.refund_error && (
+          <p style={{ marginTop: 12, color: "#991b1b", fontWeight: 600, fontSize: "0.85rem" }}>
+            Last refund attempt failed: {detail.refund_error}
+          </p>
+        )}
+        {pending && (
+          <button
+            onClick={onRetryRefund}
+            disabled={refunding}
+            style={{ ...primaryBtn, marginTop: 14, width: "100%", minHeight: isMobile ? 44 : undefined, opacity: refunding ? 0.6 : 1 }}
+          >
+            {refunding ? "Retrying refund…" : "Retry Refund"}
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  // --- Pending: accept or cancel. ---
+  if (isPending) {
+    return (
+      <div>
+        <label style={{ ...filterLabel, marginBottom: 8 }}>This order is awaiting your approval</label>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <button
+            onClick={() => onSetStatus("received")}
+            disabled={updating}
+            style={{ ...primaryBtn, width: "100%", minHeight: isMobile ? 46 : 42, fontSize: "0.95rem", opacity: updating ? 0.6 : 1 }}
+          >
+            ✓ Accept Order
+          </button>
+          <button
+            onClick={() => onSetStatus("cancelled")}
+            disabled={updating}
+            style={{
+              width: "100%",
+              minHeight: isMobile ? 46 : 42,
+              borderRadius: 10,
+              border: "1px solid #dc2626",
+              background: "white",
+              color: "#dc2626",
+              fontWeight: 700,
+              cursor: updating ? "default" : "pointer",
+              opacity: updating ? 0.6 : 1,
+            }}
+          >
+            Cancel &amp; Refund Order
+          </button>
+        </div>
+        <p style={{ marginTop: 10, color: BERRY, opacity: 0.6, fontSize: "0.8rem" }}>
+          Payment: {payment} · Accepting moves this order into your kitchen.
+        </p>
+      </div>
+    );
+  }
+
+  // --- In-kitchen: advance through the fulfilment stages. ---
+  return (
+    <div>
+      <label style={{ ...filterLabel, marginBottom: 8 }}>Update status</label>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+        {FULFILMENT_ORDER.map((s) => {
+          const active = status === s;
+          const m = meta(s);
+          return (
+            <button
+              key={s}
+              disabled={updating || active}
+              onClick={() => onSetStatus(s)}
+              style={{
+                padding: isMobile ? "10px 16px" : "8px 14px",
+                minHeight: isMobile ? 44 : undefined,
+                borderRadius: 999,
+                border: active ? `2px solid ${m.fg}` : "1px solid rgba(135,56,83,0.25)",
+                background: active ? m.bg : "white",
+                color: active ? m.fg : BERRY,
+                fontWeight: 700,
+                fontSize: "0.85rem",
+                cursor: active ? "default" : "pointer",
+              }}
+            >
+              {m.label}
+            </button>
+          );
+        })}
+      </div>
+      <p style={{ marginTop: 10, color: BERRY, opacity: 0.6, fontSize: "0.8rem" }}>
+        Payment: {payment}
+      </p>
+    </div>
+  );
+}
 
 function CardRow({ label, value }: { label: string; value: string }) {
   return (

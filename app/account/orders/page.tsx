@@ -26,6 +26,8 @@ import {
   CreditCard,
   Receipt,
   AlertTriangle,
+  Check,
+  XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/use-auth";
@@ -53,6 +55,7 @@ type OrderRow = {
   coupon_code: string | null;
   total: number | null;
   amount: number | null;
+  payment_status: string | null;
   customer_name: string | null;
   email: string | null;
   phone: string | null;
@@ -77,11 +80,33 @@ const STATUS_LABELS: Record<string, { label: string; className: string }> = {
   refunded: { label: "Refunded", className: "bg-gray-200 text-gray-700" },
 };
 
-// A customer may cancel only while the order is still early.
-const CANCELLABLE = new Set(["pending", "received", "preparing", "processing"]);
+// A customer may cancel ONLY while the order is Pending (before the owner
+// accepts it). Once accepted (Received onward) the cancel action disappears.
+const CANCELLABLE = new Set(["pending"]);
 
 function statusMeta(status: string | null) {
   return STATUS_LABELS[(status ?? "received").toLowerCase()] ?? STATUS_LABELS.received;
+}
+
+// The customer-facing order journey, in order. Cancelled/refunded orders
+// step out of this flow and show a refund summary instead.
+const TIMELINE_STEPS: { key: string; label: string }[] = [
+  { key: "pending", label: "Pending" },
+  { key: "received", label: "Received" },
+  { key: "preparing", label: "Preparing" },
+  { key: "ready", label: "Ready" },
+  { key: "out_for_delivery", label: "Out for delivery" },
+  { key: "delivered", label: "Delivered" },
+];
+
+/** Human label for the payment side of an order. */
+function paymentLabel(order: OrderRow): string {
+  const ps = (order.payment_status ?? "").toLowerCase();
+  if (ps === "refunded") return "Refunded";
+  if (ps === "refund_pending") return "Refund Pending";
+  // Fallback for pre-27 orders that only carry an order status.
+  if ((order.status ?? "").toLowerCase() === "refunded") return "Refunded";
+  return "Paid";
 }
 
 function formatDate(d: string | null): string {
@@ -178,10 +203,15 @@ export default function OrdersPage() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Could not cancel this order.");
       // Optimistic, no refresh: update the list and the open modal together, so
-      // the customer account reflects the cancellation immediately. The admin
-      // panel + analytics read the same status column on their next load.
-      setOrders((prev) => prev.map((x) => (x.id === o.id ? { ...x, status: "cancelled" } : x)));
-      setSelected((s) => (s && s.id === o.id ? { ...s, status: "cancelled" } : s));
+      // the customer account reflects the cancellation + refund immediately.
+      // The admin panel + analytics read the same columns on their next load.
+      const payment_status = String(data.payment_status ?? "refunded");
+      setOrders((prev) =>
+        prev.map((x) => (x.id === o.id ? { ...x, status: "cancelled", payment_status } : x)),
+      );
+      setSelected((s) =>
+        s && s.id === o.id ? { ...s, status: "cancelled", payment_status } : s,
+      );
       setConfirmOpen(false);
     } catch (e) {
       setCancelError(e instanceof Error ? e.message : "Could not cancel this order.");
@@ -328,12 +358,13 @@ function OrderDetailsModal({
   onCancel: () => void;
 }) {
   const s = statusMeta(order.status);
-  const canCancel = CANCELLABLE.has((order.status ?? "").toLowerCase());
+  const statusKey = (order.status ?? "").toLowerCase();
+  const canCancel = CANCELLABLE.has(statusKey);
+  const isCancelled = statusKey === "cancelled" || statusKey === "refunded";
   const subtotal = order.subtotal;
   const delivery = order.delivery_charge;
   const grand = order.total ?? order.amount ?? 0;
-  const paymentStatus =
-    (order.status ?? "").toLowerCase() === "refunded" ? "Refunded" : "Paid";
+  const paymentStatus = paymentLabel(order);
   const paymentMethod = order.payment_method
     ? order.payment_method.charAt(0).toUpperCase() + order.payment_method.slice(1)
     : "Card";
@@ -389,6 +420,13 @@ function OrderDetailsModal({
 
         {/* Body */}
         <div className="flex-1 space-y-5 overflow-y-auto px-5 py-5">
+          {/* Progress — timeline for active orders, refund summary once cancelled */}
+          {isCancelled ? (
+            <CancelledSummary order={order} />
+          ) : (
+            <OrderTimeline status={statusKey} />
+          )}
+
           {/* Order information / items */}
           <Section icon={<Receipt className="h-4 w-4" />} title="Order information">
             <ul className="space-y-3">
@@ -488,7 +526,15 @@ function OrderDetailsModal({
           </Section>
         </div>
 
-        {/* Footer — cancel action (only while cancellable) */}
+        {/* Footer — cancel action only while Pending. Once the owner has
+            accepted the order it can no longer be cancelled here. */}
+        {!canCancel && !isCancelled && (
+          <div className="border-t border-dustyrose/40 bg-blush-50 px-5 py-4">
+            <p className="rounded-2xl bg-[#F9EEEA] px-4 py-3 text-center text-sm font-semibold text-darkberry shadow-clay-sm">
+              This order has already been accepted and can no longer be cancelled.
+            </p>
+          </div>
+        )}
         {canCancel && (
           <div className="border-t border-dustyrose/40 bg-blush-50 px-5 py-4">
             {cancelError && (
@@ -540,6 +586,102 @@ function OrderDetailsModal({
         )}
       </motion.div>
     </motion.div>
+  );
+}
+
+// ------------------------------------------------------------
+// Order timeline — the customer's journey with the current step
+// highlighted. Steps up to and including the current one are marked done;
+// later steps are shown as upcoming. Matches the account colour language.
+// ------------------------------------------------------------
+function OrderTimeline({ status }: { status: string }) {
+  const currentIndex = TIMELINE_STEPS.findIndex((s) => s.key === status);
+  // Unknown/legacy status → treat as at least "received".
+  const activeIndex = currentIndex >= 0 ? currentIndex : 1;
+
+  return (
+    <div className="rounded-clay bg-blush-50 p-4 shadow-clay-sm">
+      <div className="mb-3 flex items-center gap-2 text-wine-dark">
+        <Truck className="h-4 w-4" />
+        <h3 className="text-xs font-bold uppercase tracking-wide">Order status</h3>
+      </div>
+      <ol className="space-y-0">
+        {TIMELINE_STEPS.map((step, i) => {
+          const done = i < activeIndex;
+          const current = i === activeIndex;
+          const last = i === TIMELINE_STEPS.length - 1;
+          return (
+            <li key={step.key} className="flex gap-3">
+              {/* Node + connector */}
+              <div className="flex flex-col items-center">
+                <span
+                  className={`grid h-6 w-6 shrink-0 place-items-center rounded-full text-[11px] font-bold ${
+                    done
+                      ? "bg-wine text-white"
+                      : current
+                        ? "bg-wine text-white ring-4 ring-dustyrose/40"
+                        : "bg-dustyrose-light/60 text-wine-dark/50"
+                  }`}
+                >
+                  {done ? <Check className="h-3.5 w-3.5" /> : i + 1}
+                </span>
+                {!last && (
+                  <span
+                    className={`w-0.5 flex-1 ${done ? "bg-wine" : "bg-dustyrose/40"}`}
+                    style={{ minHeight: 18 }}
+                  />
+                )}
+              </div>
+              {/* Label */}
+              <div className={last ? "pb-0" : "pb-4"}>
+                <p
+                  className={`text-sm font-bold ${
+                    current
+                      ? "text-wine-dark"
+                      : done
+                        ? "text-darkberry"
+                        : "text-darkberry-light/60"
+                  }`}
+                >
+                  {step.label}
+                </p>
+                {current && (
+                  <p className="text-xs text-darkberry-light">Current step</p>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
+
+// A cancelled order steps out of the timeline; show the refund state instead.
+function CancelledSummary({ order }: { order: OrderRow }) {
+  const refunded = paymentLabel(order) === "Refunded";
+  const grand = order.total ?? order.amount ?? 0;
+  return (
+    <div className="rounded-clay bg-blush-50 p-4 shadow-clay-sm">
+      <div className="mb-3 flex items-center gap-2 text-red-600">
+        <XCircle className="h-4 w-4" />
+        <h3 className="text-xs font-bold uppercase tracking-wide">Order cancelled</h3>
+      </div>
+      <div
+        className={`rounded-2xl px-4 py-3 text-sm font-semibold ${
+          refunded ? "bg-green-50 text-green-700" : "bg-amber-50 text-amber-800"
+        }`}
+      >
+        {refunded ? (
+          <>Your payment of {money(grand)} has been refunded.</>
+        ) : (
+          <>
+            Your refund of {money(grand)} is being processed and will be back on
+            your card shortly.
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 

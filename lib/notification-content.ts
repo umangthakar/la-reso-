@@ -87,6 +87,100 @@ export function buildWhatsAppText(order: NotifyOrder): string {
   return parts.join("\n");
 }
 
+// ============================================================
+// LIFECYCLE EVENT messages — short status-change notices sent as the
+// order moves through the approval workflow. These are deliberately
+// lightweight (no line items) — the full order breakdown already went
+// out with buildEmailHtml / buildWhatsAppText when the order was placed.
+// ============================================================
+
+export type LifecycleEvent =
+  | "accepted"          // owner accepted → order is now Received
+  | "cancelled"         // customer cancelled while Pending (refund issued)
+  | "auto_cancelled"    // owner didn't accept within 24h (refund issued)
+  | "refund_completed"; // a previously-pending refund succeeded on retry
+
+/** The minimal order facts an event message needs. */
+export type LifecycleOrder = {
+  orderNumber: string;
+  customerName: string;
+  email: string;
+  total: number;
+  /** 'refunded' when the refund is done, 'refund_pending' when it failed. */
+  refundState?: "refunded" | "refund_pending";
+};
+
+/** Customer-facing subject + HTML for one lifecycle event. */
+export function buildEventEmail(
+  event: LifecycleEvent,
+  order: LifecycleOrder,
+): { subject: string; html: string } {
+  const num = esc(order.orderNumber);
+  const name = esc(order.customerName || "there");
+  const refundLine =
+    order.refundState === "refund_pending"
+      ? `We've started your refund of <strong style="color:#612437">${money(
+          order.total,
+        )}</strong>. It's taking a moment to process — you'll see it back on your card shortly.`
+      : `A full refund of <strong style="color:#612437">${money(
+          order.total,
+        )}</strong> is on its way back to your card.`;
+
+  const copy: Record<LifecycleEvent, { subject: string; heading: string; body: string }> = {
+    accepted: {
+      subject: `Your Le Rasa order ${order.orderNumber} is confirmed`,
+      heading: `We're on it, ${name}!`,
+      body: `Great news — your order <strong style="color:#612437">${num}</strong> has been accepted and we've started getting everything ready. We'll keep you posted as it moves along.`,
+    },
+    cancelled: {
+      subject: `Your Le Rasa order ${order.orderNumber} has been cancelled`,
+      heading: `Order cancelled, ${name}`,
+      body: `Your order <strong style="color:#612437">${num}</strong> has been cancelled as requested. ${refundLine}`,
+    },
+    auto_cancelled: {
+      subject: `Your Le Rasa order ${order.orderNumber} has been cancelled`,
+      heading: `We're sorry, ${name}`,
+      body: `We weren't able to confirm your order <strong style="color:#612437">${num}</strong> in time, so it has been cancelled automatically. ${refundLine}`,
+    },
+    refund_completed: {
+      subject: `Refund completed for Le Rasa order ${order.orderNumber}`,
+      heading: `Your refund is complete, ${name}`,
+      body: `The refund for your cancelled order <strong style="color:#612437">${num}</strong> — <strong style="color:#612437">${money(
+        order.total,
+      )}</strong> — has now been processed back to your card.`,
+    },
+  };
+
+  const c = copy[event];
+  const html = `
+  <div style="font-family:system-ui,-apple-system,'Segoe UI',sans-serif;background:#FDF8F6;padding:28px">
+    <div style="max-width:560px;margin:0 auto;background:#fff;border-radius:18px;padding:28px">
+      <h1 style="margin:0;color:#873853;font-size:22px">${c.heading}</h1>
+      <p style="color:#9C616D;font-size:14px;margin:14px 0 0;line-height:1.6">${c.body}</p>
+      <p style="margin:22px 0 0;color:#9C616D;font-size:12px">Baked eggless, with love. — Le Rasa</p>
+    </div>
+  </div>`;
+  return { subject: c.subject, html };
+}
+
+/** Owner-facing WhatsApp text for one lifecycle event. */
+export function buildEventWhatsApp(event: LifecycleEvent, order: LifecycleOrder): string {
+  const refund =
+    order.refundState === "refund_pending"
+      ? `Refund of ${money(order.total)} is PENDING — retry it from the admin panel.`
+      : `Refund of ${money(order.total)} issued.`;
+  switch (event) {
+    case "cancelled":
+      return `*Order ${order.orderNumber} cancelled by ${order.customerName}.*\n${refund}`;
+    case "auto_cancelled":
+      return `*Order ${order.orderNumber} auto-cancelled* (not accepted within 24h).\n${refund}`;
+    case "refund_completed":
+      return `*Refund completed* for order ${order.orderNumber} — ${money(order.total)}.`;
+    case "accepted":
+      return `Order ${order.orderNumber} accepted.`;
+  }
+}
+
 /** The customer's email: cake, accessories, messages, notes, totals. */
 export function buildEmailHtml(order: NotifyOrder): string {
   const rows = order.items

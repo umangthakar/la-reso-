@@ -28,10 +28,11 @@ import { isAuthedRequest } from "@/lib/admin-auth";
 
 export const dynamic = "force-dynamic";
 
-// Pending = an order that still needs action: Received or Preparing.
-// Matched case-insensitively (live DB stores lowercase; labels are capitalised).
-// This is the ONE definition of "pending" shared by every page.
-const PENDING = new Set(["received", "preparing"]);
+// Pending = an order that still needs action: awaiting acceptance (pending),
+// or in the kitchen (received / preparing / ready). Matched case-insensitively
+// (live DB stores lowercase; labels are capitalised). This is the ONE
+// definition of "needs action" shared by every page.
+const PENDING = new Set(["pending", "received", "preparing", "ready"]);
 
 function isPending(status: unknown): boolean {
   return PENDING.has(String(status ?? "").toLowerCase());

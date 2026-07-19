@@ -23,9 +23,18 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { decryptSecret } from "@/lib/crypto";
-import { buildEmailHtml, buildWhatsAppText, type NotifyOrder } from "@/lib/notification-content";
+import {
+  buildEmailHtml,
+  buildWhatsAppText,
+  buildEventEmail,
+  buildEventWhatsApp,
+  type NotifyOrder,
+  type LifecycleEvent,
+  type LifecycleOrder,
+} from "@/lib/notification-content";
 
 export type { NotifyItem, NotifyOrder } from "@/lib/notification-content";
+export type { LifecycleEvent, LifecycleOrder } from "@/lib/notification-content";
 
 export type NotificationConfig = {
   /** Resend */
@@ -70,13 +79,25 @@ function secret(enc: string | undefined): string {
   }
 }
 
-async function sendCustomerEmail(
+type SendStatus = { status: "sent" | "skipped" | "failed"; error?: string };
+
+// ------------------------------------------------------------
+// Low-level transport primitives. Each swallows its own failures and
+// reports them as a value — an unconfigured provider or an outage must
+// never throw. Shared by the order-placed notifications AND the
+// lifecycle (accepted / cancelled / refunded) notifications below.
+// ------------------------------------------------------------
+
+/** Send one email via Resend. Skips silently when unconfigured. */
+async function postEmail(
   config: NotificationConfig,
-  order: NotifyOrder,
-): Promise<{ status: "sent" | "skipped" | "failed"; error?: string }> {
+  to: string,
+  subject: string,
+  html: string,
+): Promise<SendStatus> {
   const key = secret(config.resend_key_enc);
   const from = (config.from_email ?? "").trim();
-  if (!key || !from || !order.email) return { status: "skipped" };
+  if (!key || !from || !to) return { status: "skipped" };
 
   try {
     const res = await fetch("https://api.resend.com/emails", {
@@ -87,9 +108,9 @@ async function sendCustomerEmail(
       },
       body: JSON.stringify({
         from: config.from_name ? `${config.from_name} <${from}>` : from,
-        to: [order.email],
-        subject: `Your Le Rasa order ${order.orderNumber}`,
-        html: buildEmailHtml(order),
+        to: [to],
+        subject,
+        html,
       }),
     });
     if (!res.ok) {
@@ -102,10 +123,11 @@ async function sendCustomerEmail(
   }
 }
 
-async function sendOwnerWhatsApp(
+/** Send one WhatsApp text to the owner. Skips silently when unconfigured. */
+async function postOwnerWhatsApp(
   config: NotificationConfig,
-  order: NotifyOrder,
-): Promise<{ status: "sent" | "skipped" | "failed"; error?: string }> {
+  body: string,
+): Promise<SendStatus> {
   const token = secret(config.whatsapp_token_enc);
   const phoneId = (config.whatsapp_phone_id ?? "").trim();
   const to = (config.owner_phone ?? "").replace(/[^\d]/g, "");
@@ -124,7 +146,7 @@ async function sendOwnerWhatsApp(
           messaging_product: "whatsapp",
           to,
           type: "text",
-          text: { preview_url: false, body: buildWhatsAppText(order) },
+          text: { preview_url: false, body },
         }),
       },
     );
@@ -136,6 +158,19 @@ async function sendOwnerWhatsApp(
   } catch (e) {
     return { status: "failed", error: e instanceof Error ? e.message : "whatsapp failed" };
   }
+}
+
+function sendCustomerEmail(config: NotificationConfig, order: NotifyOrder): Promise<SendStatus> {
+  return postEmail(
+    config,
+    order.email,
+    `Your Le Rasa order ${order.orderNumber}`,
+    buildEmailHtml(order),
+  );
+}
+
+function sendOwnerWhatsApp(config: NotificationConfig, order: NotifyOrder): Promise<SendStatus> {
+  return postOwnerWhatsApp(config, buildWhatsAppText(order));
 }
 
 /**
@@ -160,6 +195,46 @@ export async function notifyOrder(
   const [email, whatsapp] = await Promise.all([
     sendCustomerEmail(config, order),
     sendOwnerWhatsApp(config, order),
+  ]);
+
+  result.email = email.status;
+  result.whatsapp = whatsapp.status;
+  if (email.error) result.errors.push(email.error);
+  if (whatsapp.error) result.errors.push(whatsapp.error);
+  return result;
+}
+
+/**
+ * Notify both parties about a lifecycle change (order accepted, cancelled,
+ * or refund completed). Same best-effort posture as notifyOrder — NEVER
+ * throws; a failed send is a log line, not an error the caller sees. The
+ * customer gets an email; the owner gets a WhatsApp for the events that
+ * warrant one (cancellations + completed refunds — an "accepted" event is
+ * the owner's own action, so no owner ping for that).
+ */
+export async function notifyLifecycle(
+  supabase: SupabaseClient,
+  event: LifecycleEvent,
+  order: LifecycleOrder,
+): Promise<NotifyResult> {
+  const result: NotifyResult = { email: "skipped", whatsapp: "skipped", errors: [] };
+
+  let config: NotificationConfig;
+  try {
+    config = await loadNotificationConfig(supabase);
+  } catch (e) {
+    result.errors.push(e instanceof Error ? e.message : "could not read config");
+    return result;
+  }
+
+  const { subject, html } = buildEventEmail(event, order);
+  const notifyOwner = event !== "accepted"; // owner acted on "accepted" themselves
+
+  const [email, whatsapp] = await Promise.all([
+    postEmail(config, order.email, subject, html),
+    notifyOwner
+      ? postOwnerWhatsApp(config, buildEventWhatsApp(event, order))
+      : Promise.resolve<SendStatus>({ status: "skipped" }),
   ]);
 
   result.email = email.status;

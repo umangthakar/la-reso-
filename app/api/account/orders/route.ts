@@ -128,6 +128,9 @@ export async function GET() {
       coupon_code: str(o.coupon_code),
       total: num(o.total),
       amount: num(o.amount),
+      // Payment side of the order, independent of fulfilment status. Absent
+      // on pre-27 databases → treated as 'paid'.
+      payment_status: str(o.payment_status) ?? "paid",
       customer_name: str(o.customer_name),
       email: str(o.email),
       phone: str(o.phone),
