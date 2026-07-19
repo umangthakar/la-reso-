@@ -31,8 +31,11 @@ import {
   NUTRITION_ROWS,
   emptyNutrition,
   normalizeNutrition,
+  normalizeCustomNutrition,
+  newCustomRowId,
   type NutritionData,
   type NutritionKey,
+  type NutritionCustomRow,
 } from "@/lib/nutrition";
 
 const WINE = "#873853";
@@ -85,6 +88,8 @@ type FormState = {
   sizes: SizeItem[];
   // Optional per-product nutrition table (all cells present; blank = unset).
   nutrition: NutritionData;
+  // Admin-defined extra rows (Vitamin C, Calcium, …), in insertion order.
+  nutritionCustom: NutritionCustomRow[];
 };
 
 const EMPTY_FORM: FormState = {
@@ -102,6 +107,7 @@ const EMPTY_FORM: FormState = {
   images: [],
   sizes: [],
   nutrition: emptyNutrition(),
+  nutritionCustom: [],
 };
 
 export default function ProductsAdminPage() {
@@ -193,6 +199,7 @@ export default function ProductsAdminPage() {
       images: p.image_url ? [{ url: p.image_url, is_primary: true }] : [],
       sizes: [],
       nutrition: emptyNutrition(),
+      nutritionCustom: [],
     });
     setIngredientInput("");
     setShowForm(true);
@@ -205,6 +212,7 @@ export default function ProductsAdminPage() {
         const d = await adminGet<{
           ingredients: string[];
           nutrition: NutritionData | null;
+          nutritionCustom: NutritionCustomRow[];
           images: { url: string; is_primary: boolean }[];
           sizes: { id: string; label: string; serves: number | null; price: number }[];
         }>(`/api/admin/products/${p.id}/details`, { force: true });
@@ -219,6 +227,7 @@ export default function ProductsAdminPage() {
             ingredients: Array.isArray(d.ingredients) ? d.ingredients : [],
             // Fill blanks for any missing keys so every cell renders.
             nutrition: normalizeNutrition(d.nutrition) ?? emptyNutrition(),
+            nutritionCustom: normalizeCustomNutrition(d.nutritionCustom),
             images,
             sizes: (d.sizes || []).map((s) => ({
               id: s.id,
@@ -263,6 +272,35 @@ export default function ProductsAdminPage() {
       ...f,
       nutrition: { ...f.nutrition, [key]: { ...f.nutrition[key], [field]: value } },
     }));
+  }
+
+  // ---- Custom nutrition row helpers ----
+  function addCustomRow() {
+    setForm((f) => ({
+      ...f,
+      nutritionCustom: [
+        ...f.nutritionCustom,
+        { id: newCustomRowId(), label: "", per_100g: "", per_portion: "" },
+      ],
+    }));
+  }
+  function updateCustomRow(id: string, patch: Partial<Omit<NutritionCustomRow, "id">>) {
+    setForm((f) => ({
+      ...f,
+      nutritionCustom: f.nutritionCustom.map((r) => (r.id === id ? { ...r, ...patch } : r)),
+    }));
+  }
+  function removeCustomRow(id: string) {
+    setForm((f) => ({ ...f, nutritionCustom: f.nutritionCustom.filter((r) => r.id !== id) }));
+  }
+  function moveCustomRow(i: number, dir: -1 | 1) {
+    setForm((f) => {
+      const j = i + dir;
+      if (j < 0 || j >= f.nutritionCustom.length) return f;
+      const rows = [...f.nutritionCustom];
+      [rows[i], rows[j]] = [rows[j], rows[i]];
+      return { ...f, nutritionCustom: rows };
+    });
   }
 
   // ---- Gallery image helpers ----
@@ -375,6 +413,8 @@ export default function ProductsAdminPage() {
       ingredients: form.ingredients,
       // Server normalizes to null when every cell is blank (→ no nutrition).
       nutrition: form.nutrition,
+      // Custom rows in insertion order; server drops blank-label drafts.
+      nutrition_custom: form.nutritionCustom,
       images: form.images.map((im, i) => ({
         url: im.url,
         sort_order: i,
@@ -705,6 +745,56 @@ export default function ProductsAdminPage() {
               </div>
               <p style={{ color: BERRY, opacity: 0.6, fontSize: "0.78rem", marginTop: 6 }}>
                 Enter values for each row. Leave all cells blank to hide the nutrition table for this product.
+              </p>
+
+              {/* Custom rows — admin-defined extra rows (Vitamin C, Calcium…).
+                  Kept separate from the default rows above; unlimited, ordered,
+                  each individually deletable. Default rows can never be deleted. */}
+              {form.nutritionCustom.length > 0 && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
+                  {form.nutritionCustom.map((row, i) => (
+                    <div key={row.id} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                      <input
+                        style={{ ...inputStyle, flex: 2, minWidth: 130 }}
+                        value={row.label}
+                        onChange={(e) => updateCustomRow(row.id, { label: e.target.value })}
+                        placeholder="Name e.g. Vitamin C"
+                        aria-label="Custom nutrition name"
+                      />
+                      <input
+                        style={{ ...inputStyle, width: 96, padding: "8px 10px" }}
+                        value={row.per_100g}
+                        onChange={(e) => updateCustomRow(row.id, { per_100g: e.target.value })}
+                        placeholder="Per 100g"
+                        aria-label={`${row.label || "Custom row"} per 100g`}
+                      />
+                      <input
+                        style={{ ...inputStyle, width: 96, padding: "8px 10px" }}
+                        value={row.per_portion}
+                        onChange={(e) => updateCustomRow(row.id, { per_portion: e.target.value })}
+                        placeholder="Per Portion"
+                        aria-label={`${row.label || "Custom row"} per portion`}
+                      />
+                      <button type="button" onClick={() => moveCustomRow(i, -1)} disabled={i === 0} title="Move up" style={miniBtn(i === 0)}>↑</button>
+                      <button type="button" onClick={() => moveCustomRow(i, 1)} disabled={i === form.nutritionCustom.length - 1} title="Move down" style={miniBtn(i === form.nutritionCustom.length - 1)}>↓</button>
+                      <button
+                        type="button"
+                        onClick={() => removeCustomRow(row.id)}
+                        aria-label={`Delete ${row.label || "custom row"}`}
+                        title="Delete row"
+                        style={{ ...miniBtn(false), color: "#d9534f", borderColor: "#d9534f" }}
+                      >
+                        🗑
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <button type="button" onClick={addCustomRow} style={{ ...secondaryBtn, padding: "8px 14px", marginTop: 10 }}>
+                + Add Nutrition Row
+              </button>
+              <p style={{ color: BERRY, opacity: 0.6, fontSize: "0.78rem", marginTop: 6 }}>
+                Add your own rows (e.g. Vitamin C, Calcium, Iron). Values can include units like “mg”.
               </p>
             </div>
 

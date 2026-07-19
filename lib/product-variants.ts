@@ -13,7 +13,12 @@
 // ============================================================
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { normalizeNutrition, type NutritionData } from "@/lib/nutrition";
+import {
+  normalizeNutrition,
+  normalizeCustomNutrition,
+  type NutritionData,
+  type NutritionCustomRow,
+} from "@/lib/nutrition";
 
 export type ProductImageInput = {
   url: string;
@@ -94,6 +99,25 @@ export async function saveNutrition(
     // A genuine error (not a missing column) — log but never throw: the
     // product itself is already saved.
     console.error("[product-variants] saveNutrition:", error.message);
+  }
+}
+
+/** Persist the custom nutrition rows onto products.nutrition_custom (jsonb).
+ *  An empty list clears it (stored as null → no custom section shown). No-op if
+ *  the column doesn't exist yet (29_nutrition_custom.sql not run). */
+export async function saveCustomNutrition(
+  supabase: SupabaseClient,
+  productId: string,
+  rows: NutritionCustomRow[],
+): Promise<void> {
+  const { error } = await supabase
+    .from("products")
+    .update({ nutrition_custom: rows.length > 0 ? rows : null })
+    .eq("id", productId);
+  if (error && !isMissingObject(error)) {
+    // A genuine error (not a missing column) — log but never throw: the
+    // product itself is already saved.
+    console.error("[product-variants] saveCustomNutrition:", error.message);
   }
 }
 
@@ -204,6 +228,7 @@ export async function persistExtras(
     images?: ProductImageInput[];
     sizes?: ProductSizeInput[];
     nutrition?: unknown;
+    nutrition_custom?: unknown;
   },
 ): Promise<void> {
   if (body.ingredients !== undefined) {
@@ -211,6 +236,9 @@ export async function persistExtras(
   }
   if (body.nutrition !== undefined) {
     await saveNutrition(supabase, productId, normalizeNutrition(body.nutrition));
+  }
+  if (body.nutrition_custom !== undefined) {
+    await saveCustomNutrition(supabase, productId, normalizeCustomNutrition(body.nutrition_custom));
   }
   if (body.images !== undefined) {
     const primaryUrl = await saveImages(supabase, productId, body.images ?? []);
@@ -235,6 +263,7 @@ export async function readProductExtras(
 ): Promise<{
   ingredients: string[];
   nutrition: NutritionData | null;
+  nutritionCustom: NutritionCustomRow[];
   images: { id: string; url: string; sort_order: number; is_primary: boolean }[];
   sizes: { id: string; label: string; serves: number | null; price: number; sort_order: number }[];
 }> {
@@ -266,6 +295,25 @@ export async function readProductExtras(
     }
   } catch {
     nutrition = null;
+  }
+
+  // Custom nutrition rows — own try/catch so a missing `nutrition_custom`
+  // column (29_nutrition_custom.sql not run) leaves it empty without affecting
+  // the default nutrition read above.
+  let nutritionCustom: NutritionCustomRow[] = [];
+  try {
+    const { data, error } = await supabase
+      .from("products")
+      .select("nutrition_custom")
+      .eq("id", productId)
+      .maybeSingle();
+    if (!error) {
+      nutritionCustom = normalizeCustomNutrition(
+        (data as { nutrition_custom?: unknown } | null)?.nutrition_custom,
+      );
+    }
+  } catch {
+    nutritionCustom = [];
   }
 
   let images: { id: string; url: string; sort_order: number; is_primary: boolean }[] = [];
@@ -307,5 +355,5 @@ export async function readProductExtras(
     sizes = [];
   }
 
-  return { ingredients, nutrition, images, sizes };
+  return { ingredients, nutrition, nutritionCustom, images, sizes };
 }

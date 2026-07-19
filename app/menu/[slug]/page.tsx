@@ -37,8 +37,11 @@ import { PriceText } from "@/components/product-price";
 import {
   NUTRITION_ROWS,
   normalizeNutrition,
+  normalizeCustomNutrition,
   hasNutrition,
+  emptyNutrition,
   type NutritionData,
+  type NutritionCustomRow,
 } from "@/lib/nutrition";
 
 type DetailProduct = {
@@ -139,6 +142,7 @@ export default function ProductDetailPage() {
   const [selectedSizeId, setSelectedSizeId] = useState<string | null>(null);
   const [ingredients, setIngredients] = useState<string[]>([]);
   const [nutrition, setNutrition] = useState<NutritionData | null>(null);
+  const [nutritionCustom, setNutritionCustom] = useState<NutritionCustomRow[]>([]);
   // Flips true once the extras (esp. sizes) have loaded for this product, so a
   // resumed "Buy Now" can restore the exact size the customer had chosen.
   const [extrasReady, setExtrasReady] = useState(false);
@@ -278,6 +282,27 @@ export default function ProductDetailPage() {
         if (!cancelled) setNutrition(null);
       }
 
+      // Custom nutrition rows — own read/try so a missing `nutrition_custom`
+      // column (29_nutrition_custom.sql not run) leaves it empty.
+      try {
+        const { data, error } = await db
+          .from("products")
+          .select("nutrition_custom")
+          .eq("id", productId)
+          .maybeSingle();
+        if (!cancelled) {
+          setNutritionCustom(
+            error
+              ? []
+              : normalizeCustomNutrition(
+                  (data as { nutrition_custom?: unknown } | null)?.nutrition_custom,
+                ),
+          );
+        }
+      } catch {
+        if (!cancelled) setNutritionCustom([]);
+      }
+
       if (!cancelled) setExtrasReady(true);
     })();
     return () => {
@@ -392,6 +417,12 @@ export default function ProductDetailPage() {
   const selectedSize =
     sizes.find((s) => s.id === selectedSizeId) ?? (sizes.length > 0 ? sizes[0] : null);
   const effectivePrice = selectedSize ? selectedSize.price : product.price;
+
+  // Nutrition to render: default rows (blanks filled) always shown first when
+  // the section is visible, then any custom rows. The section appears when the
+  // product has default values OR at least one custom row.
+  const nutritionRows = nutrition ?? emptyNutrition();
+  const showNutrition = hasNutrition(nutrition) || nutritionCustom.length > 0;
 
   // Images to show: the gallery when present, otherwise the single image_url.
   const images = gallery.length > 0 ? gallery : [product.image];
@@ -605,10 +636,11 @@ export default function ProductDetailPage() {
               </div>
             )}
 
-            {/* Nutrition Information — a full table from the admin. Rendered
-                only when the product has at least one value, so products with
-                no nutrition data show nothing (fully backward compatible). */}
-            {nutrition && hasNutrition(nutrition) && (
+            {/* Nutrition Information — default rows first, then admin-defined
+                custom rows. Rendered only when the product has default values
+                or at least one custom row (products with none show nothing —
+                fully backward compatible). */}
+            {showNutrition && (
               <div className="mt-5 rounded-2xl bg-[#F9EEEA] p-4">
                 <p className="mb-3 text-xs font-bold uppercase tracking-wide text-wine-dark">
                   Nutrition Information
@@ -623,7 +655,7 @@ export default function ProductDetailPage() {
                   </thead>
                   <tbody>
                     {NUTRITION_ROWS.map((row) => {
-                      const cell = nutrition[row.key];
+                      const cell = nutritionRows[row.key];
                       return (
                         <tr key={row.key} className="border-t border-dustyrose/40">
                           <td
@@ -644,6 +676,18 @@ export default function ProductDetailPage() {
                         </tr>
                       );
                     })}
+                    {/* Custom rows, in the order the admin added them. */}
+                    {nutritionCustom.map((row) => (
+                      <tr key={row.id} className="border-t border-dustyrose/40">
+                        <td className="py-2 font-semibold text-darkberry">{row.label}</td>
+                        <td className="py-2 text-right tabular-nums text-darkberry">
+                          {row.per_100g || "—"}
+                        </td>
+                        <td className="py-2 text-right tabular-nums text-darkberry">
+                          {row.per_portion || "—"}
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>

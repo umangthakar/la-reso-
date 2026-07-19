@@ -94,3 +94,50 @@ export function hasNutrition(n: NutritionData | null | undefined): boolean {
   if (!n) return false;
   return NUTRITION_ROWS.some((r) => !!(n[r.key]?.per_100g || n[r.key]?.per_portion));
 }
+
+// ------------------------------------------------------------
+// Custom nutrition rows — admin-defined extra rows (e.g. Vitamin C,
+// Calcium, Iron). Stored SEPARATELY from the fixed default rows above, in
+// their own products.nutrition_custom jsonb array, so the default fields
+// are never touched. Values are free text (they may carry units, e.g.
+// "25mg"), kept in the order the admin added them.
+// ------------------------------------------------------------
+
+export type NutritionCustomRow = {
+  id: string;
+  label: string;
+  per_100g: string;
+  per_portion: string;
+};
+
+let _customRowSeq = 0;
+/** A stable-enough client id for a new custom row (React keys / row identity).
+ *  Server-persisted rows keep whatever id they already had. */
+export function newCustomRowId(): string {
+  _customRowSeq += 1;
+  return `nc_${Date.now().toString(36)}_${_customRowSeq}`;
+}
+
+/**
+ * Normalize an incoming custom-rows value (from a form or the DB) into a clean
+ * ordered array. Rows without a label are dropped (blank draft rows). Values
+ * are trimmed free text so units like "mg" survive. Order is preserved.
+ */
+export function normalizeCustomNutrition(raw: unknown): NutritionCustomRow[] {
+  if (!Array.isArray(raw)) return [];
+  const out: NutritionCustomRow[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const r = item as Record<string, unknown>;
+    const label = String(r.label ?? "").trim().slice(0, 60);
+    if (!label) continue; // a custom row must have a name to be meaningful
+    out.push({
+      id: typeof r.id === "string" && r.id ? r.id : newCustomRowId(),
+      label,
+      per_100g: cleanValue(r.per_100g),
+      per_portion: cleanValue(r.per_portion),
+    });
+    if (out.length >= 60) break; // sane upper bound
+  }
+  return out;
+}
