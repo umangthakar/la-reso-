@@ -34,6 +34,12 @@ import { useSiteSettings } from "@/lib/use-site-settings";
 import { isCustomCakeCategory, customCakeWhatsappHref } from "@/lib/custom-cake";
 import { consumePurchaseIntent, peekPurchaseIntent } from "@/lib/purchase-intent";
 import { PriceText } from "@/components/product-price";
+import {
+  NUTRITION_ROWS,
+  normalizeNutrition,
+  hasNutrition,
+  type NutritionData,
+} from "@/lib/nutrition";
 
 type DetailProduct = {
   id: string;
@@ -132,6 +138,7 @@ export default function ProductDetailPage() {
   const [sizes, setSizes] = useState<SizeVariant[]>([]);
   const [selectedSizeId, setSelectedSizeId] = useState<string | null>(null);
   const [ingredients, setIngredients] = useState<string[]>([]);
+  const [nutrition, setNutrition] = useState<NutritionData | null>(null);
   // Flips true once the extras (esp. sizes) have loaded for this product, so a
   // resumed "Buy Now" can restore the exact size the customer had chosen.
   const [extrasReady, setExtrasReady] = useState(false);
@@ -252,6 +259,23 @@ export default function ProductDetailPage() {
         }
       } catch {
         if (!cancelled) setIngredients([]);
+      }
+
+      // Nutrition — its own read/try so a missing `nutrition` column
+      // (28_nutrition.sql not run) leaves it null and the section hidden.
+      try {
+        const { data, error } = await db
+          .from("products")
+          .select("nutrition")
+          .eq("id", productId)
+          .maybeSingle();
+        if (!cancelled) {
+          setNutrition(
+            error ? null : normalizeNutrition((data as { nutrition?: unknown } | null)?.nutrition),
+          );
+        }
+      } catch {
+        if (!cancelled) setNutrition(null);
       }
 
       if (!cancelled) setExtrasReady(true);
@@ -578,6 +602,50 @@ export default function ProductDetailPage() {
                     </span>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {/* Nutrition Information — a full table from the admin. Rendered
+                only when the product has at least one value, so products with
+                no nutrition data show nothing (fully backward compatible). */}
+            {nutrition && hasNutrition(nutrition) && (
+              <div className="mt-5 rounded-2xl bg-[#F9EEEA] p-4">
+                <p className="mb-3 text-xs font-bold uppercase tracking-wide text-wine-dark">
+                  Nutrition Information
+                </p>
+                <table className="w-full table-fixed text-sm">
+                  <thead>
+                    <tr className="text-berry">
+                      <th className="w-1/2 pb-2 text-left font-semibold"></th>
+                      <th className="pb-2 text-right font-semibold">Per 100g</th>
+                      <th className="pb-2 text-right font-semibold">Per Portion</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {NUTRITION_ROWS.map((row) => {
+                      const cell = nutrition[row.key];
+                      return (
+                        <tr key={row.key} className="border-t border-dustyrose/40">
+                          <td
+                            className={`py-2 ${
+                              row.indent
+                                ? "pl-4 font-normal text-darkberry-light"
+                                : "font-semibold text-darkberry"
+                            }`}
+                          >
+                            {row.label}
+                          </td>
+                          <td className="py-2 text-right tabular-nums text-darkberry">
+                            {cell?.per_100g || "—"}
+                          </td>
+                          <td className="py-2 text-right tabular-nums text-darkberry">
+                            {cell?.per_portion || "—"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             )}
 

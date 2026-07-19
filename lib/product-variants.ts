@@ -13,6 +13,7 @@
 // ============================================================
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { normalizeNutrition, type NutritionData } from "@/lib/nutrition";
 
 export type ProductImageInput = {
   url: string;
@@ -74,6 +75,25 @@ export async function saveIngredients(
     // A genuine error (not a missing column) — surface via console so it's
     // visible in logs, but never throw: the product itself is already saved.
     console.error("[product-variants] saveIngredients:", error.message);
+  }
+}
+
+/** Persist the nutrition object onto products.nutrition (jsonb). `null` clears
+ *  it (product has no nutrition → nothing shown on the storefront). No-op if
+ *  the column doesn't exist yet (26/28 migration not run). */
+export async function saveNutrition(
+  supabase: SupabaseClient,
+  productId: string,
+  nutrition: NutritionData | null,
+): Promise<void> {
+  const { error } = await supabase
+    .from("products")
+    .update({ nutrition })
+    .eq("id", productId);
+  if (error && !isMissingObject(error)) {
+    // A genuine error (not a missing column) — log but never throw: the
+    // product itself is already saved.
+    console.error("[product-variants] saveNutrition:", error.message);
   }
 }
 
@@ -183,10 +203,14 @@ export async function persistExtras(
     ingredients?: unknown;
     images?: ProductImageInput[];
     sizes?: ProductSizeInput[];
+    nutrition?: unknown;
   },
 ): Promise<void> {
   if (body.ingredients !== undefined) {
     await saveIngredients(supabase, productId, normalizeIngredients(body.ingredients));
+  }
+  if (body.nutrition !== undefined) {
+    await saveNutrition(supabase, productId, normalizeNutrition(body.nutrition));
   }
   if (body.images !== undefined) {
     const primaryUrl = await saveImages(supabase, productId, body.images ?? []);
@@ -210,6 +234,7 @@ export async function readProductExtras(
   productId: string,
 ): Promise<{
   ingredients: string[];
+  nutrition: NutritionData | null;
   images: { id: string; url: string; sort_order: number; is_primary: boolean }[];
   sizes: { id: string; label: string; serves: number | null; price: number; sort_order: number }[];
 }> {
@@ -225,6 +250,22 @@ export async function readProductExtras(
     );
   } catch {
     ingredients = [];
+  }
+
+  // Nutrition is read in its own try/catch so a missing `nutrition` column
+  // (28_nutrition.sql not run) leaves it null without affecting ingredients.
+  let nutrition: NutritionData | null = null;
+  try {
+    const { data, error } = await supabase
+      .from("products")
+      .select("nutrition")
+      .eq("id", productId)
+      .maybeSingle();
+    if (!error) {
+      nutrition = normalizeNutrition((data as { nutrition?: unknown } | null)?.nutrition);
+    }
+  } catch {
+    nutrition = null;
   }
 
   let images: { id: string; url: string; sort_order: number; is_primary: boolean }[] = [];
@@ -266,5 +307,5 @@ export async function readProductExtras(
     sizes = [];
   }
 
-  return { ingredients, images, sizes };
+  return { ingredients, nutrition, images, sizes };
 }

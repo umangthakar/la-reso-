@@ -27,6 +27,13 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { adminGet, adminSend, adminUpload } from "@/lib/admin-api";
 import { useIsMobile } from "@/lib/use-is-mobile";
+import {
+  NUTRITION_ROWS,
+  emptyNutrition,
+  normalizeNutrition,
+  type NutritionData,
+  type NutritionKey,
+} from "@/lib/nutrition";
 
 const WINE = "#873853";
 const BERRY = "#5C2A41";
@@ -76,6 +83,8 @@ type FormState = {
   ingredients: string[];
   images: ImageItem[];
   sizes: SizeItem[];
+  // Optional per-product nutrition table (all cells present; blank = unset).
+  nutrition: NutritionData;
 };
 
 const EMPTY_FORM: FormState = {
@@ -92,6 +101,7 @@ const EMPTY_FORM: FormState = {
   ingredients: [],
   images: [],
   sizes: [],
+  nutrition: emptyNutrition(),
 };
 
 export default function ProductsAdminPage() {
@@ -182,6 +192,7 @@ export default function ProductsAdminPage() {
       ingredients: [],
       images: p.image_url ? [{ url: p.image_url, is_primary: true }] : [],
       sizes: [],
+      nutrition: emptyNutrition(),
     });
     setIngredientInput("");
     setShowForm(true);
@@ -193,6 +204,7 @@ export default function ProductsAdminPage() {
       try {
         const d = await adminGet<{
           ingredients: string[];
+          nutrition: NutritionData | null;
           images: { url: string; is_primary: boolean }[];
           sizes: { id: string; label: string; serves: number | null; price: number }[];
         }>(`/api/admin/products/${p.id}/details`, { force: true });
@@ -205,6 +217,8 @@ export default function ProductsAdminPage() {
           return {
             ...f,
             ingredients: Array.isArray(d.ingredients) ? d.ingredients : [],
+            // Fill blanks for any missing keys so every cell renders.
+            nutrition: normalizeNutrition(d.nutrition) ?? emptyNutrition(),
             images,
             sizes: (d.sizes || []).map((s) => ({
               id: s.id,
@@ -241,6 +255,14 @@ export default function ProductsAdminPage() {
   }
   function removeIngredient(i: number) {
     setForm((f) => ({ ...f, ingredients: f.ingredients.filter((_, n) => n !== i) }));
+  }
+
+  // ---- Nutrition helpers ----
+  function updateNutrition(key: NutritionKey, field: "per_100g" | "per_portion", value: string) {
+    setForm((f) => ({
+      ...f,
+      nutrition: { ...f.nutrition, [key]: { ...f.nutrition[key], [field]: value } },
+    }));
   }
 
   // ---- Gallery image helpers ----
@@ -351,6 +373,8 @@ export default function ProductsAdminPage() {
       in_stock: form.in_stock,
       visible: form.visible,
       ingredients: form.ingredients,
+      // Server normalizes to null when every cell is blank (→ no nutrition).
+      nutrition: form.nutrition,
       images: form.images.map((im, i) => ({
         url: im.url,
         sort_order: i,
@@ -621,6 +645,67 @@ export default function ProductsAdminPage() {
                   ))}
                 </div>
               )}
+            </div>
+
+            {/* Nutrition Information — optional per-product table. Leave every
+                cell blank to store nothing (the storefront hides the section). */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={labelStyle}>Nutrition Information (optional)</label>
+              <div style={{ border: "1px solid rgba(135,56,83,0.18)", borderRadius: 12, overflow: "hidden" }}>
+                <div style={{ display: "flex", alignItems: "center", background: "rgba(135,56,83,0.06)", padding: "8px 12px", gap: 8 }}>
+                  <span style={{ flex: 1, fontSize: "0.78rem", fontWeight: 700, color: BERRY, opacity: 0.75 }} />
+                  <span style={{ width: 96, textAlign: "center", fontSize: "0.72rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.03em", color: BERRY, opacity: 0.75 }}>Per 100g</span>
+                  <span style={{ width: 96, textAlign: "center", fontSize: "0.72rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.03em", color: BERRY, opacity: 0.75 }}>Per Portion</span>
+                </div>
+                {NUTRITION_ROWS.map((row, i) => (
+                  <div
+                    key={row.key}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: "8px 12px",
+                      borderTop: i === 0 ? "none" : "1px solid rgba(135,56,83,0.08)",
+                    }}
+                  >
+                    <span
+                      style={{
+                        flex: 1,
+                        fontSize: "0.88rem",
+                        color: BERRY,
+                        fontWeight: row.indent ? 500 : 600,
+                        paddingLeft: row.indent ? 14 : 0,
+                        opacity: row.indent ? 0.85 : 1,
+                      }}
+                    >
+                      {row.label}
+                    </span>
+                    <input
+                      style={{ ...inputStyle, width: 96, padding: "8px 10px" }}
+                      type="number"
+                      step="0.1"
+                      inputMode="decimal"
+                      value={form.nutrition[row.key].per_100g}
+                      onChange={(e) => updateNutrition(row.key, "per_100g", e.target.value)}
+                      placeholder="—"
+                      aria-label={`${row.label} per 100g`}
+                    />
+                    <input
+                      style={{ ...inputStyle, width: 96, padding: "8px 10px" }}
+                      type="number"
+                      step="0.1"
+                      inputMode="decimal"
+                      value={form.nutrition[row.key].per_portion}
+                      onChange={(e) => updateNutrition(row.key, "per_portion", e.target.value)}
+                      placeholder="—"
+                      aria-label={`${row.label} per portion`}
+                    />
+                  </div>
+                ))}
+              </div>
+              <p style={{ color: BERRY, opacity: 0.6, fontSize: "0.78rem", marginTop: 6 }}>
+                Enter values for each row. Leave all cells blank to hide the nutrition table for this product.
+              </p>
             </div>
 
             {/* Images — multiple, with primary + reorder + delete. */}
