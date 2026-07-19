@@ -6,10 +6,17 @@
 // cancels it AND refunds the customer (shared cancelAndRefund), then
 // notifies both parties — exactly like a customer cancellation.
 //
-// Runs on a schedule (Vercel Cron — see vercel.json — every few minutes)
-// and is safe to run as often as you like: it only ever touches orders
-// that are BOTH status='pending' AND older than 24h, and cancelAndRefund
-// is idempotent per order (a refunded order won't be double-refunded).
+// Runs on a schedule (Vercel Cron — see vercel.json) and is safe to run as
+// often as you like: it only ever touches orders that are BOTH
+// status='pending' AND older than 24h, and cancelAndRefund is idempotent
+// per order (a refunded order won't be double-refunded).
+//
+// SCHEDULE: vercel.json runs this once a day, because Vercel's Hobby plan
+// limits cron jobs to a once-per-day cadence (a sub-daily schedule makes the
+// deployment fail). For tighter timing you can EITHER upgrade to Vercel Pro
+// and set a more frequent schedule, OR point any external scheduler
+// (cron-job.org, GitHub Actions, UptimeRobot, …) at this endpoint with the
+// ?secret=<CRON_SECRET> query param — the sweep itself supports any cadence.
 //
 // AUTH — accepts any of:
 //   • Vercel Cron's `Authorization: Bearer <CRON_SECRET>` (set CRON_SECRET
