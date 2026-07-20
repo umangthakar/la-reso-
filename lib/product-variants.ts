@@ -19,6 +19,8 @@ import {
   type NutritionData,
   type NutritionCustomRow,
 } from "@/lib/nutrition";
+import { sanitizeIngredientsRich } from "@/lib/ingredients-rich";
+import { normalizeIngredientIcons } from "@/lib/ingredient-icons";
 
 export type ProductImageInput = {
   url: string;
@@ -80,6 +82,42 @@ export async function saveIngredients(
     // A genuine error (not a missing column) — surface via console so it's
     // visible in logs, but never throw: the product itself is already saved.
     console.error("[product-variants] saveIngredients:", error.message);
+  }
+}
+
+/** Persist the sanitized rich-text ingredients description onto
+ *  products.ingredients_rich (text). An empty value stores null (product falls
+ *  back to its plain ingredients tag list). No-op if the column doesn't exist
+ *  yet (30_ingredients_rich_icons.sql not run). */
+export async function saveIngredientsRich(
+  supabase: SupabaseClient,
+  productId: string,
+  html: string,
+): Promise<void> {
+  const clean = sanitizeIngredientsRich(html);
+  const { error } = await supabase
+    .from("products")
+    .update({ ingredients_rich: clean ? clean : null })
+    .eq("id", productId);
+  if (error && !isMissingObject(error)) {
+    console.error("[product-variants] saveIngredientsRich:", error.message);
+  }
+}
+
+/** Persist the selected ingredient-icon keys onto products.ingredient_icons
+ *  (jsonb). No-op if the column doesn't exist yet
+ *  (30_ingredients_rich_icons.sql not run). */
+export async function saveIngredientIcons(
+  supabase: SupabaseClient,
+  productId: string,
+  keys: string[],
+): Promise<void> {
+  const { error } = await supabase
+    .from("products")
+    .update({ ingredient_icons: keys })
+    .eq("id", productId);
+  if (error && !isMissingObject(error)) {
+    console.error("[product-variants] saveIngredientIcons:", error.message);
   }
 }
 
@@ -225,6 +263,8 @@ export async function persistExtras(
   productId: string,
   body: {
     ingredients?: unknown;
+    ingredients_rich?: unknown;
+    ingredient_icons?: unknown;
     images?: ProductImageInput[];
     sizes?: ProductSizeInput[];
     nutrition?: unknown;
@@ -233,6 +273,16 @@ export async function persistExtras(
 ): Promise<void> {
   if (body.ingredients !== undefined) {
     await saveIngredients(supabase, productId, normalizeIngredients(body.ingredients));
+  }
+  if (body.ingredients_rich !== undefined) {
+    await saveIngredientsRich(supabase, productId, String(body.ingredients_rich ?? ""));
+  }
+  if (body.ingredient_icons !== undefined) {
+    await saveIngredientIcons(
+      supabase,
+      productId,
+      normalizeIngredientIcons(body.ingredient_icons),
+    );
   }
   if (body.nutrition !== undefined) {
     await saveNutrition(supabase, productId, normalizeNutrition(body.nutrition));
@@ -262,6 +312,8 @@ export async function readProductExtras(
   productId: string,
 ): Promise<{
   ingredients: string[];
+  ingredientsRich: string;
+  ingredientIcons: string[];
   nutrition: NutritionData | null;
   nutritionCustom: NutritionCustomRow[];
   images: { id: string; url: string; sort_order: number; is_primary: boolean }[];
@@ -279,6 +331,42 @@ export async function readProductExtras(
     );
   } catch {
     ingredients = [];
+  }
+
+  // Rich-text ingredients description — own try/catch so a missing
+  // `ingredients_rich` column (30 migration not run) leaves it empty.
+  let ingredientsRich = "";
+  try {
+    const { data, error } = await supabase
+      .from("products")
+      .select("ingredients_rich")
+      .eq("id", productId)
+      .maybeSingle();
+    if (!error) {
+      ingredientsRich = sanitizeIngredientsRich(
+        (data as { ingredients_rich?: unknown } | null)?.ingredients_rich,
+      );
+    }
+  } catch {
+    ingredientsRich = "";
+  }
+
+  // Ingredient icon keys — own try/catch so a missing `ingredient_icons`
+  // column (30 migration not run) leaves it empty.
+  let ingredientIcons: string[] = [];
+  try {
+    const { data, error } = await supabase
+      .from("products")
+      .select("ingredient_icons")
+      .eq("id", productId)
+      .maybeSingle();
+    if (!error) {
+      ingredientIcons = normalizeIngredientIcons(
+        (data as { ingredient_icons?: unknown } | null)?.ingredient_icons,
+      );
+    }
+  } catch {
+    ingredientIcons = [];
   }
 
   // Nutrition is read in its own try/catch so a missing `nutrition` column
@@ -355,5 +443,5 @@ export async function readProductExtras(
     sizes = [];
   }
 
-  return { ingredients, nutrition, nutritionCustom, images, sizes };
+  return { ingredients, ingredientsRich, ingredientIcons, nutrition, nutritionCustom, images, sizes };
 }

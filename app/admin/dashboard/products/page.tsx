@@ -27,6 +27,8 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { adminGet, adminSend, adminUpload } from "@/lib/admin-api";
 import { useIsMobile } from "@/lib/use-is-mobile";
+import RichIngredientsEditor from "@/components/admin/rich-ingredients-editor";
+import { INGREDIENT_ICONS } from "@/lib/ingredient-icons";
 import {
   NUTRITION_ROWS,
   emptyNutrition,
@@ -84,6 +86,10 @@ type FormState = {
   visible: boolean;
   // New: ingredients list, multiple gallery images, and size variants.
   ingredients: string[];
+  // Rich-text ingredients description (sanitized HTML, bold support) and the
+  // selected ingredient-icon keys (see lib/ingredient-icons).
+  ingredientsRich: string;
+  ingredientIcons: string[];
   images: ImageItem[];
   sizes: SizeItem[];
   // Optional per-product nutrition table (all cells present; blank = unset).
@@ -104,6 +110,8 @@ const EMPTY_FORM: FormState = {
   in_stock: true,
   visible: true,
   ingredients: [],
+  ingredientsRich: "",
+  ingredientIcons: [],
   images: [],
   sizes: [],
   nutrition: emptyNutrition(),
@@ -196,6 +204,8 @@ export default function ProductsAdminPage() {
       in_stock: p.in_stock,
       visible: p.visible,
       ingredients: [],
+      ingredientsRich: "",
+      ingredientIcons: [],
       images: p.image_url ? [{ url: p.image_url, is_primary: true }] : [],
       sizes: [],
       nutrition: emptyNutrition(),
@@ -211,6 +221,8 @@ export default function ProductsAdminPage() {
       try {
         const d = await adminGet<{
           ingredients: string[];
+          ingredientsRich?: string;
+          ingredientIcons?: string[];
           nutrition: NutritionData | null;
           nutritionCustom: NutritionCustomRow[];
           images: { url: string; is_primary: boolean }[];
@@ -225,6 +237,8 @@ export default function ProductsAdminPage() {
           return {
             ...f,
             ingredients: Array.isArray(d.ingredients) ? d.ingredients : [],
+            ingredientsRich: typeof d.ingredientsRich === "string" ? d.ingredientsRich : "",
+            ingredientIcons: Array.isArray(d.ingredientIcons) ? d.ingredientIcons : [],
             // Fill blanks for any missing keys so every cell renders.
             nutrition: normalizeNutrition(d.nutrition) ?? emptyNutrition(),
             nutritionCustom: normalizeCustomNutrition(d.nutritionCustom),
@@ -264,6 +278,15 @@ export default function ProductsAdminPage() {
   }
   function removeIngredient(i: number) {
     setForm((f) => ({ ...f, ingredients: f.ingredients.filter((_, n) => n !== i) }));
+  }
+
+  // Toggle a single ingredient-icon key on/off for this product.
+  function toggleIngredientIcon(key: string) {
+    setForm((f) =>
+      f.ingredientIcons.includes(key)
+        ? { ...f, ingredientIcons: f.ingredientIcons.filter((k) => k !== key) }
+        : { ...f, ingredientIcons: [...f.ingredientIcons, key] },
+    );
   }
 
   // ---- Nutrition helpers ----
@@ -411,6 +434,9 @@ export default function ProductsAdminPage() {
       in_stock: form.in_stock,
       visible: form.visible,
       ingredients: form.ingredients,
+      // Rich-text ingredients (sanitized server-side) + selected icon keys.
+      ingredients_rich: form.ingredientsRich,
+      ingredient_icons: form.ingredientIcons,
       // Server normalizes to null when every cell is blank (→ no nutrition).
       nutrition: form.nutrition,
       // Custom rows in insertion order; server drops blank-label drafts.
@@ -635,9 +661,11 @@ export default function ProductsAdminPage() {
               <input style={inputStyle} value={form.allergens} onChange={(e) => setForm({ ...form, allergens: e.target.value })} placeholder="e.g. Contains nuts, gluten, dairy" />
             </div>
 
-            {/* Ingredients — free-text tags. Only shown to customers when set. */}
+            {/* Ingredients — free-text tags. Kept for backward compatibility;
+                the rich-text description below takes precedence on the storefront
+                when set. Only shown to customers when set. */}
             <div style={{ marginBottom: 14 }}>
-              <label style={labelStyle}>Ingredients (optional)</label>
+              <label style={labelStyle}>Ingredient tags (optional)</label>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 <input
                   style={{ ...inputStyle, flex: 1, minWidth: 160 }}
@@ -685,6 +713,64 @@ export default function ProductsAdminPage() {
                   ))}
                 </div>
               )}
+            </div>
+
+            {/* Ingredients description — rich text with bold support. When set,
+                this is what the storefront shows inside the Ingredients box
+                (formatting preserved). Blank → falls back to the tags above. */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={labelStyle}>Ingredients description (rich text — bold supported)</label>
+              <RichIngredientsEditor
+                value={form.ingredientsRich}
+                onChange={(html) => setForm((f) => ({ ...f, ingredientsRich: html }))}
+                placeholder="e.g. Milk, Wheat, Soya, Chocolate, Butter — select a word and press B to bold it."
+              />
+            </div>
+
+            {/* Ingredient icons — INGREDIENT icons only (not allergens). Tick the
+                ones this product contains; they show above the Ingredients box. */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={labelStyle}>Ingredient icons (optional)</label>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))",
+                  gap: 8,
+                  border: "1px solid rgba(135,56,83,0.18)",
+                  borderRadius: 12,
+                  padding: 12,
+                }}
+              >
+                {INGREDIENT_ICONS.map((ic) => {
+                  const checked = form.ingredientIcons.includes(ic.key);
+                  return (
+                    <label
+                      key={ic.key}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        padding: "6px 8px",
+                        borderRadius: 8,
+                        cursor: "pointer",
+                        background: checked ? "rgba(135,56,83,0.08)" : "transparent",
+                        color: BERRY,
+                        fontSize: "0.88rem",
+                        fontWeight: 600,
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleIngredientIcon(ic.key)}
+                        style={{ accentColor: WINE }}
+                      />
+                      <span style={{ fontSize: "1.05rem" }}>{ic.emoji}</span>
+                      <span>{ic.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
             </div>
 
             {/* Nutrition Information — optional per-product table. Leave every

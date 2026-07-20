@@ -43,6 +43,8 @@ import {
   type NutritionData,
   type NutritionCustomRow,
 } from "@/lib/nutrition";
+import { resolveIngredientIcons } from "@/lib/ingredient-icons";
+import { sanitizeIngredientsRich, isIngredientsRichEmpty } from "@/lib/ingredients-rich";
 
 type DetailProduct = {
   id: string;
@@ -141,6 +143,8 @@ export default function ProductDetailPage() {
   const [sizes, setSizes] = useState<SizeVariant[]>([]);
   const [selectedSizeId, setSelectedSizeId] = useState<string | null>(null);
   const [ingredients, setIngredients] = useState<string[]>([]);
+  const [ingredientsRich, setIngredientsRich] = useState<string>("");
+  const [ingredientIcons, setIngredientIcons] = useState<string[]>([]);
   const [nutrition, setNutrition] = useState<NutritionData | null>(null);
   const [nutritionCustom, setNutritionCustom] = useState<NutritionCustomRow[]>([]);
   // Flips true once the extras (esp. sizes) have loaded for this product, so a
@@ -263,6 +267,48 @@ export default function ProductDetailPage() {
         }
       } catch {
         if (!cancelled) setIngredients([]);
+      }
+
+      // Rich-text ingredients description — own read/try so a missing
+      // `ingredients_rich` column (30 migration not run) leaves it empty and
+      // the storefront falls back to the plain tag list above.
+      try {
+        const { data, error } = await db
+          .from("products")
+          .select("ingredients_rich")
+          .eq("id", productId)
+          .maybeSingle();
+        if (!cancelled) {
+          setIngredientsRich(
+            error
+              ? ""
+              : sanitizeIngredientsRich(
+                  (data as { ingredients_rich?: unknown } | null)?.ingredients_rich,
+                ),
+          );
+        }
+      } catch {
+        if (!cancelled) setIngredientsRich("");
+      }
+
+      // Ingredient icon keys — own read/try so a missing `ingredient_icons`
+      // column (30 migration not run) leaves it empty (no icons shown).
+      try {
+        const { data, error } = await db
+          .from("products")
+          .select("ingredient_icons")
+          .eq("id", productId)
+          .maybeSingle();
+        if (!cancelled) {
+          const raw = error
+            ? []
+            : (data as { ingredient_icons?: unknown } | null)?.ingredient_icons;
+          setIngredientIcons(
+            Array.isArray(raw) ? raw.map((x) => String(x ?? "").trim()).filter(Boolean) : [],
+          );
+        }
+      } catch {
+        if (!cancelled) setIngredientIcons([]);
       }
 
       // Nutrition — its own read/try so a missing `nutrition` column
@@ -423,6 +469,14 @@ export default function ProductDetailPage() {
   // product has default values OR at least one custom row.
   const nutritionRows = nutrition ?? emptyNutrition();
   const showNutrition = hasNutrition(nutrition) || nutritionCustom.length > 0;
+
+  // Ingredients display: selected icons (shown above the box), plus a rich-text
+  // description when set (bold preserved) — otherwise the plain tag list. Fully
+  // backward compatible: products with only tags, or with neither, are unchanged.
+  const ingredientIconList = resolveIngredientIcons(ingredientIcons);
+  const hasRichIngredients = !isIngredientsRichEmpty(ingredientsRich);
+  const showIngredients =
+    ingredientIconList.length > 0 || hasRichIngredients || ingredients.length > 0;
 
   // Images to show: the gallery when present, otherwise the single image_url.
   const images = gallery.length > 0 ? gallery : [product.image];
@@ -615,24 +669,56 @@ export default function ProductDetailPage() {
               </div>
             )}
 
-            {/* Ingredients — an ordered list from the admin. Only rendered when
-                the product has any (so old products are unaffected). */}
-            {ingredients.length > 0 && (
-              <div className="mt-5 rounded-2xl bg-[#F9EEEA] p-4">
-                <p className="mb-2 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-wine-dark">
-                  <Leaf className="h-4 w-4 shrink-0" />
-                  Ingredients
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {ingredients.map((ing, i) => (
-                    <span
-                      key={`${ing}-${i}`}
-                      className="rounded-full bg-blush-50 px-3 py-1 text-sm text-darkberry shadow-clay-sm"
-                    >
-                      {ing}
-                    </span>
-                  ))}
-                </div>
+            {/* Ingredients — selected ingredient icons shown ABOVE the box, then
+                the box itself: a rich-text description (bold preserved) when the
+                admin set one, otherwise the plain tag list. Only rendered when the
+                product has any of these, so old products are unaffected. */}
+            {showIngredients && (
+              <div className="mt-5">
+                {/* Ingredient icons (INGREDIENT icons only — never allergens). */}
+                {ingredientIconList.length > 0 && (
+                  <div className="mb-2 flex flex-wrap gap-2">
+                    {ingredientIconList.map((ic) => (
+                      <span
+                        key={ic.key}
+                        className="inline-flex items-center gap-1.5 rounded-full bg-blush-50 px-3 py-1 text-sm text-darkberry shadow-clay-sm"
+                      >
+                        <span aria-hidden="true" className="text-base leading-none">
+                          {ic.emoji}
+                        </span>
+                        <span>{ic.label}</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {(hasRichIngredients || ingredients.length > 0) && (
+                  <div className="rounded-2xl bg-[#F9EEEA] p-4">
+                    <p className="mb-2 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-wine-dark">
+                      <Leaf className="h-4 w-4 shrink-0" />
+                      Ingredients
+                    </p>
+                    {hasRichIngredients ? (
+                      // Rich formatted ingredients, rendered exactly as entered
+                      // (already sanitized to inert formatting tags). Bold preserved.
+                      <div
+                        className="lr-ingredients-rich text-sm leading-relaxed text-darkberry [&_b]:font-bold [&_strong]:font-bold"
+                        dangerouslySetInnerHTML={{ __html: ingredientsRich }}
+                      />
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {ingredients.map((ing, i) => (
+                          <span
+                            key={`${ing}-${i}`}
+                            className="rounded-full bg-blush-50 px-3 py-1 text-sm text-darkberry shadow-clay-sm"
+                          >
+                            {ing}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
