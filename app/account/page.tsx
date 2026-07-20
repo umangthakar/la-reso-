@@ -15,12 +15,14 @@ import {
   LogOut,
   ChevronRight,
   Pencil,
+  CakeSlice,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/use-auth";
 
 const menu = [
   { icon: Package, label: "My Orders", href: "/account/orders" },
+  { icon: CakeSlice, label: "My Custom Cake Inquiries", href: "/account/inquiries" },
   { icon: Heart, label: "Wishlist", href: "/account/wishlist" },
   { icon: MapPin, label: "Addresses", href: "/account/addresses" },
   { icon: CreditCard, label: "Payments", href: "/account/payments" },

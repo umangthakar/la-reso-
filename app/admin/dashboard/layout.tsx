@@ -27,6 +27,7 @@ const NAV = [
   { href: "/admin/dashboard/accessories", label: "Accessories" },
   { href: "/admin/dashboard/offers", label: "Offers" },
   { href: "/admin/dashboard/orders", label: "Orders" },
+  { href: "/admin/dashboard/inquiries", label: "Inquiries" },
   { href: "/admin/dashboard/payments", label: "Payments" },
   { href: "/admin/dashboard/delivery", label: "Delivery Settings" },
   // `exact` so the nested WhatsApp route below doesn't also light this up.

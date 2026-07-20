@@ -204,6 +204,116 @@ export async function notifyOrder(
   return result;
 }
 
+// ------------------------------------------------------------
+// Custom Cake Inquiry — owner notification (email + WhatsApp).
+// A submitted inquiry is NOT an order (no payment, no checkout); this simply
+// alerts the owner that one arrived, carrying its Inquiry Number. Best-effort
+// like everything else here: a failed send never blocks the inquiry.
+// ------------------------------------------------------------
+
+export type InquiryNotice = {
+  inquiryNumber: string;
+  name: string;
+  phone: string;
+  email: string;
+  eventType: string;
+  deliveryDate: string;
+  servings: string;
+  budget: string;
+  flavour: string;
+  shape: string;
+  colourTheme: string;
+  cakeMessage: string;
+  notes: string;
+  images: string[];
+};
+
+function esc(s: string): string {
+  return s.replace(/[&<>]/g, (c) => (c === "&" ? "&amp;" : c === "<" ? "&lt;" : "&gt;"));
+}
+
+function inquiryRows(n: InquiryNotice): [string, string][] {
+  return [
+    ["Customer Name", n.name],
+    ["Phone", n.phone],
+    ["Email", n.email],
+    ["Event Type", n.eventType],
+    ["Delivery Date", n.deliveryDate],
+    ["Servings", n.servings],
+    ["Budget", n.budget],
+    ["Flavour", n.flavour],
+    ["Shape", n.shape],
+    ["Colour Theme", n.colourTheme],
+    ["Cake Message", n.cakeMessage],
+    ["Additional Notes", n.notes],
+  ].filter(([, v]) => v.trim()) as [string, string][];
+}
+
+function buildInquiryEmail(n: InquiryNotice): string {
+  const rows = inquiryRows(n)
+    .map(
+      ([k, v]) =>
+        `<tr><td style="padding:6px 12px;color:#873853;font-weight:600;white-space:nowrap">${esc(k)}</td><td style="padding:6px 12px;color:#3a1622">${esc(v)}</td></tr>`,
+    )
+    .join("");
+  const images = n.images.length
+    ? `<p style="margin:16px 0 6px;color:#873853;font-weight:600">Reference images</p>` +
+      n.images
+        .map((u) => `<a href="${esc(u)}" style="color:#873853">${esc(u)}</a><br/>`)
+        .join("")
+    : "";
+  return `
+    <div style="font-family:system-ui,-apple-system,sans-serif;max-width:600px;margin:auto">
+      <h2 style="color:#873853">New Custom Cake Inquiry</h2>
+      <p style="font-size:18px;font-weight:700;color:#5C2A41">Inquiry ${esc(n.inquiryNumber)}</p>
+      <table style="border-collapse:collapse;width:100%">${rows}</table>
+      ${images}
+    </div>`;
+}
+
+function buildInquiryWhatsApp(n: InquiryNotice): string {
+  const lines = [`🎂 New Custom Cake Inquiry`, `Ref: ${n.inquiryNumber}`, ""];
+  for (const [k, v] of inquiryRows(n)) lines.push(`${k}: ${v}`);
+  if (n.images.length) {
+    lines.push("", "Reference Images:");
+    for (const u of n.images) lines.push(u);
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Alert the owner about a new inquiry. `ownerEmail` is the bakery's own
+ * address (settings.contact.email, falling back to the Resend from address).
+ * NEVER throws — a failed send is a log line, not an error the customer sees.
+ */
+export async function notifyInquiry(
+  supabase: SupabaseClient,
+  ownerEmail: string,
+  inquiry: InquiryNotice,
+): Promise<NotifyResult> {
+  const result: NotifyResult = { email: "skipped", whatsapp: "skipped", errors: [] };
+
+  let config: NotificationConfig;
+  try {
+    config = await loadNotificationConfig(supabase);
+  } catch (e) {
+    result.errors.push(e instanceof Error ? e.message : "could not read config");
+    return result;
+  }
+
+  const to = (ownerEmail || config.from_email || "").trim();
+  const [email, whatsapp] = await Promise.all([
+    postEmail(config, to, `New Custom Cake Inquiry ${inquiry.inquiryNumber}`, buildInquiryEmail(inquiry)),
+    postOwnerWhatsApp(config, buildInquiryWhatsApp(inquiry)),
+  ]);
+
+  result.email = email.status;
+  result.whatsapp = whatsapp.status;
+  if (email.error) result.errors.push(email.error);
+  if (whatsapp.error) result.errors.push(whatsapp.error);
+  return result;
+}
+
 /**
  * Notify both parties about a lifecycle change (order accepted, cancelled,
  * or refund completed). Same best-effort posture as notifyOrder — NEVER
