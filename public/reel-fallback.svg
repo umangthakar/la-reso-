@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400" role="img" aria-label="Le Rasa bakery">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F9EEEA"/>
+      <stop offset="1" stop-color="#F1DDD6"/>
+    </linearGradient>
+  </defs>
+  <rect width="400" height="400" fill="url(#bg)"/>
+  <!-- soft dots -->
+  <g fill="#E4C3BC">
+    <circle cx="60" cy="70" r="4"/><circle cx="330" cy="60" r="5"/>
+    <circle cx="350" cy="150" r="3"/><circle cx="50" cy="320" r="3"/>
+    <circle cx="120" cy="40" r="3"/><circle cx="300" cy="330" r="4"/>
+  </g>
+  <!-- cupcake -->
+  <g transform="translate(200 210)" fill="none" stroke="#873853" stroke-width="9" stroke-linecap="round" stroke-linejoin="round">
+    <!-- frosting -->
+    <path d="M-58 6 q-8 -60 58 -60 q66 0 58 60 z" fill="#EBC7D0" stroke="#873853"/>
+    <!-- cherry -->
+    <circle cx="0" cy="-64" r="10" fill="#873853" stroke="none"/>
+    <!-- wrapper -->
+    <path d="M-52 12 L-40 74 L40 74 L52 12 Z" fill="#F4D9CF" stroke="#873853"/>
+    <path d="M-30 20 L-22 70 M0 20 L0 74 M30 20 L22 70" stroke="#C98BA0" stroke-width="6"/>
+  </g>
+  <text x="200" y="332" font-family="Georgia, 'Times New Roman', serif" font-size="30" fill="#873853" text-anchor="middle" font-style="italic">Le Rasa</text>
+  <text x="200" y="360" font-family="system-ui, sans-serif" font-size="13" letter-spacing="3" fill="#9C616D" text-anchor="middle">FRESH BAKES ON INSTAGRAM</text>
+</svg>

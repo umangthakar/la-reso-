@@ -59,6 +59,18 @@ export const CardCarousel: React.FC<CarouselProps> = ({
   .swiper-3d .swiper-slide-shadow-right {
     background: none;
   }
+
+  /* Skeleton shown behind a card while its image loads. The loaded image
+     (object-cover) paints on top and hides it. Same size as the card. */
+  .lr-card-skeleton {
+    background: linear-gradient(100deg, #F1DDD6 30%, #F9EEEA 50%, #F1DDD6 70%);
+    background-size: 200% 100%;
+    animation: lr-card-shimmer 1.4s ease-in-out infinite;
+  }
+  @keyframes lr-card-shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
   `
   return (
     <section className="w-full">
@@ -94,7 +106,7 @@ export const CardCarousel: React.FC<CarouselProps> = ({
         >
           {images.map((image, index) => {
             const media = (
-              <div className="size-full rounded-3xl overflow-hidden aspect-square">
+              <div className="lr-card-skeleton size-full rounded-3xl overflow-hidden aspect-square">
                 <Image
                   src={image.src}
                   width={300}
