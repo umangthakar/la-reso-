@@ -45,7 +45,13 @@ export default function AdminInquiriesPage() {
   const [inquiries, setInquiries] = useState<Inquiry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [q, setQ] = useState("");
+  // Seed the search from ?q= so the owner-email "View Inquiry" link lands
+  // pre-filtered on that inquiry number.
+  const [q, setQ] = useState(() =>
+    typeof window === "undefined"
+      ? ""
+      : new URLSearchParams(window.location.search).get("q") ?? "",
+  );
   const [statusFilter, setStatusFilter] = useState<"" | InquiryStatus>("");
   const [selected, setSelected] = useState<Inquiry | null>(null);
 
@@ -245,6 +251,41 @@ function DetailsModal({
           </div>
           <button type="button" onClick={onClose} style={{ ...ghostBtn, fontSize: "1.1rem", lineHeight: 1 }} aria-label="Close">×</button>
         </div>
+
+        {/* Contact on WhatsApp — opens a chat to the CUSTOMER's number with a
+            professional pre-filled message. */}
+        {(() => {
+          const digits = inquiry.phone.replace(/[^\d]/g, "");
+          if (!digits) return null;
+          const msg =
+            `Hello ${inquiry.name || "there"}\n\n` +
+            `Thank you for contacting Le Rasa Bakery.\n\n` +
+            `Your enquiry ${inquiry.inquiry_number} has been received.\n\n` +
+            `Let's discuss your cake.\n\n` +
+            `Regards,\nLe Rasa Bakery`;
+          const href = `https://wa.me/${digits}?text=${encodeURIComponent(msg)}`;
+          return (
+            <a
+              href={href}
+              target="_blank"
+              rel="noreferrer"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                marginTop: 16,
+                padding: "10px 18px",
+                borderRadius: 10,
+                background: "#25D366",
+                color: "white",
+                fontWeight: 700,
+                textDecoration: "none",
+              }}
+            >
+              💬 Contact on WhatsApp
+            </a>
+          );
+        })()}
 
         {/* Status control */}
         <div style={{ marginTop: 16 }}>

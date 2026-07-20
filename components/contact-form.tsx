@@ -64,17 +64,16 @@ const EMPTY: FormState = {
 
 type UploadedImage = { url: string; name: string };
 
-export function ContactForm({ whatsapp = "" }: { whatsapp?: string }) {
+export function ContactForm() {
   const [form, setForm] = useState<FormState>(EMPTY);
   const [images, setImages] = useState<UploadedImage[]>([]);
   const [uploading, setUploading] = useState(false);
   const [status, setStatus] = useState<"idle" | "sending" | "done">("idle");
   const [error, setError] = useState("");
-  // The Inquiry Number assigned on save (CQ-YYYYMMDD-NNN); shown on success and
-  // included in the WhatsApp message so it's the reference from the first touch.
+  // The Inquiry Number assigned on save (CQ-YYYYMMDD-NNN) + the customer's
+  // WhatsApp number, both shown on the success screen.
   const [inquiryNumber, setInquiryNumber] = useState("");
-
-  const waDigits = whatsapp.replace(/[^0-9]/g, "");
+  const [customerPhone, setCustomerPhone] = useState("");
 
   // Optional prefill — the "Create another inquiry" action on the account page
   // stashes an inquiry's details here so the form opens ready to tweak & resend.
@@ -120,35 +119,6 @@ export function ContactForm({ whatsapp = "" }: { whatsapp?: string }) {
     setImages((prev) => prev.filter((_, idx) => idx !== i));
   }
 
-  /** Build the WhatsApp message from the filled-in fields + image links. */
-  function buildMessage(ref = inquiryNumber): string {
-    const rows: [string, string][] = [
-      ["Customer Name", form.name],
-      ["Phone", form.phone],
-      ["Email", form.email],
-      ["Event Type", form.eventType],
-      ["Delivery Date", form.deliveryDate],
-      ["Servings", form.servings],
-      ["Budget", form.budget],
-      ["Flavour", form.flavour],
-      ["Shape", form.shape],
-      ["Colour Theme", form.colour],
-      ["Cake Message", form.cakeMessage],
-      ["Additional Notes", form.notes],
-    ];
-    const lines = ["🎂 *Custom Cake Inquiry — Le Rasa*"];
-    if (ref) lines.push(`*Inquiry No:* ${ref}`);
-    lines.push("");
-    for (const [label, value] of rows) {
-      if (value.trim()) lines.push(`*${label}:* ${value.trim()}`);
-    }
-    if (images.length > 0) {
-      lines.push("", "*Reference Images:*");
-      for (const img of images) lines.push(img.url);
-    }
-    return lines.join("\n");
-  }
-
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError("");
@@ -158,9 +128,9 @@ export function ContactForm({ whatsapp = "" }: { whatsapp?: string }) {
     }
     setStatus("sending");
 
-    // 1) Persist the inquiry → get its permanent Inquiry Number. This is the
-    //    real submission (the owner is emailed + WhatsApp'd server-side).
-    let ref = "";
+    // Persist the inquiry → the server saves it, assigns the Inquiry Number and
+    // emails the owner. No WhatsApp, no redirect, no mail client — on success we
+    // simply show the confirmation screen.
     try {
       const res = await fetch("/api/inquiry/create", {
         method: "POST",
@@ -168,35 +138,25 @@ export function ContactForm({ whatsapp = "" }: { whatsapp?: string }) {
         body: JSON.stringify({ ...form, images: images.map((i) => i.url) }),
       });
       const data = await res.json().catch(() => ({}));
-      if (res.ok) {
-        ref = String(data.inquiry_number ?? "");
-        setInquiryNumber(ref);
-      } else if (!waDigits) {
-        // Couldn't save and there's no WhatsApp fallback → surface the problem.
+      if (!res.ok) {
         setError(data?.error || "Sorry, we couldn't submit your inquiry. Please try again.");
         setStatus("idle");
         return;
       }
+      setInquiryNumber(String(data.inquiry_number ?? ""));
+      setCustomerPhone(form.phone.trim());
+      setStatus("done");
     } catch {
-      if (!waDigits) {
-        setError("Sorry, we couldn't submit your inquiry. Please try again.");
-        setStatus("idle");
-        return;
-      }
+      setError("Sorry, we couldn't submit your inquiry. Please try again.");
+      setStatus("idle");
     }
-
-    // 2) Also open a pre-filled WhatsApp chat when a number is configured, so
-    //    the customer can message the owner directly (now carrying the ref).
-    if (waDigits) {
-      const url = `https://wa.me/${waDigits}?text=${encodeURIComponent(buildMessage(ref))}`;
-      window.open(url, "_blank", "noopener,noreferrer");
-    }
-    setStatus("done");
   }
 
   function reset() {
     setForm(EMPTY);
     setImages([]);
+    setInquiryNumber("");
+    setCustomerPhone("");
     setStatus("idle");
     setError("");
   }
@@ -209,46 +169,45 @@ export function ContactForm({ whatsapp = "" }: { whatsapp?: string }) {
             key="success"
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="flex flex-col items-center justify-center py-16 text-center"
+            className="flex flex-col items-center justify-center py-14 text-center"
           >
-            <span className="grid h-16 w-16 place-items-center rounded-full bg-mauve/20 text-mauve">
+            <span className="grid h-16 w-16 place-items-center rounded-full bg-green-100 text-green-600">
               <CheckCircle2 className="h-9 w-9" />
             </span>
             <h3 className="mt-5 font-display text-2xl font-semibold text-darkberry">
-              Inquiry received!
+              Inquiry Submitted Successfully
             </h3>
-
-            {inquiryNumber && (
-              <div className="mt-4 rounded-2xl bg-[#F9EEEA] px-5 py-3 shadow-clay-sm">
-                <p className="text-xs font-bold uppercase tracking-wide text-wine-dark">
-                  Your inquiry number
-                </p>
-                <p className="mt-0.5 font-display text-2xl font-bold text-darkberry">
-                  {inquiryNumber}
-                </p>
-              </div>
-            )}
-
-            <p className="mt-4 max-w-sm text-darkberry-light">
-              Thank you — we&apos;ve got your details and will reply soon.
-              {inquiryNumber ? " Keep your inquiry number as your reference." : ""}
-              {waDigits && (
-                <>
-                  {" "}If the WhatsApp chat didn&apos;t open,{" "}
-                  <a
-                    href={`https://wa.me/${waDigits}?text=${encodeURIComponent(buildMessage())}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="font-semibold text-wine underline"
-                  >
-                    tap here
-                  </a>
-                  .
-                </>
-              )}
+            <p className="mt-3 max-w-sm text-darkberry-light">
+              Thank you for contacting Le Rasa Bakery. Our cake designer will
+              review your enquiry. We will contact you soon on your WhatsApp
+              number.
             </p>
-            <Button className="mt-6" variant="secondary" onClick={() => { setInquiryNumber(""); reset(); }}>
-              Start another inquiry
+
+            <div className="mt-6 w-full max-w-xs space-y-3">
+              {customerPhone && (
+                <div className="rounded-2xl bg-[#F9EEEA] px-5 py-3 shadow-clay-sm">
+                  <p className="text-xs font-bold uppercase tracking-wide text-wine-dark">
+                    Your WhatsApp
+                  </p>
+                  <p className="mt-0.5 font-display text-lg font-bold text-darkberry">
+                    {customerPhone}
+                  </p>
+                </div>
+              )}
+              {inquiryNumber && (
+                <div className="rounded-2xl bg-[#F9EEEA] px-5 py-3 shadow-clay-sm">
+                  <p className="text-xs font-bold uppercase tracking-wide text-wine-dark">
+                    Reference Number
+                  </p>
+                  <p className="mt-0.5 font-display text-2xl font-bold text-darkberry">
+                    {inquiryNumber}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <Button className="mt-7" variant="secondary" onClick={reset}>
+              Create Another Inquiry
             </Button>
           </motion.div>
         ) : (
@@ -402,7 +361,7 @@ export function ContactForm({ whatsapp = "" }: { whatsapp?: string }) {
               {status === "sending" ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Opening WhatsApp…
+                  Submitting…
                 </>
               ) : (
                 <>
@@ -412,7 +371,7 @@ export function ContactForm({ whatsapp = "" }: { whatsapp?: string }) {
               )}
             </Button>
             <p className="text-center text-xs text-darkberry-light">
-              Your inquiry opens in WhatsApp — no deposit needed to inquire.
+              We&apos;ll review your enquiry and contact you soon — no deposit needed to inquire.
             </p>
           </motion.form>
         )}

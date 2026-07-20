@@ -44,16 +44,17 @@ export function Footer() {
   const igUrl = instagramUrl(settings.instagram_url);
   const igHandle = instagramHandle(settings.instagram_url);
 
-  // Reels gallery: when the admin has added Reel URLs, each carousel slide shows
-  // that reel's thumbnail (resolved by our proxy) and links out to the reel.
-  // With none configured, we keep the existing static image carousel.
-  const reels = settings.instagram_reels ?? [];
+  // Reels gallery: when the admin has added active Reels, each carousel slide
+  // shows that reel's admin-uploaded cover image (or a bakery fallback if none)
+  // and links out to the reel. With none configured, we keep the existing
+  // static image carousel.
+  const reels = (settings.instagram_reels ?? []).filter((r) => r.active && r.url);
   const galleryImages =
     reels.length > 0
-      ? reels.map((url, i) => ({
-          src: `/api/instagram/thumbnail?url=${encodeURIComponent(url)}`,
-          alt: `Instagram reel ${i + 1}`,
-          href: url,
+      ? reels.map((r, i) => ({
+          src: r.cover_image || "/reel-fallback.svg",
+          alt: r.title || `Instagram reel ${i + 1}`,
+          href: r.url,
         }))
       : FALLBACK_GALLERY;
 

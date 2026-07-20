@@ -62,9 +62,10 @@ export type PublicSettings = {
   contact: Contact;
   logo: string;
   instagram_url: string;
-  /** Up to 10 Instagram Reel URLs powering the footer "Follow the sweetness"
-   *  carousel. Empty → the footer falls back to its static image set. */
-  instagram_reels: string[];
+  /** Up to 10 Instagram Reels (URL + admin-uploaded cover) powering the footer
+   *  "Follow the sweetness" carousel. Empty → the footer falls back to its
+   *  static image set. */
+  instagram_reels: InstagramReel[];
   facebook_url: string;
   tiktok_url: string;
   announcement: Announcement;
@@ -248,11 +249,20 @@ export function instagramHandle(value: string): string {
   return `@${v.replace(/^@/, "")}`;
 }
 
-// Instagram Reels — stored as a plain list of URLs. These helpers keep the
-// list clean (valid reel/post URLs only, de-duplicated, capped at 10) and
-// extract the shortcode used to fetch a public thumbnail.
+// Instagram Reels — each reel is a URL plus an admin-uploaded cover image (and
+// an optional title + an active flag). Display order is the array order. These
+// helpers keep the list clean (valid reel URLs only, de-duplicated, capped at
+// 10) and tolerate the LEGACY shape where a reel was just a URL string.
 
 export const MAX_INSTAGRAM_REELS = 10;
+
+export type InstagramReel = {
+  url: string;
+  /** Admin-uploaded cover image (Supabase Storage public URL). "" → fallback. */
+  cover_image: string;
+  title: string;
+  active: boolean;
+};
 
 /** Extract the shortcode from a reel/post/tv URL, or "" if it isn't one. */
 export function instagramShortcode(url: string): string {
@@ -261,19 +271,32 @@ export function instagramShortcode(url: string): string {
   return m ? m[1] : "";
 }
 
-/** Clean an incoming reels value into an ordered list of unique, valid reel
- *  URLs (max 10). Anything that isn't a recognisable Instagram reel/post URL
- *  is dropped, so the storefront only ever renders real links. */
-export function normalizeInstagramReels(raw: unknown): string[] {
+/** Clean an incoming reels value into an ordered list of unique reels (max 10).
+ *  Accepts BOTH the current object shape and the legacy `string[]` of URLs, so
+ *  existing data keeps working. Anything without a recognisable Instagram reel
+ *  URL is dropped. */
+export function normalizeInstagramReels(raw: unknown): InstagramReel[] {
   if (!Array.isArray(raw)) return [];
-  const out: string[] = [];
+  const out: InstagramReel[] = [];
   const seen = new Set<string>();
   for (const item of raw) {
-    const url = String(item ?? "").trim();
+    let url = "";
+    let cover = "";
+    let title = "";
+    let active = true;
+    if (typeof item === "string") {
+      url = item.trim();
+    } else if (item && typeof item === "object") {
+      const o = item as Record<string, unknown>;
+      url = String(o.url ?? "").trim();
+      cover = String(o.cover_image ?? "").trim();
+      title = String(o.title ?? "").trim().slice(0, 120);
+      active = o.active !== false;
+    }
     const code = instagramShortcode(url);
     if (!code || seen.has(code)) continue;
     seen.add(code);
-    out.push(url);
+    out.push({ url, cover_image: cover, title, active });
     if (out.length >= MAX_INSTAGRAM_REELS) break;
   }
   return out;

@@ -14,7 +14,8 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/utils/supabase/server";
 import { createAdminClient } from "@/lib/supabase/server";
-import { notifyInquiry } from "@/lib/notifications";
+import { sendEmail, ownerEmail } from "@/lib/email";
+import { buildInquiryOwnerEmail } from "@/lib/inquiry-email";
 
 export const dynamic = "force-dynamic";
 
@@ -83,39 +84,53 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  const inquiryId = String((data as { id?: string }).id ?? "");
   const inquiryNumber = String((data as { inquiry_number?: string }).inquiry_number ?? "");
 
-  // Best-effort owner alert — never blocks the response.
+  // Best-effort owner email — never blocks the response. Recipient is
+  // OWNER_EMAIL (env); we fall back to the bakery contact email if unset.
   try {
-    const { data: settingsRow } = await admin
-      .from("site_settings")
-      .select("contact,email")
-      .limit(1)
-      .maybeSingle();
-    const contact = (settingsRow?.contact ?? {}) as { email?: string };
-    const ownerEmail = (contact.email || (settingsRow?.email as string) || "").trim();
-    await notifyInquiry(admin, ownerEmail, {
-      inquiryNumber,
-      name: insert.name,
-      phone: insert.phone,
-      email: insert.email,
-      eventType: insert.event_type,
-      deliveryDate: insert.delivery_date,
-      servings: insert.servings,
-      budget: insert.budget,
-      flavour: insert.flavour,
-      shape: insert.shape,
-      colourTheme: insert.colour_theme,
-      cakeMessage: insert.cake_message,
-      notes: insert.notes,
-      images,
-    });
+    let recipient = ownerEmail();
+    if (!recipient) {
+      const { data: settingsRow } = await admin
+        .from("site_settings")
+        .select("contact,email")
+        .limit(1)
+        .maybeSingle();
+      const contact = (settingsRow?.contact ?? {}) as { email?: string };
+      recipient = (contact.email || (settingsRow?.email as string) || "").trim();
+    }
+
+    if (recipient) {
+      const origin = new URL(req.url).origin;
+      const base = (process.env.NEXT_PUBLIC_SITE_URL ?? process.env.SITE_URL ?? origin).replace(/\/$/, "");
+      const { subject, html } = buildInquiryOwnerEmail(
+        {
+          inquiryNumber,
+          name: insert.name,
+          phone: insert.phone,
+          email: insert.email,
+          eventType: insert.event_type,
+          deliveryDate: insert.delivery_date,
+          budget: insert.budget,
+          servings: insert.servings,
+          flavour: insert.flavour,
+          shape: insert.shape,
+          colourTheme: insert.colour_theme,
+          cakeMessage: insert.cake_message,
+          notes: insert.notes,
+          images,
+        },
+        {
+          viewUrl: `${base}/admin/dashboard/inquiries?q=${encodeURIComponent(inquiryNumber)}`,
+          adminUrl: `${base}/admin`,
+        },
+      );
+      await sendEmail({ to: recipient, subject, html, replyTo: insert.email || undefined });
+    }
   } catch {
-    /* owner alert is best-effort */
+    /* owner email is best-effort */
   }
 
-  return NextResponse.json({
-    id: String((data as { id?: string }).id ?? ""),
-    inquiry_number: inquiryNumber,
-  });
+  return NextResponse.json({ id: inquiryId, inquiry_number: inquiryNumber });
 }

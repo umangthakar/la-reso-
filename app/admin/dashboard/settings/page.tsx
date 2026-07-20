@@ -51,6 +51,8 @@ type RotatingBanner = {
   enabled: boolean;
 };
 
+type InstagramReel = { url: string; cover_image: string; title: string; active: boolean };
+
 const CONTACT_DEFAULT: Contact = { phone: "", whatsapp: "", email: "", address: "" };
 
 const BANNER_TYPE_OPTIONS: { value: BannerType; label: string }[] = [
@@ -111,7 +113,7 @@ type Settings = {
   home_slider: string[];
   whatsapp_bar: WhatsappBar;
   instagram_url: string;
-  instagram_reels: string[];
+  instagram_reels: InstagramReel[];
   facebook_url: string;
   tiktok_url: string;
   hero_tagline: string;
@@ -186,8 +188,23 @@ export default function SettingsAdminPage() {
       const slider = Array.isArray(d.home_slider)
         ? (d.home_slider as unknown[]).filter((u): u is string => typeof u === "string" && u.trim() !== "")
         : [];
-      const reels = Array.isArray(d.instagram_reels)
-        ? (d.instagram_reels as unknown[]).filter((u): u is string => typeof u === "string" && u.trim() !== "")
+      // Reels: accept the current object shape AND the legacy `string[]` of URLs.
+      const reels: InstagramReel[] = Array.isArray(d.instagram_reels)
+        ? (d.instagram_reels as unknown[])
+            .map((it): InstagramReel => {
+              if (typeof it === "string") {
+                return { url: it, cover_image: "", title: "", active: true };
+              }
+              const o = (it ?? {}) as Record<string, unknown>;
+              return {
+                url: String(o.url ?? ""),
+                cover_image: String(o.cover_image ?? ""),
+                title: String(o.title ?? ""),
+                active: o.active !== false,
+              };
+            })
+            .filter((r) => r.url.trim() !== "")
+            .slice(0, 10)
         : [];
       setS({
         ...EMPTY,
@@ -429,6 +446,7 @@ export default function SettingsAdminPage() {
       <InstagramReelsSection
         reels={s.instagram_reels}
         onChange={(next) => set("instagram_reels", next)}
+        onError={setError}
         saved={savedSection === "instagram_reels"}
         onSave={() => saveSection("instagram_reels", ["instagram_reels"])}
       />
@@ -984,38 +1002,47 @@ function isReelUrl(url: string): boolean {
 function InstagramReelsSection({
   reels,
   onChange,
+  onError,
   saved,
   onSave,
 }: {
-  reels: string[];
-  onChange: (next: string[]) => void;
+  reels: InstagramReel[];
+  onChange: (next: InstagramReel[]) => void;
+  onError: (msg: string) => void;
   saved: boolean;
   onSave: () => void;
 }) {
   const [saving, setSaving] = useState(false);
 
-  function update(i: number, value: string) {
-    onChange(reels.map((r, idx) => (idx === i ? value : r)));
+  function update(i: number, patch: Partial<InstagramReel>) {
+    onChange(reels.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
   }
   function add() {
     if (reels.length >= MAX_REELS) return;
-    onChange([...reels, ""]);
+    onChange([...reels, { url: "", cover_image: "", title: "", active: true }]);
   }
   function remove(i: number) {
     onChange(reels.filter((_, idx) => idx !== i));
+  }
+  function move(i: number, dir: number) {
+    const j = i + dir;
+    if (j < 0 || j >= reels.length) return;
+    const next = [...reels];
+    [next[i], next[j]] = [next[j], next[i]];
+    onChange(next);
   }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
-    // Trim, drop blanks, de-duplicate and cap before saving.
-    const cleaned: string[] = [];
+    // Drop blank-URL rows, de-duplicate by URL and cap before saving.
+    const cleaned: InstagramReel[] = [];
     const seen = new Set<string>();
     for (const r of reels) {
-      const v = r.trim();
-      if (!v || seen.has(v)) continue;
-      seen.add(v);
-      cleaned.push(v);
+      const url = r.url.trim();
+      if (!url || seen.has(url)) continue;
+      seen.add(url);
+      cleaned.push({ ...r, url, title: r.title.trim(), cover_image: r.cover_image.trim() });
       if (cleaned.length >= MAX_REELS) break;
     }
     onChange(cleaned);
@@ -1033,10 +1060,10 @@ function InstagramReelsSection({
         {saved && <span style={{ color: "#2e7d4f", fontWeight: 700, fontSize: "0.9rem" }}>Saved ✓</span>}
       </div>
       <p style={{ ...hint, marginBottom: 16 }}>
-        Add up to {MAX_REELS} Instagram Reel links. The footer “Follow the sweetness”
-        carousel shows each reel’s thumbnail and opens the reel when tapped. Leave
-        empty to keep the default image carousel. Example:{" "}
-        <strong>https://www.instagram.com/reel/XXXXXXXXX/</strong>
+        Add up to {MAX_REELS} Instagram Reels. Upload a cover image for each — that
+        image is what the footer “Follow the sweetness” carousel shows, and tapping
+        it opens the reel. Drag order with ↑/↓; toggle Active to show/hide a reel.
+        Leave empty to keep the default image carousel.
       </p>
 
       {reels.length === 0 ? (
@@ -1044,22 +1071,19 @@ function InstagramReelsSection({
           No reels yet — the footer shows the default image carousel until you add some.
         </p>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {reels.map((url, i) => {
-            const invalid = url.trim() !== "" && !isReelUrl(url);
-            return (
-              <div key={i} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span style={{ fontWeight: 700, color: BERRY, fontSize: "0.85rem", width: 22 }}>#{i + 1}</span>
-                <input
-                  style={{ ...inputStyle, flex: 1, borderColor: invalid ? "#d67c7c" : "rgba(135,56,83,0.25)" }}
-                  value={url}
-                  onChange={(e) => update(i, e.target.value)}
-                  placeholder="https://www.instagram.com/reel/…"
-                />
-                <button type="button" onClick={() => remove(i)} style={linkBtn}>Remove</button>
-              </div>
-            );
-          })}
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {reels.map((reel, i) => (
+            <ReelRow
+              key={i}
+              reel={reel}
+              index={i}
+              count={reels.length}
+              onUpdate={(patch) => update(i, patch)}
+              onMove={(dir) => move(i, dir)}
+              onDelete={() => remove(i)}
+              onError={onError}
+            />
+          ))}
         </div>
       )}
 
@@ -1077,6 +1101,108 @@ function InstagramReelsSection({
         </button>
       </div>
     </form>
+  );
+}
+
+function ReelRow({
+  reel,
+  index,
+  count,
+  onUpdate,
+  onMove,
+  onDelete,
+  onError,
+}: {
+  reel: InstagramReel;
+  index: number;
+  count: number;
+  onUpdate: (patch: Partial<InstagramReel>) => void;
+  onMove: (dir: number) => void;
+  onDelete: () => void;
+  onError: (msg: string) => void;
+}) {
+  const [uploading, setUploading] = useState(false);
+  const invalidUrl = reel.url.trim() !== "" && !isReelUrl(reel.url);
+
+  async function handleCover(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setUploading(true);
+    onError("");
+    try {
+      const { url } = await adminUpload(file, "/api/admin/site-assets/upload");
+      onUpdate({ cover_image: url });
+    } catch (err) {
+      onError(err instanceof Error ? err.message : "Cover upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  return (
+    <div style={{ background: "#FBF4F1", border: "1px solid rgba(135,56,83,0.12)", borderRadius: 12, padding: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+        <span style={{ fontWeight: 700, color: BERRY, fontSize: "0.85rem" }}>#{index + 1}</span>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
+          <button type="button" onClick={() => onMove(-1)} disabled={index === 0} style={{ ...ghostBtn, padding: "6px 10px", opacity: index === 0 ? 0.4 : 1 }} aria-label="Move up">↑</button>
+          <button type="button" onClick={() => onMove(1)} disabled={index === count - 1} style={{ ...ghostBtn, padding: "6px 10px", opacity: index === count - 1 ? 0.4 : 1 }} aria-label="Move down">↓</button>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, color: BERRY, fontWeight: 600, fontSize: "0.85rem", marginLeft: 4 }}>
+            <Toggle on={reel.active} onClick={() => onUpdate({ active: !reel.active })} />
+            {reel.active ? "Active" : "Hidden"}
+          </label>
+          <button type="button" onClick={onDelete} style={linkBtn}>Remove</button>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+        {/* Cover preview + upload */}
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+          {reel.cover_image ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={reel.cover_image}
+              alt={`Reel ${index + 1} cover`}
+              style={{ width: 88, height: 88, objectFit: "cover", borderRadius: 12, border: "1px solid rgba(135,56,83,0.2)" }}
+            />
+          ) : (
+            <div style={{ width: 88, height: 88, borderRadius: 12, background: "rgba(135,56,83,0.07)", display: "grid", placeItems: "center", color: BERRY, opacity: 0.5, fontSize: "0.7rem", textAlign: "center", padding: 4 }}>
+              No cover
+            </div>
+          )}
+          <label style={{ ...ghostBtn, padding: "6px 10px", fontSize: "0.8rem", display: "inline-block", textAlign: "center" }}>
+            {uploading ? "Uploading…" : reel.cover_image ? "Replace" : "Upload cover"}
+            <input type="file" accept="image/*" onChange={handleCover} disabled={uploading} style={{ display: "none" }} />
+          </label>
+        </div>
+
+        {/* URL + title */}
+        <div style={{ flex: 1, minWidth: 200, display: "flex", flexDirection: "column", gap: 8 }}>
+          <input
+            style={{ ...inputStyle, borderColor: invalidUrl ? "#d67c7c" : "rgba(135,56,83,0.25)" }}
+            value={reel.url}
+            onChange={(e) => onUpdate({ url: e.target.value })}
+            placeholder="Instagram Reel URL — https://www.instagram.com/reel/…"
+          />
+          <input
+            style={inputStyle}
+            value={reel.title}
+            onChange={(e) => onUpdate({ title: e.target.value })}
+            placeholder="Optional title (used as the image alt text)"
+          />
+          {invalidUrl && (
+            <span style={{ color: "#b03030", fontSize: "0.78rem", fontWeight: 600 }}>
+              That doesn’t look like an Instagram reel URL.
+            </span>
+          )}
+          {!reel.cover_image && (
+            <span style={{ color: BERRY, opacity: 0.7, fontSize: "0.78rem" }}>
+              No cover uploaded — this reel will show the bakery placeholder.
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 

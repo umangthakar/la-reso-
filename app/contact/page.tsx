@@ -127,7 +127,7 @@ export default async function ContactPage() {
               header. */}
           <div id="inquiry" className="scroll-mt-28">
             <Reveal delay={0.1}>
-              <ContactForm whatsapp={contact.whatsapp || contact.phone} />
+              <ContactForm />
             </Reveal>
           </div>
         </div>
