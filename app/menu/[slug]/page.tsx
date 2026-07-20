@@ -45,6 +45,7 @@ import {
 } from "@/lib/nutrition";
 import { resolveIngredientIcons } from "@/lib/ingredient-icons";
 import { sanitizeIngredientsRich, isIngredientsRichEmpty } from "@/lib/ingredients-rich";
+import IngredientIconList from "@/components/ingredient-icon-list";
 
 type DetailProduct = {
   id: string;
@@ -675,20 +676,12 @@ export default function ProductDetailPage() {
                 product has any of these, so old products are unaffected. */}
             {showIngredients && (
               <div className="mt-5">
-                {/* Ingredient icons (INGREDIENT icons only — never allergens). */}
+                {/* Ingredient icons (INGREDIENT icons only — never allergens).
+                    Minimal monochrome outline icons + labels; see
+                    components/ingredient-icon-list. */}
                 {ingredientIconList.length > 0 && (
-                  <div className="mb-2 flex flex-wrap gap-2">
-                    {ingredientIconList.map((ic) => (
-                      <span
-                        key={ic.key}
-                        className="inline-flex items-center gap-1.5 rounded-full bg-blush-50 px-3 py-1 text-sm text-darkberry shadow-clay-sm"
-                      >
-                        <span aria-hidden="true" className="text-base leading-none">
-                          {ic.emoji}
-                        </span>
-                        <span>{ic.label}</span>
-                      </span>
-                    ))}
+                  <div className="mb-3">
+                    <IngredientIconList icons={ingredientIconList} />
                   </div>
                 )}
 
