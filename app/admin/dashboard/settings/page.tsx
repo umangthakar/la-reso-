@@ -111,6 +111,7 @@ type Settings = {
   home_slider: string[];
   whatsapp_bar: WhatsappBar;
   instagram_url: string;
+  instagram_reels: string[];
   facebook_url: string;
   tiktok_url: string;
   hero_tagline: string;
@@ -129,6 +130,7 @@ const EMPTY: Settings = {
   home_slider: [],
   whatsapp_bar: WHATSAPP_BAR_DEFAULT,
   instagram_url: "",
+  instagram_reels: [],
   facebook_url: "",
   tiktok_url: "",
   hero_tagline: "",
@@ -184,6 +186,9 @@ export default function SettingsAdminPage() {
       const slider = Array.isArray(d.home_slider)
         ? (d.home_slider as unknown[]).filter((u): u is string => typeof u === "string" && u.trim() !== "")
         : [];
+      const reels = Array.isArray(d.instagram_reels)
+        ? (d.instagram_reels as unknown[]).filter((u): u is string => typeof u === "string" && u.trim() !== "")
+        : [];
       setS({
         ...EMPTY,
         ...Object.fromEntries(
@@ -192,6 +197,7 @@ export default function SettingsAdminPage() {
         contact,
         rotating_banners: rb,
         home_slider: slider,
+        instagram_reels: reels,
         announcement: {
           enabled: Boolean(ann.enabled),
           text: ann.text ?? "",
@@ -418,6 +424,14 @@ export default function SettingsAdminPage() {
         </Field>
         <p style={hint}>Instagram is managed in <strong>Contact Details</strong> above.</p>
       </SectionForm>
+
+      {/* 3b. INSTAGRAM REELS — footer "Follow the sweetness" carousel */}
+      <InstagramReelsSection
+        reels={s.instagram_reels}
+        onChange={(next) => set("instagram_reels", next)}
+        saved={savedSection === "instagram_reels"}
+        onSave={() => saveSection("instagram_reels", ["instagram_reels"])}
+      />
 
       {/* 4. HOMEPAGE */}
       <SectionForm
@@ -956,6 +970,113 @@ function SortableBannerRow({
         )}
       </div>
     </div>
+  );
+}
+
+// ---------------- Instagram Reels (URL list) ----------------
+const MAX_REELS = 10;
+
+/** Accepts a reel/post/tv URL — the same shapes the storefront recognises. */
+function isReelUrl(url: string): boolean {
+  return /instagram\.com\/(?:reel|reels|p|tv)\/[A-Za-z0-9_-]+/i.test(url.trim());
+}
+
+function InstagramReelsSection({
+  reels,
+  onChange,
+  saved,
+  onSave,
+}: {
+  reels: string[];
+  onChange: (next: string[]) => void;
+  saved: boolean;
+  onSave: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+
+  function update(i: number, value: string) {
+    onChange(reels.map((r, idx) => (idx === i ? value : r)));
+  }
+  function add() {
+    if (reels.length >= MAX_REELS) return;
+    onChange([...reels, ""]);
+  }
+  function remove(i: number) {
+    onChange(reels.filter((_, idx) => idx !== i));
+  }
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    // Trim, drop blanks, de-duplicate and cap before saving.
+    const cleaned: string[] = [];
+    const seen = new Set<string>();
+    for (const r of reels) {
+      const v = r.trim();
+      if (!v || seen.has(v)) continue;
+      seen.add(v);
+      cleaned.push(v);
+      if (cleaned.length >= MAX_REELS) break;
+    }
+    onChange(cleaned);
+    await onSave();
+    setSaving(false);
+  }
+
+  return (
+    <form
+      onSubmit={submit}
+      style={{ background: "white", borderRadius: 16, padding: "1.5rem 1.75rem", marginTop: 20, boxShadow: "0 10px 30px rgba(135,56,83,0.08)" }}
+    >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6, gap: 12 }}>
+        <h2 style={{ color: WINE, margin: 0, fontSize: "1.15rem", fontWeight: 800 }}>Instagram Reels</h2>
+        {saved && <span style={{ color: "#2e7d4f", fontWeight: 700, fontSize: "0.9rem" }}>Saved ✓</span>}
+      </div>
+      <p style={{ ...hint, marginBottom: 16 }}>
+        Add up to {MAX_REELS} Instagram Reel links. The footer “Follow the sweetness”
+        carousel shows each reel’s thumbnail and opens the reel when tapped. Leave
+        empty to keep the default image carousel. Example:{" "}
+        <strong>https://www.instagram.com/reel/XXXXXXXXX/</strong>
+      </p>
+
+      {reels.length === 0 ? (
+        <p style={{ color: BERRY, opacity: 0.7, fontSize: "0.9rem" }}>
+          No reels yet — the footer shows the default image carousel until you add some.
+        </p>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {reels.map((url, i) => {
+            const invalid = url.trim() !== "" && !isReelUrl(url);
+            return (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontWeight: 700, color: BERRY, fontSize: "0.85rem", width: 22 }}>#{i + 1}</span>
+                <input
+                  style={{ ...inputStyle, flex: 1, borderColor: invalid ? "#d67c7c" : "rgba(135,56,83,0.25)" }}
+                  value={url}
+                  onChange={(e) => update(i, e.target.value)}
+                  placeholder="https://www.instagram.com/reel/…"
+                />
+                <button type="button" onClick={() => remove(i)} style={linkBtn}>Remove</button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 10, marginTop: 16, flexWrap: "wrap", alignItems: "center" }}>
+        <button
+          type="button"
+          onClick={add}
+          disabled={reels.length >= MAX_REELS}
+          style={{ ...ghostBtn, opacity: reels.length >= MAX_REELS ? 0.5 : 1 }}
+        >
+          + Add reel
+        </button>
+        <button type="submit" disabled={saving} style={{ ...primaryBtn, opacity: saving ? 0.6 : 1 }}>
+          {saving ? "Saving…" : "Save"}
+        </button>
+      </div>
+    </form>
   );
 }
 

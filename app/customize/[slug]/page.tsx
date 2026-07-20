@@ -54,6 +54,14 @@ type WizardProduct = {
 const FALLBACK_IMAGE =
   "https://images.unsplash.com/photo-1486427944299-d1955d23e34d?auto=format&fit=crop&w=900&q=80";
 
+// The most digits a customer can put on a cake (e.g. "100").
+const MAX_CANDLE_DIGITS = 6;
+
+/** A "Number candle" accessory — opens the digit configurator when chosen. */
+function isNumberCandle(acc: Accessory): boolean {
+  return acc.value === "number" || /number\s*candle/i.test(acc.name);
+}
+
 const INPUT =
   "w-full rounded-2xl border border-dustyrose/50 bg-blush-50 px-4 py-3 text-darkberry placeholder:text-berry/60 shadow-clay-sm focus:border-wine focus:outline-none focus:ring-2 focus:ring-wine/30";
 
@@ -101,6 +109,10 @@ export default function CustomizePage() {
   const [seeded, setSeeded] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitted, setSubmitted] = useState(false);
+  // Number-candle digit configurator: which category/accessory it's editing,
+  // and the digits chosen so far (ordered).
+  const [numberModal, setNumberModal] = useState<{ catKey: string; accValue: string; price: number } | null>(null);
+  const [draftDigits, setDraftDigits] = useState<string[]>([]);
 
   // Quantity is carried over from the product page's stepper. Read straight
   // from the URL rather than via useSearchParams, which would force a Suspense
@@ -223,6 +235,32 @@ export default function CustomizePage() {
       else quantities[value] = next;
       return { ...prev, [key]: { ...prev[key], quantities } };
     });
+  }
+
+  // ---- Number-candle digit configurator ----
+  function openNumberModal(cat: AccessoryCategory, acc: Accessory) {
+    setDraftDigits((selections[cat.key]?.digits ?? "").replace(/\D/g, "").split("").filter(Boolean));
+    setNumberModal({ catKey: cat.key, accValue: acc.value, price: acc.price });
+  }
+  function addDigit(d: string) {
+    setDraftDigits((prev) => (prev.length >= MAX_CANDLE_DIGITS ? prev : [...prev, d]));
+  }
+  function removeDigit(i: number) {
+    setDraftDigits((prev) => prev.filter((_, idx) => idx !== i));
+  }
+  /** Pick a choice option; open the configurator when it's a number candle,
+   *  and always clear any previous digits when switching to a plain option. */
+  function chooseCandle(cat: AccessoryCategory, acc: Accessory) {
+    if (isNumberCandle(acc)) {
+      update(cat.key, { values: [acc.value] });
+      openNumberModal(cat, acc);
+    } else {
+      update(cat.key, { values: [acc.value], digits: "" });
+    }
+  }
+  function confirmNumber() {
+    if (numberModal) update(numberModal.catKey, { digits: draftDigits.join("") });
+    setNumberModal(null);
   }
 
   function handleContinue() {
@@ -351,37 +389,68 @@ export default function CustomizePage() {
                       <div className="space-y-2">
                         {cat.accessories.map((acc) => {
                           const checked = (sel.values ?? []).includes(acc.value);
+                          const numberChosen = isNumberCandle(acc) && checked;
+                          const chosenDigits = (sel.digits ?? "").replace(/\D/g, "");
                           return (
-                            <label
-                              key={acc.value}
-                              className={`flex cursor-pointer items-center gap-3 rounded-2xl border-2 px-4 py-3 transition-colors ${
-                                checked
-                                  ? "border-wine bg-wine/5"
-                                  : "border-dustyrose/40 hover:bg-dustyrose-light/30"
-                              }`}
-                            >
-                              <input
-                                type="radio"
-                                name={cat.key}
-                                className="h-4 w-4 accent-[#873853]"
-                                checked={checked}
-                                onChange={() =>
-                                  update(cat.key, { values: [acc.value] })
-                                }
-                              />
-                              <Thumb accessory={acc} />
-                              <span className="flex-1">
-                                <span className="block text-sm font-semibold text-darkberry">
-                                  {acc.name}
-                                </span>
-                                {acc.description && (
-                                  <span className="block text-xs text-berry">
-                                    {acc.description}
+                            <div key={acc.value}>
+                              <label
+                                className={`flex cursor-pointer items-center gap-3 rounded-2xl border-2 px-4 py-3 transition-colors ${
+                                  checked
+                                    ? "border-wine bg-wine/5"
+                                    : "border-dustyrose/40 hover:bg-dustyrose-light/30"
+                                }`}
+                              >
+                                <input
+                                  type="radio"
+                                  name={cat.key}
+                                  className="h-4 w-4 accent-[#873853]"
+                                  checked={checked}
+                                  onChange={() => chooseCandle(cat, acc)}
+                                />
+                                <Thumb accessory={acc} />
+                                <span className="flex-1">
+                                  <span className="block text-sm font-semibold text-darkberry">
+                                    {acc.name}
                                   </span>
-                                )}
-                              </span>
-                              <PriceTag price={acc.price} />
-                            </label>
+                                  {acc.description && (
+                                    <span className="block text-xs text-berry">
+                                      {acc.description}
+                                    </span>
+                                  )}
+                                </span>
+                                <PriceTag price={acc.price} />
+                              </label>
+
+                              {/* Number-candle: show the chosen digits + edit. */}
+                              {numberChosen && (
+                                <div className="mt-2 flex flex-wrap items-center gap-2 rounded-2xl bg-dustyrose-light/30 px-3 py-2">
+                                  <span className="text-xs font-semibold uppercase tracking-wide text-wine-dark">
+                                    Number
+                                  </span>
+                                  {chosenDigits ? (
+                                    <span className="flex gap-1">
+                                      {chosenDigits.split("").map((d, di) => (
+                                        <span
+                                          key={di}
+                                          className="grid h-7 w-6 place-items-center rounded-lg bg-wine text-sm font-bold text-blush-50"
+                                        >
+                                          {d}
+                                        </span>
+                                      ))}
+                                    </span>
+                                  ) : (
+                                    <span className="text-xs text-berry">No digits chosen yet</span>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => openNumberModal(cat, acc)}
+                                    className="ml-auto rounded-full bg-wine px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-blush-50 transition-colors hover:bg-wine-dark"
+                                  >
+                                    {chosenDigits ? "Edit number" : "Choose number"}
+                                  </button>
+                                </div>
+                              )}
+                            </div>
                           );
                         })}
                       </div>
@@ -392,7 +461,11 @@ export default function CustomizePage() {
                       <select
                         className={INPUT}
                         value={(sel.values ?? [])[0] ?? ""}
-                        onChange={(e) => update(cat.key, { values: [e.target.value] })}
+                        onChange={(e) => {
+                          const acc = cat.accessories.find((a) => a.value === e.target.value);
+                          if (acc) chooseCandle(cat, acc);
+                          else update(cat.key, { values: [e.target.value], digits: "" });
+                        }}
                       >
                         {cat.accessories.map((acc) => (
                           <option key={acc.value} value={acc.value}>
@@ -664,6 +737,114 @@ export default function CustomizePage() {
           </aside>
         </div>
       </div>
+
+      {/* ---- Number-candle digit configurator ---- */}
+      {numberModal && (
+        <div
+          className="fixed inset-0 z-[60] grid place-items-center bg-darkberry/50 p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setNumberModal(null)}
+        >
+          <motion.div
+            initial={{ opacity: 0, scale: 0.96, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            transition={{ duration: 0.2 }}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md rounded-clay bg-blush-50 p-6 shadow-clay"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="font-display text-xl font-bold text-darkberry">
+                  Number candle
+                </h3>
+                <p className="mt-0.5 text-sm text-berry">
+                  Tap digits to build the age or number.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setNumberModal(null)}
+                aria-label="Close"
+                className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-dustyrose-light/60 text-wine-dark transition-colors hover:bg-dustyrose-light"
+              >
+                <Plus className="h-4 w-4 rotate-45" />
+              </button>
+            </div>
+
+            {/* Live preview */}
+            <div className="mt-5 min-h-[64px] rounded-2xl border-2 border-dashed border-dustyrose/50 bg-white/50 p-3">
+              {draftDigits.length === 0 ? (
+                <p className="grid h-full place-items-center py-3 text-center text-sm text-berry">
+                  Your number will appear here
+                </p>
+              ) : (
+                <div className="flex flex-wrap items-center gap-2">
+                  {draftDigits.map((d, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => removeDigit(i)}
+                      title="Remove this digit"
+                      className="group relative grid h-12 w-10 place-items-center rounded-xl bg-wine text-lg font-bold text-blush-50 shadow-clay-sm transition-transform hover:-translate-y-0.5"
+                    >
+                      {d}
+                      <span className="absolute -right-1.5 -top-1.5 grid h-5 w-5 place-items-center rounded-full bg-darkberry text-[10px] text-white opacity-0 transition-opacity group-hover:opacity-100">
+                        ✕
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Quantity + price */}
+            <div className="mt-3 flex items-center justify-between text-sm">
+              <span className="font-semibold text-darkberry">
+                Quantity: {draftDigits.length} {draftDigits.length === 1 ? "candle" : "candles"}
+              </span>
+              <span className="font-semibold text-wine-dark">
+                {draftDigits.length > 0
+                  ? `+${money(numberModal.price * draftDigits.length)}`
+                  : "—"}
+              </span>
+            </div>
+
+            {/* Digit pad 0-9 */}
+            <div className="mt-4 grid grid-cols-5 gap-2">
+              {["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"].map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => addDigit(d)}
+                  disabled={draftDigits.length >= MAX_CANDLE_DIGITS}
+                  className="grid h-12 place-items-center rounded-xl border-2 border-dustyrose/50 bg-white text-lg font-bold text-darkberry transition-colors hover:border-wine hover:bg-wine/5 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {d}
+                </button>
+              ))}
+            </div>
+
+            <div className="mt-5 flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setDraftDigits([])}
+                disabled={draftDigits.length === 0}
+                className="rounded-full px-4 py-2.5 text-sm font-semibold text-wine-dark transition-colors hover:bg-dustyrose-light/40 disabled:opacity-40"
+              >
+                Clear
+              </button>
+              <button
+                type="button"
+                onClick={confirmNumber}
+                className="ml-auto flex-1 rounded-full bg-wine py-3 text-sm font-bold uppercase tracking-wide text-blush-50 shadow-clay-sm transition-all hover:bg-wine-dark hover:-translate-y-0.5"
+              >
+                Continue
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }

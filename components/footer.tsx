@@ -8,6 +8,19 @@ import { useSiteSettings } from "@/lib/use-site-settings";
 import { usePolicies } from "@/lib/use-policies";
 import { instagramUrl, instagramHandle } from "@/lib/site-settings";
 
+// The static image set shown when no Instagram Reels are configured — keeps
+// the "Follow the sweetness" carousel from ever looking empty (backward compat).
+const FALLBACK_GALLERY = [
+  { src: "https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=400&q=80", alt: "Chocolate cake" },
+  { src: "https://images.unsplash.com/photo-1519869325930-281384150729?w=400&q=80", alt: "Cupcakes" },
+  { src: "https://images.unsplash.com/photo-1558961363-fa8fdf82db35?w=400&q=80", alt: "Pink cupcakes" },
+  { src: "https://images.unsplash.com/photo-1565958011703-44f9829ba187?w=400&q=80", alt: "Raspberry cake" },
+  { src: "https://images.unsplash.com/photo-1499636136210-6f4ee915583e?w=400&q=80", alt: "Cookies" },
+  { src: "https://images.unsplash.com/photo-1548365328-8c6db3220e4d?w=400&q=80", alt: "Chocolate truffles" },
+  { src: "https://images.unsplash.com/photo-1571115177098-24ec42ed204d?w=400&q=80", alt: "Birthday cake" },
+  { src: "https://images.unsplash.com/photo-1587668178277-295251f900ce?w=400&q=80", alt: "Brownies" },
+];
+
 // Shown when the matching site_settings field is empty, so the footer never
 // looks blank. Phone is intentionally NOT defaulted — it comes solely from
 // the DB and its row is hidden when unset (no hardcoded number anywhere).
@@ -30,6 +43,19 @@ export function Footer() {
   // Instagram: one source of truth (settings.instagram_url) → full URL + @handle.
   const igUrl = instagramUrl(settings.instagram_url);
   const igHandle = instagramHandle(settings.instagram_url);
+
+  // Reels gallery: when the admin has added Reel URLs, each carousel slide shows
+  // that reel's thumbnail (resolved by our proxy) and links out to the reel.
+  // With none configured, we keep the existing static image carousel.
+  const reels = settings.instagram_reels ?? [];
+  const galleryImages =
+    reels.length > 0
+      ? reels.map((url, i) => ({
+          src: `/api/instagram/thumbnail?url=${encodeURIComponent(url)}`,
+          alt: `Instagram reel ${i + 1}`,
+          href: url,
+        }))
+      : FALLBACK_GALLERY;
 
   // Only render social icons whose URL is configured.
   const socials = [
@@ -64,21 +90,14 @@ export function Footer() {
             )}
           </div>
 
-          {/* Carousel */}
+          {/* Carousel — dynamic Instagram reel thumbnails when configured,
+              else the static fallback set. Same coverflow animation/layout. */}
           <CardCarousel
-            images={[
-              { src: "https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=400&q=80", alt: "Chocolate cake" },
-              { src: "https://images.unsplash.com/photo-1519869325930-281384150729?w=400&q=80", alt: "Cupcakes" },
-              { src: "https://images.unsplash.com/photo-1558961363-fa8fdf82db35?w=400&q=80", alt: "Pink cupcakes" },
-              { src: "https://images.unsplash.com/photo-1565958011703-44f9829ba187?w=400&q=80", alt: "Raspberry cake" },
-              { src: "https://images.unsplash.com/photo-1499636136210-6f4ee915583e?w=400&q=80", alt: "Cookies" },
-              { src: "https://images.unsplash.com/photo-1548365328-8c6db3220e4d?w=400&q=80", alt: "Chocolate truffles" },
-              { src: "https://images.unsplash.com/photo-1571115177098-24ec42ed204d?w=400&q=80", alt: "Birthday cake" },
-              { src: "https://images.unsplash.com/photo-1587668178277-295251f900ce?w=400&q=80", alt: "Brownies" },
-            ]}
+            images={galleryImages}
             autoplayDelay={2000}
             showPagination={true}
             showNavigation={false}
+            unoptimized={reels.length > 0}
           />
         </div>
       </section>

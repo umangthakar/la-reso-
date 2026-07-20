@@ -62,6 +62,9 @@ export type PublicSettings = {
   contact: Contact;
   logo: string;
   instagram_url: string;
+  /** Up to 10 Instagram Reel URLs powering the footer "Follow the sweetness"
+   *  carousel. Empty → the footer falls back to its static image set. */
+  instagram_reels: string[];
   facebook_url: string;
   tiktok_url: string;
   announcement: Announcement;
@@ -193,6 +196,7 @@ export const DEFAULT_SETTINGS: PublicSettings = {
   contact: CONTACT_DEFAULT,
   logo: "",
   instagram_url: "",
+  instagram_reels: [],
   facebook_url: "",
   tiktok_url: "",
   announcement: { enabled: false, text: "" },
@@ -213,7 +217,7 @@ export const DEFAULT_SETTINGS: PublicSettings = {
 // `stripe_config` is fetched only so normaliseSettings can derive the two safe
 // values above — the raw column (incl. secret_key_enc) never leaves this layer.
 export const PUBLIC_SETTINGS_SELECT =
-  "contact,logo,phone,email,address,whatsapp,instagram_url,facebook_url,tiktok_url,announcement,hero_banner,rotating_banners,whatsapp_bar,about_story,about_image_url,home_slider,delivery_zones,lead_time_days,blocked_dates,delivery_days,stripe_config";
+  "contact,logo,phone,email,address,whatsapp,instagram_url,instagram_reels,facebook_url,tiktok_url,announcement,hero_banner,rotating_banners,whatsapp_bar,about_story,about_image_url,home_slider,delivery_zones,lead_time_days,blocked_dates,delivery_days,stripe_config";
 
 function str(v: unknown): string {
   return typeof v === "string" ? v : "";
@@ -244,6 +248,37 @@ export function instagramHandle(value: string): string {
   return `@${v.replace(/^@/, "")}`;
 }
 
+// Instagram Reels — stored as a plain list of URLs. These helpers keep the
+// list clean (valid reel/post URLs only, de-duplicated, capped at 10) and
+// extract the shortcode used to fetch a public thumbnail.
+
+export const MAX_INSTAGRAM_REELS = 10;
+
+/** Extract the shortcode from a reel/post/tv URL, or "" if it isn't one. */
+export function instagramShortcode(url: string): string {
+  const v = (url ?? "").trim();
+  const m = v.match(/instagram\.com\/(?:reel|reels|p|tv)\/([A-Za-z0-9_-]+)/i);
+  return m ? m[1] : "";
+}
+
+/** Clean an incoming reels value into an ordered list of unique, valid reel
+ *  URLs (max 10). Anything that isn't a recognisable Instagram reel/post URL
+ *  is dropped, so the storefront only ever renders real links. */
+export function normalizeInstagramReels(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    const url = String(item ?? "").trim();
+    const code = instagramShortcode(url);
+    if (!code || seen.has(code)) continue;
+    seen.add(code);
+    out.push(url);
+    if (out.length >= MAX_INSTAGRAM_REELS) break;
+  }
+  return out;
+}
+
 /** Normalise a raw site_settings row into a fully-populated PublicSettings. */
 export function normaliseSettings(
   raw: Record<string, unknown> | null,
@@ -266,6 +301,7 @@ export function normaliseSettings(
     },
     logo: str(r.logo),
     instagram_url: str(r.instagram_url),
+    instagram_reels: normalizeInstagramReels(r.instagram_reels),
     facebook_url: str(r.facebook_url),
     tiktok_url: str(r.tiktok_url),
     announcement: {

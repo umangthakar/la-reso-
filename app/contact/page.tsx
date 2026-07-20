@@ -122,10 +122,14 @@ export default async function ContactPage() {
             </Reveal>
           </div>
 
-          {/* Form column */}
-          <Reveal delay={0.1}>
-            <ContactForm />
-          </Reveal>
+          {/* Form column — Custom Cake Inquiry. The header "Contact for Custom
+              Order" button scrolls here (#inquiry); scroll-mt clears the sticky
+              header. */}
+          <div id="inquiry" className="scroll-mt-28">
+            <Reveal delay={0.1}>
+              <ContactForm whatsapp={contact.whatsapp || contact.phone} />
+            </Reveal>
+          </div>
         </div>
       </section>
     </>

@@ -33,6 +33,7 @@ const WRITABLE = [
   "home_slider",
   "whatsapp_bar",
   "instagram_url",
+  "instagram_reels",
   "facebook_url",
   "tiktok_url",
   "hero_tagline",

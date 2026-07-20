@@ -17,10 +17,16 @@ import {
 } from "swiper/modules"
 
 interface CarouselProps {
-  images: { src: string; alt: string }[]
+  // `href` (optional) makes the slide a link — used by the Instagram Reels
+  // gallery so each thumbnail opens its reel. Existing callers omit it and
+  // render exactly as before.
+  images: { src: string; alt: string; href?: string }[]
   autoplayDelay?: number
   showPagination?: boolean
   showNavigation?: boolean
+  // Skip the Next image optimizer — needed when `src` is a same-origin proxy
+  // route (e.g. Instagram thumbnails) that may redirect to an SVG placeholder.
+  unoptimized?: boolean
 }
 
 export const CardCarousel: React.FC<CarouselProps> = ({
@@ -28,6 +34,7 @@ export const CardCarousel: React.FC<CarouselProps> = ({
   autoplayDelay = 1500,
   showPagination = true,
   showNavigation = true,
+  unoptimized = false,
 }) => {
   const css = `
   .swiper {
@@ -85,19 +92,37 @@ export const CardCarousel: React.FC<CarouselProps> = ({
           }
           modules={[EffectCoverflow, Autoplay, Pagination, Navigation]}
         >
-          {images.map((image, index) => (
-            <SwiperSlide key={index}>
+          {images.map((image, index) => {
+            const media = (
               <div className="size-full rounded-3xl overflow-hidden aspect-square">
                 <Image
                   src={image.src}
                   width={300}
                   height={300}
+                  unoptimized={unoptimized}
                   className="size-full object-cover rounded-xl"
                   alt={image.alt}
                 />
               </div>
-            </SwiperSlide>
-          ))}
+            )
+            return (
+              <SwiperSlide key={index}>
+                {image.href ? (
+                  <a
+                    href={image.href}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label={image.alt}
+                    className="block size-full"
+                  >
+                    {media}
+                  </a>
+                ) : (
+                  media
+                )}
+              </SwiperSlide>
+            )
+          })}
         </Swiper>
       </div>
     </section>

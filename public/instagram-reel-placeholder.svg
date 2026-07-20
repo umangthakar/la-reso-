@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400" role="img" aria-label="Instagram reel">
+  <rect width="400" height="400" fill="#F9EEEA"/>
+  <g fill="none" stroke="#873853" stroke-width="10" stroke-linejoin="round" stroke-linecap="round">
+    <rect x="120" y="120" width="160" height="160" rx="44"/>
+    <circle cx="200" cy="200" r="42"/>
+    <circle cx="262" cy="138" r="6" fill="#873853" stroke="none"/>
+  </g>
+  <path d="M186 186 v28 l24 -14 z" fill="#873853"/>
+  <text x="200" y="330" font-family="Georgia, serif" font-size="26" fill="#9C616D" text-anchor="middle">Watch on Instagram</text>
+</svg>

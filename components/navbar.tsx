@@ -164,10 +164,10 @@ export function Navbar() {
               )}
             </Link>
             <Button asChild size="sm" className="px-3 text-xs sm:px-5 sm:text-sm">
-              <Link href="/contact">
+              <Link href="/contact#inquiry">
                 <ShoppingBag className="h-4 w-4" />
-                <span className="hidden sm:inline">Order Now</span>
-                <span className="sm:hidden">Order</span>
+                <span className="hidden sm:inline">Contact for Custom Order</span>
+                <span className="sm:hidden">Custom Order</span>
               </Link>
             </Button>
             <button
@@ -202,9 +202,9 @@ export function Navbar() {
                 </Link>
               ))}
               <Button asChild className="mt-1">
-                <Link href="/contact">
+                <Link href="/contact#inquiry">
                   <ShoppingBag className="h-4 w-4" />
-                  Order Now
+                  Contact for Custom Order
                 </Link>
               </Button>
             </div>

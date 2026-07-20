@@ -89,7 +89,20 @@ export type Selection = {
   enabled?: boolean;
   /** text / textarea */
   text?: string;
+  /** Number-candle digits, in order (e.g. "21"). ADDITIVE + backward
+   *  compatible: only the Number Candle configurator sets this, and it only
+   *  ever rides on a single-select (radio/dropdown) choice. When present it
+   *  multiplies the chosen accessory's price by the digit count (each digit is
+   *  its own candle) — both on the storefront and in the server re-price, which
+   *  use the same helpers below. Absent → every existing basket prices exactly
+   *  as before. */
+  digits?: string;
 };
+
+/** The ordered digits of a Number-candle selection, cleaned to 0-9 only. */
+export function selectionDigits(sel: Selection | undefined): string {
+  return (sel?.digits ?? "").replace(/\D/g, "");
+}
 
 /** Keyed by category key. */
 export type Selections = Record<string, Selection>;
@@ -357,9 +370,12 @@ export function priceSelections(
     } else if (TEXT_TYPES.includes(cat.displayType)) {
       if ((sel.text ?? "").trim()) total += cat.price;
     } else {
+      // Number-candle digits multiply the chosen accessory (each digit is a
+      // candle); mult is 1 for every ordinary choice (no digits set).
+      const mult = Math.max(1, selectionDigits(sel).length);
       for (const value of sel.values ?? []) {
         const acc = cat.accessories.find((a) => a.value === value);
-        if (acc) total += acc.price;
+        if (acc) total += acc.price * mult;
       }
     }
   }
@@ -490,10 +506,22 @@ export function summarize(
       continue;
     }
 
+    const digits = selectionDigits(sel);
     for (const value of sel.values ?? []) {
       const acc = cat.accessories.find((a) => a.value === value);
-      if (!acc || (acc.price === 0 && acc.isDefault)) continue;
-      lines.push({ key: cat.key, label: cat.name, value: acc.name, price: acc.price });
+      if (!acc || (acc.price === 0 && acc.isDefault && !digits)) continue;
+      if (digits) {
+        // "Number candle — 2 1", one line, priced per digit.
+        lines.push({
+          key: cat.key,
+          label: cat.name,
+          value: `${acc.name} — ${digits.split("").join(" ")}`,
+          quantity: digits.length,
+          price: round2(acc.price * digits.length),
+        });
+      } else {
+        lines.push({ key: cat.key, label: cat.name, value: acc.name, price: acc.price });
+      }
     }
   }
 
@@ -539,6 +567,8 @@ export function signatureOf(selections: Selections): string {
     if (sel.enabled) bits.push("yes");
     const text = (sel.text ?? "").trim();
     if (text) bits.push(text);
+    const digits = selectionDigits(sel);
+    if (digits) bits.push(`#${digits}`);
     if (bits.length) parts.push(`${key}=${bits.join("|")}`);
   }
   return parts.join(";");
