@@ -162,6 +162,31 @@ function dedupe(
   return pending;
 }
 
+/**
+ * Race a promise against a timeout so a hung network call (e.g. Supabase's
+ * signup gateway blocking on an SMTP send that never returns) can't leave the
+ * UI awaiting forever. The bound is set just beyond Supabase's own ~15s gateway
+ * timeout, so a normal 504 still reaches us as an error; this only trips on a
+ * genuinely dead socket. Rejects with a tagged Error the caller can catch.
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${ms}ms`));
+    }, ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
+
 /** Derive a friendly display user from a Supabase auth user. */
 function mapUser(u: User | null): AuthUser | null {
   if (!u) return null;
@@ -257,14 +282,33 @@ export function useAuth() {
         const supabase = createClient();
         trace("POST /auth/v1/signup →", address);
 
+        const startedAt = Date.now();
         try {
-          const { data, error } = await supabase.auth.signUp({
-            email: address,
-            password,
-            options: {
-              data: { full_name: name.trim() },
-              emailRedirectTo: callbackUrl(next),
-            },
+          // ── Before Supabase signUp ────────────────────────────────────
+          // This is the ONLY external/async call in our signup path. There is
+          // no Resend/SMTP/email code on our side — Supabase itself sends the
+          // confirmation email synchronously inside this request, so if its
+          // SMTP hangs, THIS await is where the ~15s / 504 originates.
+          console.log("[signup] before supabase.auth.signUp", { email: address });
+
+          const { data, error } = await withTimeout(
+            supabase.auth.signUp({
+              email: address,
+              password,
+              options: {
+                data: { full_name: name.trim() },
+                emailRedirectTo: callbackUrl(next),
+              },
+            }),
+            20_000,
+            "supabase.auth.signUp",
+          );
+
+          // ── After Supabase signUp ─────────────────────────────────────
+          console.log("[signup] after supabase.auth.signUp", {
+            elapsedMs: Date.now() - startedAt,
+            hasError: Boolean(error),
+            status: error?.status ?? null,
           });
 
           if (error) {
@@ -279,12 +323,20 @@ export function useAuth() {
             return { error: friendlyError(error), rateLimited: isRateLimited(error) };
           }
 
+          // Note: no client-side email step to log — the verification email is
+          // sent by Supabase inside the call above, not by our code.
           console.log("[signup] Supabase response", {
             userId: data.user?.id ?? null,
             hasSession: Boolean(data.session),
             needsVerification: !data.session,
           });
           trace("signup ok — verification email queued");
+
+          // ── Before response return ────────────────────────────────────
+          console.log("[signup] before returning result", {
+            needsVerification: !data.session,
+            elapsedMs: Date.now() - startedAt,
+          });
           // A session here means email confirmation is switched off in Supabase;
           // no session means the verification email is on its way.
           return { error: null, needsVerification: !data.session };
@@ -293,7 +345,10 @@ export function useAuth() {
           // timeout — Supabase's email send hanging ~15s is the classic case.
           // Without this catch the rejection propagates to the UI's await and
           // surfaces as an empty {} (an Error's message is non-enumerable).
-          console.error("[signup] Unexpected exception during signUp", e);
+          console.error("[signup] Unexpected exception during signUp", {
+            elapsedMs: Date.now() - startedAt,
+            error: e,
+          });
           const message =
             e instanceof Error && e.message
               ? e.message
