@@ -97,13 +97,13 @@ export function Navbar() {
         )}
       >
         <nav className="container flex items-center justify-between py-3">
-          <Link href="/" className="flex items-center gap-2.5">
+          <Link href="/" className="flex min-w-0 items-center gap-2.5">
             <LogoMark logo={settings.logo} />
-            <span className="flex flex-col leading-none">
-              <span className="font-display text-lg font-semibold text-darkberry">
+            <span className="flex min-w-0 flex-col leading-none">
+              <span className="truncate font-display text-lg font-semibold text-darkberry">
                 Le Rasa
               </span>
-              <span className="text-[10px] font-bold uppercase tracking-[0.22em] text-wine-dark">
+              <span className="truncate text-[10px] font-bold uppercase tracking-[0.22em] text-wine-dark">
                 Eggless Bakery
               </span>
             </span>
@@ -143,7 +143,7 @@ export function Navbar() {
               cart/profile group. Mobile: the icon inside that group below. */}
           <HeaderSearch variant="desktop" />
 
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
             <HeaderSearch variant="mobile" />
 
             {/* Cart: opens the slide-in drawer; badge shows live item count. */}
@@ -163,11 +163,14 @@ export function Navbar() {
                 <User className="h-5 w-5" />
               )}
             </Link>
-            <Button asChild size="sm" className="px-3 text-xs sm:px-5 sm:text-sm">
-              <Link href="/contact#inquiry">
-                <ShoppingBag className="h-4 w-4" />
+            <Button
+              asChild
+              size="sm"
+              className="h-10 w-10 shrink-0 p-0 sm:h-9 sm:w-auto sm:px-5 sm:text-sm"
+            >
+              <Link href="/contact#inquiry" aria-label="Contact for custom order">
+                <ShoppingBag className="h-5 w-5 sm:h-4 sm:w-4" />
                 <span className="hidden sm:inline">Contact for Custom Order</span>
-                <span className="sm:hidden">Custom Order</span>
               </Link>
             </Button>
             <button
