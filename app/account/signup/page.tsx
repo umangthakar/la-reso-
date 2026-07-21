@@ -64,19 +64,33 @@ export default function SignupPage() {
     setSubmitting(true);
     setError(null);
 
-    const res = await signUpWithEmail(email, password, name, next);
-    setSubmitting(false);
+    try {
+      const res = await signUpWithEmail(email, password, name, next);
 
-    if (res.error) {
-      setError(res.error);
-      return;
+      if (res.error) {
+        setError(res.error);
+        return;
+      }
+      if (res.needsVerification) {
+        setSent(true);
+        return;
+      }
+      // Email confirmation switched off in Supabase — the session is already live.
+      router.replace(next);
+    } catch (err) {
+      // Last-resort guard: signUpWithEmail already catches, but never let an
+      // unexpected rejection surface to the customer as an empty {} object.
+      console.error("[signup:ui] Unexpected error creating account", err);
+      setError(
+        err instanceof Error && err.message
+          ? err.message
+          : "Something went wrong creating your account. Please try again.",
+      );
+    } finally {
+      // Always clears the loading state — even on an exception the button
+      // returns from "Creating account…" instead of hanging.
+      setSubmitting(false);
     }
-    if (res.needsVerification) {
-      setSent(true);
-      return;
-    }
-    // Email confirmation switched off in Supabase — the session is already live.
-    router.replace(next);
   }
 
   return (

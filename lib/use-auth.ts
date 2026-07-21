@@ -257,23 +257,49 @@ export function useAuth() {
         const supabase = createClient();
         trace("POST /auth/v1/signup →", address);
 
-        const { data, error } = await supabase.auth.signUp({
-          email: address,
-          password,
-          options: {
-            data: { full_name: name.trim() },
-            emailRedirectTo: callbackUrl(next),
-          },
-        });
+        try {
+          const { data, error } = await supabase.auth.signUp({
+            email: address,
+            password,
+            options: {
+              data: { full_name: name.trim() },
+              emailRedirectTo: callbackUrl(next),
+            },
+          });
 
-        if (error) {
-          trace("signup failed", { status: error.status, code: error.code, message: error.message });
-          return { error: friendlyError(error), rateLimited: isRateLimited(error) };
+          if (error) {
+            // Structured log of the Supabase auth response (covers SMTP send
+            // failures, which Supabase reports as an unexpected_failure error).
+            console.error("[signup] Supabase auth error", {
+              status: error.status,
+              code: error.code,
+              message: error.message,
+            });
+            trace("signup failed", { status: error.status, code: error.code, message: error.message });
+            return { error: friendlyError(error), rateLimited: isRateLimited(error) };
+          }
+
+          console.log("[signup] Supabase response", {
+            userId: data.user?.id ?? null,
+            hasSession: Boolean(data.session),
+            needsVerification: !data.session,
+          });
+          trace("signup ok — verification email queued");
+          // A session here means email confirmation is switched off in Supabase;
+          // no session means the verification email is on its way.
+          return { error: null, needsVerification: !data.session };
+        } catch (e) {
+          // The call can REJECT (not return { error }) on a network/SMTP
+          // timeout — Supabase's email send hanging ~15s is the classic case.
+          // Without this catch the rejection propagates to the UI's await and
+          // surfaces as an empty {} (an Error's message is non-enumerable).
+          console.error("[signup] Unexpected exception during signUp", e);
+          const message =
+            e instanceof Error && e.message
+              ? e.message
+              : "We couldn't create your account right now. Please try again in a moment.";
+          return { error: message };
         }
-        trace("signup ok — verification email queued");
-        // A session here means email confirmation is switched off in Supabase;
-        // no session means the verification email is on its way.
-        return { error: null, needsVerification: !data.session };
       });
     },
     [],
