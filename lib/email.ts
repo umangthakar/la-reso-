@@ -54,9 +54,27 @@ export type SendEmailResult = { ok: boolean; error?: string };
 export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult> {
   const key = (process.env.RESEND_API_KEY ?? "").trim();
   const to = (input.to ?? "").trim();
-  if (!key || !to) return { ok: false, error: "email not configured" };
+
+  // Diagnostic: surface exactly what the server has loaded at send time.
+  console.log("EMAIL CONFIG", {
+    resend: !!process.env.RESEND_API_KEY,
+    owner: process.env.OWNER_EMAIL,
+    from: process.env.EMAIL_FROM,
+  });
+  console.log("EMAIL from address", fromAddress());
+  console.log("EMAIL to (recipient)", to || "(empty)");
+
+  if (!key) {
+    console.error("Resend Error: RESEND_API_KEY missing — no request will be sent to Resend.");
+    return { ok: false, error: "email not configured: RESEND_API_KEY missing" };
+  }
+  if (!to) {
+    console.error("Resend Error: recipient (to) is empty — no request will be sent to Resend.");
+    return { ok: false, error: "email not configured: recipient missing" };
+  }
 
   try {
+    console.log("EMAIL sending request to Resend...", { subject: input.subject });
     const res = await fetch(RESEND_ENDPOINT, {
       method: "POST",
       headers: {
@@ -71,12 +89,24 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
         ...(input.replyTo ? { reply_to: input.replyTo } : {}),
       }),
     });
+
+    const detail = await res.text().catch(() => "");
     if (!res.ok) {
-      const detail = await res.text().catch(() => "");
+      // Never silently fail — log the full context Resend returned.
+      console.error("Resend Error", {
+        statusCode: res.status,
+        statusText: res.statusText,
+        headers: Object.fromEntries(res.headers.entries()),
+        body: detail,
+      });
       return { ok: false, error: `Resend ${res.status}: ${detail.slice(0, 200)}` };
     }
+
+    console.log("Resend response:", detail || "(empty body)");
+    console.log("Email sent successfully.");
     return { ok: true };
   } catch (e) {
+    console.error("Resend Error (network/exception)", e);
     return { ok: false, error: e instanceof Error ? e.message : "email failed" };
   }
 }

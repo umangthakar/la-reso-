@@ -74,6 +74,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Please add your contact details." }, { status: 400 });
   }
 
+  console.log("Saving inquiry...");
   const { data, error } = await admin
     .from("custom_inquiries")
     .insert(insert)
@@ -81,8 +82,10 @@ export async function POST(req: Request) {
     .single();
 
   if (error) {
+    console.error("Inquiry save failed:", error.message);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+  console.log("Inquiry saved.");
 
   const inquiryId = String((data as { id?: string }).id ?? "");
   const inquiryNumber = String((data as { inquiry_number?: string }).inquiry_number ?? "");
@@ -90,8 +93,10 @@ export async function POST(req: Request) {
   // Best-effort owner email — never blocks the response. Recipient is
   // OWNER_EMAIL (env); we fall back to the bakery contact email if unset.
   try {
+    console.log("Preparing email...");
     let recipient = ownerEmail();
     if (!recipient) {
+      console.warn("OWNER_EMAIL missing — falling back to site_settings contact email.");
       const { data: settingsRow } = await admin
         .from("site_settings")
         .select("contact,email")
@@ -99,6 +104,10 @@ export async function POST(req: Request) {
         .maybeSingle();
       const contact = (settingsRow?.contact ?? {}) as { email?: string };
       recipient = (contact.email || (settingsRow?.email as string) || "").trim();
+    }
+
+    if (!recipient) {
+      console.error("No owner email recipient available (OWNER_EMAIL unset and no site_settings contact email). Skipping owner notification.");
     }
 
     if (recipient) {
@@ -126,10 +135,13 @@ export async function POST(req: Request) {
           adminUrl: `${base}/admin`,
         },
       );
-      await sendEmail({ to: recipient, subject, html, replyTo: insert.email || undefined });
+      console.log("Sending owner email...", { to: recipient });
+      const result = await sendEmail({ to: recipient, subject, html, replyTo: insert.email || undefined });
+      console.log("sendEmail result:", result);
     }
-  } catch {
-    /* owner email is best-effort */
+  } catch (e) {
+    // owner email is best-effort — log but never fail the inquiry save.
+    console.error("Owner email step threw (best-effort, inquiry still saved):", e);
   }
 
   return NextResponse.json({ id: inquiryId, inquiry_number: inquiryNumber });
