@@ -187,6 +187,39 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   });
 }
 
+/**
+ * POST to one of our Resend-backed auth-email endpoints and map the generic
+ * { success, message } response onto EmailAuthResult. Used for verification
+ * resend and password-reset requests so NO auth email touches Supabase SMTP.
+ */
+async function postAuthEmail(
+  url: string,
+  body: Record<string, unknown>,
+): Promise<EmailAuthResult> {
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const json = (await res.json().catch(() => ({}))) as {
+      success?: boolean;
+      message?: string;
+    };
+    if (!res.ok || !json.success) {
+      return {
+        error: json.message || "Something went wrong. Please try again.",
+        rateLimited: res.status === 429,
+      };
+    }
+    return { error: null };
+  } catch (e) {
+    return {
+      error: e instanceof Error && e.message ? e.message : "Network error. Please try again.",
+    };
+  }
+}
+
 /** Derive a friendly display user from a Supabase auth user. */
 function mapUser(u: User | null): AuthUser | null {
   if (!u) return null;
@@ -273,79 +306,74 @@ export function useAuth() {
       email: string,
       password: string,
       name: string,
-      next = "/account",
+      // `next` is kept for call-site compatibility; the endpoint always sends a
+      // verification email and never signs the user in, so there's nowhere to
+      // redirect from here.
+      _next = "/account",
     ): Promise<EmailAuthResult> => {
       const address = email.trim();
-      // Deduped: exactly one POST /auth/v1/signup per address, however many
+      // Deduped: exactly one POST /api/auth/signup per address, however many
       // times the button is clicked before it disables.
       return dedupe(`signup:${address.toLowerCase()}`, async () => {
-        const supabase = createClient();
-        trace("POST /auth/v1/signup →", address);
+        trace("POST /api/auth/signup →", address);
 
         const startedAt = Date.now();
         try {
-          // ── Before Supabase signUp ────────────────────────────────────
-          // This is the ONLY external/async call in our signup path. There is
-          // no Resend/SMTP/email code on our side — Supabase itself sends the
-          // confirmation email synchronously inside this request, so if its
-          // SMTP hangs, THIS await is where the ~15s / 504 originates.
-          console.log("[signup] before supabase.auth.signUp", { email: address });
+          // ── Before signup request ─────────────────────────────────────
+          // Signup now goes through our own endpoint, which creates the user
+          // and sends the verification email via Resend (NOT Supabase SMTP).
+          // The EmailAuthResult contract is unchanged, so the page — its
+          // loading, validation, errors, animations — is untouched.
+          console.log("[signup] before POST /api/auth/signup", { email: address });
 
-          const { data, error } = await withTimeout(
-            supabase.auth.signUp({
-              email: address,
-              password,
-              options: {
-                data: { full_name: name.trim() },
-                emailRedirectTo: callbackUrl(next),
-              },
+          const res = await withTimeout(
+            fetch("/api/auth/signup", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ email: address, password, name: name.trim() }),
             }),
             20_000,
-            "supabase.auth.signUp",
+            "POST /api/auth/signup",
           );
 
-          // ── After Supabase signUp ─────────────────────────────────────
-          console.log("[signup] after supabase.auth.signUp", {
+          const json = (await res.json().catch(() => ({}))) as {
+            success?: boolean;
+            message?: string;
+            details?: string;
+          };
+
+          // ── After signup request ──────────────────────────────────────
+          console.log("[signup] after POST /api/auth/signup", {
             elapsedMs: Date.now() - startedAt,
-            hasError: Boolean(error),
-            status: error?.status ?? null,
+            status: res.status,
+            success: Boolean(json.success),
           });
 
-          if (error) {
-            // Structured log of the Supabase auth response (covers SMTP send
-            // failures, which Supabase reports as an unexpected_failure error).
-            console.error("[signup] Supabase auth error", {
-              status: error.status,
-              code: error.code,
-              message: error.message,
+          if (!res.ok || !json.success) {
+            console.error("[signup] signup endpoint error", {
+              status: res.status,
+              message: json.message,
+              details: json.details,
             });
-            trace("signup failed", { status: error.status, code: error.code, message: error.message });
-            return { error: friendlyError(error), rateLimited: isRateLimited(error) };
+            trace("signup failed", { status: res.status, message: json.message });
+            return {
+              error: json.message || "We couldn't create your account right now. Please try again.",
+              // 429 would be a platform-level throttle; surface it as rate-limited.
+              rateLimited: res.status === 429,
+            };
           }
 
-          // Note: no client-side email step to log — the verification email is
-          // sent by Supabase inside the call above, not by our code.
-          console.log("[signup] Supabase response", {
-            userId: data.user?.id ?? null,
-            hasSession: Boolean(data.session),
-            needsVerification: !data.session,
-          });
-          trace("signup ok — verification email queued");
-
-          // ── Before response return ────────────────────────────────────
+          // The endpoint never signs the user in — it always sends a Resend
+          // verification email, so the "check your inbox" screen always shows.
           console.log("[signup] before returning result", {
-            needsVerification: !data.session,
+            needsVerification: true,
             elapsedMs: Date.now() - startedAt,
           });
-          // A session here means email confirmation is switched off in Supabase;
-          // no session means the verification email is on its way.
-          return { error: null, needsVerification: !data.session };
+          trace("signup ok — verification email sent via Resend");
+          return { error: null, needsVerification: true };
         } catch (e) {
-          // The call can REJECT (not return { error }) on a network/SMTP
-          // timeout — Supabase's email send hanging ~15s is the classic case.
-          // Without this catch the rejection propagates to the UI's await and
-          // surfaces as an empty {} (an Error's message is non-enumerable).
-          console.error("[signup] Unexpected exception during signUp", {
+          // Network failure / timeout — never let a rejection surface as {}.
+          console.error("[signup] Unexpected exception during signup request", {
             elapsedMs: Date.now() - startedAt,
             error: e,
           });
@@ -360,51 +388,36 @@ export function useAuth() {
     [],
   );
 
-  /** Re-send the verification email for an address that never confirmed. */
+  /**
+   * Re-send the verification email for an address that never confirmed. Goes
+   * through /api/auth/resend-verification (Resend), NOT Supabase SMTP. The
+   * endpoint enforces its own 60s cooldown + rate limit and returns a generic
+   * response, so we never reveal whether the address exists.
+   */
   const resendVerification = useCallback(
-    (email: string, next = "/account"): Promise<EmailAuthResult> => {
+    (email: string, _next = "/account"): Promise<EmailAuthResult> => {
       const address = email.trim();
       // Also deduped — a resend costs an email against the same rate limit.
       return dedupe(`resend:${address.toLowerCase()}`, async () => {
-        const supabase = createClient();
-        trace("POST /auth/v1/resend →", address);
-
-        const { error } = await supabase.auth.resend({
-          type: "signup",
-          email: address,
-          options: { emailRedirectTo: callbackUrl(next) },
-        });
-
-        if (error) {
-          trace("resend failed", { status: error.status, code: error.code });
-          return { error: friendlyError(error), rateLimited: isRateLimited(error) };
-        }
-        return { error: null };
+        trace("POST /api/auth/resend-verification →", address);
+        return postAuthEmail("/api/auth/resend-verification", { email: address });
       });
     },
     [],
   );
 
   /**
-   * Send the "forgot password" email. The link lands on /auth/callback, which
-   * establishes the session and forwards to /account/reset-password.
+   * Send the "forgot password" email via /api/auth/reset (Resend), NOT Supabase
+   * SMTP. The link lands on /auth/reset-password?token=… (token-based), so it no
+   * longer depends on a Supabase recovery session. Always resolves to a generic
+   * success — the endpoint never reveals whether the account exists.
    */
   const sendPasswordReset = useCallback(
     (email: string): Promise<EmailAuthResult> => {
       const address = email.trim();
       return dedupe(`reset:${address.toLowerCase()}`, async () => {
-        const supabase = createClient();
-        trace("POST /auth/v1/recover →", address);
-
-        const { error } = await supabase.auth.resetPasswordForEmail(address, {
-          redirectTo: callbackUrl(RESET_PATH, "recovery"),
-        });
-
-        if (error) {
-          trace("reset failed", { status: error.status, code: error.code });
-          return { error: friendlyError(error), rateLimited: isRateLimited(error) };
-        }
-        return { error: null };
+        trace("POST /api/auth/forgot-password →", address);
+        return postAuthEmail("/api/auth/forgot-password", { email: address });
       });
     },
     [],

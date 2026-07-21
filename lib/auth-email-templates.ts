@@ -143,14 +143,34 @@ export type WelcomeEmailData = AuthTemplateBrand & {
   actionUrl: string;
 };
 
+/** A single "what you can do now" perk row (emoji + label + copy). */
+function perk(icon: string, title: string, copy: string): string {
+  return `<tr>
+    <td width="34" valign="top" style="padding:8px 12px 8px 0;font-size:20px;line-height:1.2">${icon}</td>
+    <td valign="top" style="padding:8px 0">
+      <div style="color:${BERRY};font-weight:700;font-size:14px">${esc(title)}</div>
+      <div style="color:#7A5460;font-size:13px;line-height:1.5">${esc(copy)}</div>
+    </td>
+  </tr>`;
+}
+
 export function buildWelcomeEmail(data: WelcomeEmailData): AuthTemplateResult {
   const brandName = data.brandName || "Le Rasa Bakery";
+  const perks = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:6px 0 24px;border-collapse:collapse">
+      ${perk("🍰", "Order in a tap", "Browse our 100% eggless cakes and bakes and check out in seconds.")}
+      ${perk("📦", "Track every order", "Follow your order from kitchen to doorstep, all in one place.")}
+      ${perk("↺", "Reorder favourites", "Your details are saved, so repeat orders take moments.")}
+    </table>`;
+
   const body = `${greeting(data.name)}
-    <p style="margin:0 0 20px">Your account is ready. Save your details, track orders and reorder your favourites in one tap.</p>
-    <p style="margin:0 0 6px">${button(data.actionUrl, "Start ordering")}</p>
-    <p style="margin:18px 0 0;font-size:13px;color:#9C616D">Thanks for choosing our 100% eggless bakery — we can't wait to bake for you.</p>`;
+    <p style="margin:0 0 6px;font-size:16px;color:${BERRY}">Your account is verified and ready to go. 🎉</p>
+    <p style="margin:0 0 18px">We're so glad to have you. Here's what you can do now:</p>
+    ${perks}
+    <p style="margin:0 0 6px" align="center">${button(data.actionUrl, "Start ordering")}</p>
+    <p style="margin:20px 0 0;font-size:13px;color:#9C616D;text-align:center">Thanks for choosing our 100% eggless bakery — we can't wait to bake for you.</p>`;
+
   return {
-    subject: `Welcome to ${brandName}`,
+    subject: `Welcome to ${brandName} 🎂`,
     html: layout({ brandName, heading: `Welcome to ${brandName}`, bodyHtml: body, supportEmail: data.supportEmail }),
   };
 }

@@ -2,8 +2,9 @@
 
 // ============================================================
 // Le Rasa Bakery — forgot password (/account/forgot-password)
-// Sends the Supabase reset email. The link lands on /auth/callback,
-// which establishes the session and forwards to /account/reset-password.
+// Sends the reset email via Resend (/api/auth/forgot-password) — NOT Supabase
+// SMTP. The link lands on the token-based /auth/reset-password page. Always
+// reports generic success, so an unknown address is never revealed.
 // ============================================================
 
 import { useState } from "react";
