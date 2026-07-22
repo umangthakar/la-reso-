@@ -59,6 +59,7 @@ export type DeliveryZone = {
 };
 
 export type PublicSettings = {
+  branding: Branding;
   contact: Contact;
   logo: string;
   instagram_url: string;
@@ -147,6 +148,62 @@ export const DEFAULT_HOME_SLIDER: string[] = [
 export const DEFAULT_ABOUT_TEXT =
   "Le Rasa is a house of 100% eggless desserts — handcrafted cakes, cupcakes, brownies and gift boxes, baked fresh daily with real ingredients so every celebration can be shared by everyone.";
 
+// ============================================================
+// Branding — the single source of truth for every piece of brand copy
+// shown across the site (wordmark, tagline, descriptions, SEO). Stored in
+// the site_settings.branding jsonb column and edited from the admin
+// "Branding Settings" section. Every field defaults to the values that
+// were previously hardcoded, so the site is unchanged until the admin
+// edits them, and nothing breaks if the column hasn't been migrated yet.
+// ============================================================
+export type Branding = {
+  /** Full bakery name (e.g. SEO, structured data). */
+  name: string;
+  /** Compact wordmark shown in the navbar / footer / splash. */
+  short_name: string;
+  /** The line under the wordmark — replaces the old "Eggless Bakery". */
+  tagline: string;
+  /** Business description (SEO / about blurbs). */
+  description: string;
+  /** Subtitle shown under the wordmark on the splash screen. */
+  hero_subtitle: string;
+  /** Paragraph under the footer wordmark. */
+  footer_description: string;
+  /** Text after "© {year}" in the footer copyright line. */
+  copyright: string;
+};
+
+export const BRANDING_DEFAULT: Branding = {
+  name: "Le Rasa Bakery",
+  short_name: "Le Rasa",
+  tagline: "House of Eggless Desserts",
+  description:
+    "Le Rasa Bakery crafts stunning, 100% eggless cakes, cupcakes, brownies, cookies and gift boxes. Premium desserts everyone can share.",
+  hero_subtitle: "The House of Eggless Desserts",
+  footer_description:
+    "The house of eggless desserts. Handcrafted cakes & treats baked fresh, so everyone gets a slice of the celebration.",
+  copyright: "Le Rasa Bakery. All rights reserved.",
+};
+
+/** Coerce an unknown value into a fully-populated Branding, field-by-field,
+ *  so a partial or legacy row still yields every default. */
+export function normaliseBranding(raw: unknown): Branding {
+  const b = (raw ?? {}) as Partial<Record<keyof Branding, unknown>>;
+  const pick = (v: unknown, fallback: string) => {
+    const s = typeof v === "string" ? v.trim() : "";
+    return s || fallback;
+  };
+  return {
+    name: pick(b.name, BRANDING_DEFAULT.name),
+    short_name: pick(b.short_name, BRANDING_DEFAULT.short_name),
+    tagline: pick(b.tagline, BRANDING_DEFAULT.tagline),
+    description: pick(b.description, BRANDING_DEFAULT.description),
+    hero_subtitle: pick(b.hero_subtitle, BRANDING_DEFAULT.hero_subtitle),
+    footer_description: pick(b.footer_description, BRANDING_DEFAULT.footer_description),
+    copyright: pick(b.copyright, BRANDING_DEFAULT.copyright),
+  };
+}
+
 /** Coerce an unknown value into a valid RotatingBanner. */
 function normaliseBanner(v: unknown): RotatingBanner {
   const b = (v ?? {}) as Partial<RotatingBanner>;
@@ -194,6 +251,7 @@ function stripePublic(raw: unknown): {
 
 export const DEFAULT_SETTINGS: PublicSettings = {
   ...stripePublic(null),
+  branding: BRANDING_DEFAULT,
   contact: CONTACT_DEFAULT,
   logo: "",
   instagram_url: "",
@@ -218,7 +276,7 @@ export const DEFAULT_SETTINGS: PublicSettings = {
 // `stripe_config` is fetched only so normaliseSettings can derive the two safe
 // values above — the raw column (incl. secret_key_enc) never leaves this layer.
 export const PUBLIC_SETTINGS_SELECT =
-  "contact,logo,phone,email,address,whatsapp,instagram_url,instagram_reels,facebook_url,tiktok_url,announcement,hero_banner,rotating_banners,whatsapp_bar,about_story,about_image_url,home_slider,delivery_zones,lead_time_days,blocked_dates,delivery_days,stripe_config";
+  "branding,contact,logo,phone,email,address,whatsapp,instagram_url,instagram_reels,facebook_url,tiktok_url,announcement,hero_banner,rotating_banners,whatsapp_bar,about_story,about_image_url,home_slider,delivery_zones,lead_time_days,blocked_dates,delivery_days,stripe_config";
 
 function str(v: unknown): string {
   return typeof v === "string" ? v : "";
@@ -316,6 +374,7 @@ export function normaliseSettings(
 
   return {
     ...stripePublic(r.stripe_config),
+    branding: normaliseBranding(r.branding),
     contact: {
       phone: str(c.phone) || str(r.phone),
       whatsapp: str(c.whatsapp) || str(r.whatsapp),

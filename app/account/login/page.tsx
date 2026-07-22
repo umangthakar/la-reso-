@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/use-auth";
+import { useSiteSettings } from "@/lib/use-site-settings";
 
 /** Inline Google "G" mark (no external asset — CSP-safe). */
 function GoogleMark({ className }: { className?: string }) {
@@ -44,6 +45,8 @@ export default function LoginPage() {
   const router = useRouter();
   const { user, ready, signInWithGoogle, signInWithEmail, resendVerification } =
     useAuth();
+  const { settings } = useSiteSettings();
+  const brandName = settings.branding.short_name;
   const [signingIn, setSigningIn] = useState(false);
   const [authError, setAuthError] = useState(false);
   // Where to send the customer once they're in — set by the purchase gate to
@@ -140,7 +143,7 @@ export default function LoginPage() {
               <Cake className="h-7 w-7" />
             </span>
             <h1 className="mt-4 font-display text-2xl font-semibold text-darkberry sm:text-3xl">
-              Welcome to Le Rasa
+              Welcome to {brandName}
             </h1>
             <p className="mt-1 text-sm text-darkberry-light">
               {gated
@@ -244,7 +247,7 @@ export default function LoginPage() {
           </button>
 
           <p className="mt-6 text-center text-sm font-semibold text-darkberry-light">
-            New to Le Rasa?{" "}
+            New to {brandName}?{" "}
             <Link
               href={
                 gated

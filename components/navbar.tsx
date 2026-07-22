@@ -101,10 +101,10 @@ export function Navbar() {
             <LogoMark logo={settings.logo} />
             <span className="flex min-w-0 flex-col leading-none">
               <span className="truncate font-display text-lg font-semibold text-darkberry">
-                Le Rasa
+                {settings.branding.short_name}
               </span>
               <span className="truncate text-[10px] font-bold uppercase tracking-[0.22em] text-wine-dark">
-                Eggless Bakery
+                {settings.branding.tagline}
               </span>
             </span>
           </Link>

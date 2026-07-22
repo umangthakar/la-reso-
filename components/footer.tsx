@@ -111,16 +111,15 @@ export function Footer() {
               <LogoMark logo={settings.logo} />
               <span className="flex flex-col leading-none">
                 <span className="font-display text-lg font-semibold text-blush-50">
-                  Le Rasa
+                  {settings.branding.short_name}
                 </span>
                 <span className="text-[10px] font-bold uppercase tracking-[0.22em] text-dustyrose">
-                  Eggless Bakery
+                  {settings.branding.tagline}
                 </span>
               </span>
             </Link>
             <p className="mx-auto mt-4 max-w-xs text-sm text-blush-100/70 sm:mx-0">
-              The house of eggless desserts. Handcrafted cakes & treats baked
-              fresh, so everyone gets a slice of the celebration.
+              {settings.branding.footer_description}
             </p>
             {socials.length > 0 && (
               <div className="mt-5 flex justify-center gap-3 sm:justify-start">
@@ -232,7 +231,7 @@ export function Footer() {
 
         <div className="border-t border-blush-100/10">
           <div className="container flex flex-col items-center justify-between gap-3 py-6 text-xs text-blush-100/60 sm:flex-row">
-            <p>© {new Date().getFullYear()} Le Rasa Bakery. All rights reserved.</p>
+            <p>© {new Date().getFullYear()} {settings.branding.copyright}</p>
             <p className="flex items-center gap-1.5">
               Baked with <span className="text-wine">♥</span> & zero eggs
             </p>

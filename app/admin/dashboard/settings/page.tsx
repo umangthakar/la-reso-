@@ -29,6 +29,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { adminGet, adminSend, adminUpload } from "@/lib/admin-api";
+import { BRANDING_DEFAULT, normaliseBranding, type Branding } from "@/lib/site-settings";
 
 const WINE = "#873853";
 const BERRY = "#5C2A41";
@@ -105,6 +106,7 @@ const WHATSAPP_BAR_DEFAULT: WhatsappBar = {
 };
 
 type Settings = {
+  branding: Branding;
   contact: Contact;
   logo: string;
   announcement: Announcement;
@@ -124,6 +126,7 @@ type Settings = {
 };
 
 const EMPTY: Settings = {
+  branding: BRANDING_DEFAULT,
   contact: CONTACT_DEFAULT,
   logo: "",
   announcement: { enabled: false, text: "" },
@@ -211,6 +214,7 @@ export default function SettingsAdminPage() {
         ...Object.fromEntries(
           Object.entries(d).filter(([, v]) => v != null),
         ),
+        branding: normaliseBranding(d.branding),
         contact,
         rotating_banners: rb,
         home_slider: slider,
@@ -246,6 +250,48 @@ export default function SettingsAdminPage() {
     setSavedSection("");
   }
 
+  // Branding has its own save so it can validate the required fields and
+  // trim every value before writing the whole `branding` object at once.
+  async function saveBranding() {
+    setError("");
+    setSavedSection("");
+    const b = s.branding;
+    if (!b.name.trim()) {
+      setError("Bakery name is required.");
+      return;
+    }
+    if (!b.short_name.trim()) {
+      setError("Short name is required.");
+      return;
+    }
+    if (!b.tagline.trim()) {
+      setError("Tagline is required.");
+      return;
+    }
+    const payload: Branding = {
+      name: b.name.trim(),
+      short_name: b.short_name.trim(),
+      tagline: b.tagline.trim(),
+      description: b.description.trim(),
+      hero_subtitle: b.hero_subtitle.trim(),
+      footer_description: b.footer_description.trim(),
+      copyright: b.copyright.trim(),
+    };
+    try {
+      await adminSend("/api/admin/settings", "PUT", { branding: payload });
+      setS((f) => ({ ...f, branding: payload }));
+      setSavedSection("branding");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save branding");
+    }
+  }
+
+  // Update a single branding field.
+  function setBrand<K extends keyof Branding>(key: K, value: Branding[K]) {
+    setS((f) => ({ ...f, branding: { ...f.branding, [key]: value } }));
+    setSavedSection("");
+  }
+
   // Save only the given keys for a section.
   async function saveSection(section: string, keys: (keyof Settings)[]) {
     setError("");
@@ -274,7 +320,81 @@ export default function SettingsAdminPage() {
       <Header />
       {error && <p style={errorBox}>{error}</p>}
 
-      {/* 0. LOGO — brand mark shown in the navbar, footer and splash */}
+      {/* 0. BRANDING — the single source of truth for all brand copy. These
+             values feed the navbar, footer, splash, login pages, admin login
+             and SEO metadata across the whole site. */}
+      <SectionForm
+        title="Branding Settings"
+        saved={savedSection === "branding"}
+        onSave={saveBranding}
+      >
+        <p style={{ ...hint, marginBottom: 16 }}>
+          One place for your brand wording. Editing these updates the header, mobile
+          header, footer, splash screen, login pages and SEO across the whole site
+          instantly — no code changes needed.
+        </p>
+        <Field label="Bakery Name">
+          <input
+            style={inputStyle}
+            value={s.branding.name}
+            onChange={(e) => setBrand("name", e.target.value)}
+            placeholder="Le Rasa Bakery"
+          />
+        </Field>
+        <Field label="Short Name">
+          <input
+            style={inputStyle}
+            value={s.branding.short_name}
+            onChange={(e) => setBrand("short_name", e.target.value)}
+            placeholder="Le Rasa"
+          />
+        </Field>
+        <Field label="Tagline">
+          <input
+            style={inputStyle}
+            value={s.branding.tagline}
+            onChange={(e) => setBrand("tagline", e.target.value)}
+            placeholder="House of Eggless Desserts"
+          />
+        </Field>
+        <Field label="Business Description">
+          <textarea
+            style={{ ...textareaStyle, minHeight: 90 }}
+            value={s.branding.description}
+            onChange={(e) => setBrand("description", e.target.value)}
+            placeholder="Used for SEO and brand blurbs."
+          />
+        </Field>
+        <Field label="Hero Subtitle">
+          <input
+            style={inputStyle}
+            value={s.branding.hero_subtitle}
+            onChange={(e) => setBrand("hero_subtitle", e.target.value)}
+            placeholder="The House of Eggless Desserts"
+          />
+        </Field>
+        <Field label="Footer Description">
+          <textarea
+            style={textareaStyle}
+            value={s.branding.footer_description}
+            onChange={(e) => setBrand("footer_description", e.target.value)}
+            placeholder="Short paragraph shown under the footer logo."
+          />
+        </Field>
+        <Field label="Copyright">
+          <input
+            style={inputStyle}
+            value={s.branding.copyright}
+            onChange={(e) => setBrand("copyright", e.target.value)}
+            placeholder="Le Rasa Bakery. All rights reserved."
+          />
+          <p style={{ ...hint, marginTop: 6 }}>
+            Shown as “© {new Date().getFullYear()} {s.branding.copyright || "…"}” in the footer.
+          </p>
+        </Field>
+      </SectionForm>
+
+      {/* 0b. LOGO — brand mark shown in the navbar, footer and splash */}
       <SectionForm
         title="Logo"
         saved={savedSection === "logo"}

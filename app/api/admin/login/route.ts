@@ -6,7 +6,7 @@
 // ============================================================
 
 import { NextResponse } from "next/server";
-import { getAdminPassword } from "@/lib/admin-auth";
+import { getAdminPassword, getAdminEmail, isValidEmail } from "@/lib/admin-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -20,14 +20,24 @@ export async function POST(req: Request) {
   }
 
   let password = "";
+  let email = "";
   try {
-    const body = (await req.json()) as { password?: unknown };
+    const body = (await req.json()) as { password?: unknown; email?: unknown };
     if (typeof body?.password === "string") password = body.password;
+    if (typeof body?.email === "string") email = body.email.trim();
   } catch {
-    // malformed body → treated as empty password below
+    // malformed body → treated as empty credentials below
   }
 
-  if (password !== expected) {
+  // Email must be present and well-formed. When ADMIN_EMAIL is configured it
+  // must also match (case-insensitive); otherwise any valid email is accepted
+  // so deployments that only set ADMIN_PASSWORD keep working unchanged.
+  const expectedEmail = getAdminEmail();
+  const emailOk =
+    isValidEmail(email) &&
+    (!expectedEmail || email.toLowerCase() === expectedEmail.toLowerCase());
+
+  if (!emailOk || password !== expected) {
     return NextResponse.json({ ok: false }, { status: 401 });
   }
 

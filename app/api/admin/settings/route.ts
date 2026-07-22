@@ -18,6 +18,7 @@ export const dynamic = "force-dynamic";
 
 // Columns the admin may write. Anything else in the body is ignored.
 const WRITABLE = [
+  "branding",
   "site_name",
   "tagline",
   "logo",

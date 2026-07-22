@@ -9,7 +9,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ADMIN_AUTH_KEY } from "@/lib/admin-auth";
+import { ADMIN_AUTH_KEY, isValidEmail } from "@/lib/admin-auth";
+import { useSiteSettings } from "@/lib/use-site-settings";
 
 const BLUSH = "#F9EEEA";
 const WINE = "#873853";
@@ -17,6 +18,8 @@ const BERRY = "#5C2A41";
 
 export default function AdminLoginPage() {
   const router = useRouter();
+  const { settings } = useSiteSettings();
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -24,18 +27,31 @@ export default function AdminLoginPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (submitting) return;
+
+    // Client-side validation (the server re-checks both).
+    if (!isValidEmail(email)) {
+      setError("Please enter a valid email address.");
+      return;
+    }
+    if (!password) {
+      setError("Please enter your password.");
+      return;
+    }
+
     setSubmitting(true);
     try {
       const res = await fetch("/api/admin/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ email, password }),
       });
       if (res.ok) {
+        // Session handling is unchanged: the password is what authorises admin
+        // API calls (x-admin-auth header), so it's what we persist.
         window.sessionStorage.setItem(ADMIN_AUTH_KEY, password);
         router.push("/admin/dashboard");
       } else if (res.status === 401) {
-        setError("Incorrect password. Please try again.");
+        setError("Incorrect email or password. Please try again.");
         setPassword("");
       } else {
         setError("Sign in is unavailable right now. Please try again later.");
@@ -80,11 +96,38 @@ export default function AdminLoginPage() {
             letterSpacing: "-0.01em",
           }}
         >
-          Le Rasa Bakery
+          {settings.branding.name}
         </h1>
         <p style={{ textAlign: "center", color: BERRY, opacity: 0.7, marginTop: 6, marginBottom: 28 }}>
           Admin sign in
         </p>
+
+        <label htmlFor="email" style={{ display: "block", color: BERRY, fontWeight: 600, marginBottom: 8 }}>
+          Email
+        </label>
+        <input
+          id="email"
+          type="email"
+          autoFocus
+          autoComplete="username"
+          value={email}
+          onChange={(e) => {
+            setEmail(e.target.value);
+            setError("");
+          }}
+          placeholder="Enter admin email"
+          style={{
+            width: "100%",
+            boxSizing: "border-box",
+            padding: "12px 14px",
+            borderRadius: 12,
+            border: `1px solid ${error ? "#d9534f" : "rgba(135,56,83,0.25)"}`,
+            fontSize: "1rem",
+            outline: "none",
+            color: BERRY,
+            marginBottom: 18,
+          }}
+        />
 
         <label htmlFor="password" style={{ display: "block", color: BERRY, fontWeight: 600, marginBottom: 8 }}>
           Password
@@ -92,7 +135,7 @@ export default function AdminLoginPage() {
         <input
           id="password"
           type="password"
-          autoFocus
+          autoComplete="current-password"
           value={password}
           onChange={(e) => {
             setPassword(e.target.value);

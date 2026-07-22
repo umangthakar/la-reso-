@@ -27,6 +27,23 @@ export function getAdminPassword(): string | undefined {
   return process.env.ADMIN_PASSWORD;
 }
 
+/**
+ * The admin email — server-only, from the environment (ADMIN_EMAIL).
+ * OPTIONAL: when unset, the login accepts any correctly-formatted email
+ * (paired with the right password) so existing deployments that only
+ * configured ADMIN_PASSWORD keep working unchanged. Set ADMIN_EMAIL to
+ * additionally require a specific address at sign-in.
+ */
+export function getAdminEmail(): string | undefined {
+  const v = process.env.ADMIN_EMAIL;
+  return v && v.trim() ? v.trim() : undefined;
+}
+
+/** Shared, simple email-format check used by the admin login (client + server). */
+export function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+}
+
 /** Server-side guard for API routes. Returns true if the request carries the correct admin password. */
 export function isAuthedRequest(req: Request): boolean {
   const expected = getAdminPassword();

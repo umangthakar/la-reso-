@@ -6,6 +6,7 @@ import { Navbar } from "@/components/navbar";
 import { AnnouncementBar } from "@/components/announcement-bar";
 import { ConditionalFooter } from "@/components/conditional-footer";
 import { Providers } from "@/components/providers";
+import { getPublicSettings } from "@/lib/site-settings-server";
 
 // Never statically cache any route — the announcement bar (and any other
 // site_settings-driven chrome) must reflect admin edits without a redeploy.
@@ -26,25 +27,31 @@ const nunito = Nunito({
   weight: ["400", "500", "600", "700", "800"],
 });
 
-export const metadata: Metadata = {
-  title: "Le Rasa Bakery — House of Eggless Desserts",
-  description:
-    "Le Rasa Bakery crafts stunning, 100% eggless cakes, cupcakes, brownies, cookies and gift boxes. Premium desserts everyone can share.",
-  keywords: [
-    "eggless cakes",
-    "eggless bakery",
-    "custom cakes",
-    "birthday cakes",
-    "vegetarian desserts",
-    "Le Rasa Bakery",
-  ],
-  openGraph: {
-    title: "Le Rasa Bakery — House of Eggless Desserts",
-    description:
-      "Premium, 100% eggless cakes & desserts handcrafted for every celebration.",
-    type: "website",
-  },
-};
+// Metadata is derived from the admin Branding Settings (site_settings.branding)
+// so editing the brand name/tagline/description updates every page's <title>,
+// description and Open Graph tags with no code change. Falls back to the
+// branding defaults when nothing is configured.
+export async function generateMetadata(): Promise<Metadata> {
+  const { branding } = await getPublicSettings();
+  const title = `${branding.name} — ${branding.tagline}`;
+  return {
+    title,
+    description: branding.description,
+    keywords: [
+      "eggless cakes",
+      "eggless bakery",
+      "custom cakes",
+      "birthday cakes",
+      "vegetarian desserts",
+      branding.name,
+    ],
+    openGraph: {
+      title,
+      description: branding.description,
+      type: "website",
+    },
+  };
+}
 
 export default function RootLayout({
   children,

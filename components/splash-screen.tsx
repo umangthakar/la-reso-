@@ -293,13 +293,13 @@ export function SplashScreen({ onComplete }: { onComplete: () => void }) {
               />
             )}
             <h1 className="font-display text-5xl leading-none text-[#612437] sm:text-6xl md:text-8xl">
-              Le Rasa
+              {settings.branding.short_name}
             </h1>
             <p className="mt-4 text-xs font-semibold uppercase tracking-widest text-[#873853] md:text-sm">
-              Eggless Bakery
+              {settings.branding.tagline}
             </p>
             <p className="mt-2 text-base text-[#9C616D] md:text-lg">
-              The House of Eggless Desserts
+              {settings.branding.hero_subtitle}
             </p>
           </div>
         </motion.div>
