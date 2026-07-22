@@ -28,15 +28,33 @@ export function getAdminPassword(): string | undefined {
 }
 
 /**
- * The admin email — server-only, from the environment (ADMIN_EMAIL).
- * OPTIONAL: when unset, the login accepts any correctly-formatted email
- * (paired with the right password) so existing deployments that only
- * configured ADMIN_PASSWORD keep working unchanged. Set ADMIN_EMAIL to
- * additionally require a specific address at sign-in.
+ * The configured admin login email(s) — server-only, from ADMIN_EMAIL.
+ * Supports EITHER a single address OR a comma-separated list, e.g.
+ *   ADMIN_EMAIL=a@x.com,b@y.com,c@z.com
+ * Each entry is trimmed and lower-cased; blanks are dropped. Returns an
+ * empty array when ADMIN_EMAIL is unset — meaning any correctly-formatted
+ * email is accepted (backward compatible with password-only deployments).
  */
-export function getAdminEmail(): string | undefined {
-  const v = process.env.ADMIN_EMAIL;
-  return v && v.trim() ? v.trim() : undefined;
+export function getAdminEmails(): string[] {
+  const raw = process.env.ADMIN_EMAIL;
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter((e) => e.length > 0);
+}
+
+/**
+ * True when `email` is an authorised admin address. When no ADMIN_EMAIL is
+ * configured, any correctly-formatted email is accepted. Comparison is
+ * case-insensitive and never matches the raw ADMIN_EMAIL string directly —
+ * it checks membership of the parsed list via includes().
+ */
+export function isAdminEmail(email: string): boolean {
+  const normalised = email.trim().toLowerCase();
+  if (!isValidEmail(normalised)) return false;
+  const admins = getAdminEmails();
+  return admins.length === 0 || admins.includes(normalised);
 }
 
 /** Shared, simple email-format check used by the admin login (client + server). */
