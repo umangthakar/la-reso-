@@ -12,6 +12,7 @@ import { createAdminClient } from "@/lib/supabase/server";
 import { getStripe } from "@/lib/stripe";
 import { round2 } from "@/lib/pricing";
 import { notifyOrder } from "@/lib/notifications";
+import { sendOrderNotification } from "@/lib/ntfy";
 
 export const dynamic = "force-dynamic";
 
@@ -272,12 +273,14 @@ export async function POST(req: Request) {
   //    already succeeded and the order is saved, so an unconfigured provider or
   //    a failed send is a log line, never an error the customer sees.
   //    (notifyOrder resolves with a report and never rejects.)
+  // Derived from the ORDER id exactly as the confirmation page derives it
+  // (app/checkout#toOrderNumber), so the customer, the owner, the screen and
+  // every notification all quote the same number.
+  const orderNumber = String(order.id).replace(/-/g, "").slice(0, 8).toUpperCase();
+
   try {
     const report = await notifyOrder(supabase, {
-      // Derived from the ORDER id exactly as the confirmation page derives it
-      // (app/checkout#toOrderNumber), so the customer, the owner and the screen
-      // all quote the same number.
-      orderNumber: String(order.id).replace(/-/g, "").slice(0, 8).toUpperCase(),
+      orderNumber,
       customerName: coreOrder.customer_name,
       email: coreOrder.email,
       phone: coreOrder.phone,
@@ -301,6 +304,23 @@ export async function POST(req: Request) {
     }
   } catch (e) {
     console.error("[orders/create] notification threw:", e);
+  }
+
+  // Instant ntfy push to the owner's phone. Same best-effort posture: the
+  // payment has succeeded and the order is saved, so a missing config or a
+  // failed/slow push is only a log line and MUST never block checkout.
+  try {
+    await sendOrderNotification({
+      orderNumber,
+      customerName: coreOrder.customer_name,
+      // This route only runs once Stripe reports the payment succeeded, so
+      // the order is always Paid at this point.
+      paymentStatus: "Paid",
+      orderTotal: paidTotal,
+      orderTime: new Date(),
+    });
+  } catch (e) {
+    console.error("[orders/create] ntfy push threw:", e);
   }
 
   return NextResponse.json({ orderId: order.id });
