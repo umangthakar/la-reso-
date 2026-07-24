@@ -4,9 +4,9 @@
 // Config comes solely from env (NTFY_URL + NTFY_TOPIC) — never hardcoded,
 // never NEXT_PUBLIC, so the topic/credentials never reach the browser.
 //
-// Publishing uses ntfy's JSON endpoint (POST the server root with the topic
-// in the body) rather than HTTP headers, because headers are Latin-1 only and
-// would mangle the emoji in the title/message.
+// Publishing uses ntfy's officially recommended format: POST to
+// `<server>/<topic>` with the notification metadata in HTTP headers
+// (Title/Priority/Tags/Click) and the message as a UTF-8 text/plain body.
 // ============================================================
 
 const CLICK_URL = "https://www.lerasa.co.uk/admin/orders";
@@ -35,17 +35,35 @@ function formatLondonTime(when: Date): string {
 }
 
 /**
+ * Encode a UTF-8 header value so Node's fetch (undici) will send it.
+ *
+ * undici validates header values as a ByteString (Latin-1), so any character
+ * above code point 255 — e.g. the 🎂 in the Title — throws
+ * "Cannot convert argument to a ByteString". curl avoids this by putting the
+ * raw UTF-8 bytes on the wire; we reproduce that by mapping each UTF-8 byte to
+ * one Latin-1 char. ntfy decodes the header as UTF-8, so the emoji arrives intact.
+ */
+function utf8Header(value: string): string {
+  return Buffer.from(value, "utf-8").toString("latin1");
+}
+
+/**
  * Push a "New Order Received" notification to the owner's phone via ntfy.
  *
- * Best-effort by design: a missing config or a failed/slow request resolves
- * quietly (logged, never thrown-through in a way that could block checkout).
- * The caller still wraps this in try/catch per the integration contract.
+ * Best-effort by design: a missing config or a failed request is logged, never
+ * thrown-through in a way that could block checkout. The caller also wraps this
+ * in try/catch per the integration contract.
  */
 export async function sendOrderNotification(order: OrderNotification): Promise<void> {
   // Read at call time (not module load) so a missing var can never break the
   // build, only skip the notification.
   const url = (process.env.NTFY_URL ?? "").trim().replace(/\/+$/, "");
   const topic = (process.env.NTFY_TOPIC ?? "").trim();
+
+  // --- TEMPORARY DIAGNOSTIC LOGS (see if this runs + what config it sees) ---
+  console.log("[ntfy] sending notification");
+  console.log("[ntfy] URL:", process.env.NTFY_URL);
+  console.log("[ntfy] Topic:", process.env.NTFY_TOPIC);
 
   if (!url || !topic) {
     console.warn("[ntfy] NTFY_URL / NTFY_TOPIC not set — skipping order push.");
@@ -71,23 +89,35 @@ export async function sendOrderNotification(order: OrderNotification): Promise<v
     "Tap to open Admin Panel →",
   ].join("\n");
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      topic,
-      title: "🎂 Le Rasa Bakery",
-      message,
-      priority: 5,
-      tags: ["cake", "shopping_cart"],
-      click: CLICK_URL,
-    }),
-    // Never let a hanging ntfy server delay the checkout response.
-    signal: AbortSignal.timeout(5000),
-  });
+  // Official ntfy publish format: POST to `<server>/<topic>` with metadata in
+  // headers and the message as the UTF-8 text/plain body.
+  const endpoint = `${url}/${topic}`;
 
-  if (!res.ok) {
-    const detail = await res.text().catch(() => "");
-    console.error(`[ntfy] push failed: ${res.status} ${res.statusText} ${detail}`.trim());
+  try {
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        Title: utf8Header("🎂 Le Rasa Bakery"),
+        Priority: "5",
+        Tags: "cake,shopping_cart",
+        Click: CLICK_URL,
+      },
+      body: message,
+      // NOTE: AbortSignal.timeout() removed temporarily to rule out any runtime
+      // compatibility issue while diagnosing.
+    });
+
+    const responseBody = await res.text().catch(() => "");
+    console.log("[ntfy] response.status:", res.status);
+    console.log("[ntfy] response.statusText:", res.statusText);
+    console.log("[ntfy] response body:", responseBody);
+
+    if (!res.ok) {
+      console.error("[ntfy] push failed — full response body:", responseBody);
+    }
+  } catch (err) {
+    // fetch itself threw (DNS, TLS, network, invalid header, etc.).
+    console.error("[ntfy] fetch threw:", err);
   }
 }
