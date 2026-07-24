@@ -9,7 +9,7 @@
 // (Title/Priority/Tags/Click) and the message as a UTF-8 text/plain body.
 // ============================================================
 
-const CLICK_URL = "https://www.lerasa.co.uk/admin/orders";
+const CLICK_URL = "https://www.lerasa.co.uk/admin/dashboard/orders";
 
 export type OrderNotification = {
   /** order.order_number — the human-facing number quoted everywhere. */
