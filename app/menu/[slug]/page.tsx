@@ -20,6 +20,7 @@ import {
   ShoppingCart,
   Zap,
   ChevronLeft,
+  ChevronDown,
   Leaf,
   MessageCircle,
 } from "lucide-react";
@@ -146,6 +147,7 @@ export default function ProductDetailPage() {
   const [ingredients, setIngredients] = useState<string[]>([]);
   const [ingredientsRich, setIngredientsRich] = useState<string>("");
   const [ingredientIcons, setIngredientIcons] = useState<string[]>([]);
+  const [ingredientsOpen, setIngredientsOpen] = useState(false);
   const [nutrition, setNutrition] = useState<NutritionData | null>(null);
   const [nutritionCustom, setNutritionCustom] = useState<NutritionCustomRow[]>([]);
   // Flips true once the extras (esp. sizes) have loaded for this product, so a
@@ -686,30 +688,63 @@ export default function ProductDetailPage() {
                 )}
 
                 {(hasRichIngredients || ingredients.length > 0) && (
-                  <div className="rounded-2xl bg-[#F9EEEA] p-4">
-                    <p className="mb-2 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-wine-dark">
-                      <Leaf className="h-4 w-4 shrink-0" />
-                      Ingredients
-                    </p>
-                    {hasRichIngredients ? (
-                      // Rich formatted ingredients, rendered exactly as entered
-                      // (already sanitized to inert formatting tags). Bold preserved.
-                      <div
-                        className="lr-ingredients-rich text-sm leading-relaxed text-darkberry [&_b]:font-bold [&_strong]:font-bold"
-                        dangerouslySetInnerHTML={{ __html: ingredientsRich }}
+                  <div className="overflow-hidden rounded-2xl bg-[#F9EEEA] shadow-clay-sm transition-shadow duration-200 hover:shadow-clay">
+                    {/* Accordion trigger — real <button> so it's keyboard
+                        accessible. Toggles the ingredients body below. The data
+                        itself is unchanged; only its visibility is controlled. */}
+                    <button
+                      type="button"
+                      onClick={() => setIngredientsOpen((v) => !v)}
+                      aria-expanded={ingredientsOpen}
+                      aria-controls="ingredients-panel"
+                      className="flex w-full cursor-pointer items-center justify-between gap-2 p-4 text-left"
+                    >
+                      <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-wine-dark">
+                        <Leaf className="h-4 w-4 shrink-0" />
+                        Ingredients
+                      </span>
+                      <ChevronDown
+                        className={`h-4 w-4 shrink-0 text-wine-dark transition-transform duration-300 ${
+                          ingredientsOpen ? "rotate-180" : "rotate-0"
+                        }`}
+                        aria-hidden="true"
                       />
-                    ) : (
-                      <div className="flex flex-wrap gap-2">
-                        {ingredients.map((ing, i) => (
-                          <span
-                            key={`${ing}-${i}`}
-                            className="rounded-full bg-blush-50 px-3 py-1 text-sm text-darkberry shadow-clay-sm"
-                          >
-                            {ing}
-                          </span>
-                        ))}
+                    </button>
+
+                    {/* Collapsible body — CSS max-height/opacity transition, no
+                        layout jump. Kept in the DOM (hidden) so no CLS. */}
+                    <div
+                      id="ingredients-panel"
+                      className={`grid overflow-hidden transition-all duration-300 ease-in-out ${
+                        ingredientsOpen
+                          ? "grid-rows-[1fr] opacity-100"
+                          : "grid-rows-[0fr] opacity-0"
+                      }`}
+                    >
+                      <div className="min-h-0">
+                        <div className="px-4 pb-4">
+                          {hasRichIngredients ? (
+                            // Rich formatted ingredients, rendered exactly as entered
+                            // (already sanitized to inert formatting tags). Bold preserved.
+                            <div
+                              className="lr-ingredients-rich text-sm leading-relaxed text-darkberry [&_b]:font-bold [&_strong]:font-bold"
+                              dangerouslySetInnerHTML={{ __html: ingredientsRich }}
+                            />
+                          ) : (
+                            <div className="flex flex-wrap gap-2">
+                              {ingredients.map((ing, i) => (
+                                <span
+                                  key={`${ing}-${i}`}
+                                  className="rounded-full bg-blush-50 px-3 py-1 text-sm text-darkberry shadow-clay-sm"
+                                >
+                                  {ing}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    )}
+                    </div>
                   </div>
                 )}
               </div>
