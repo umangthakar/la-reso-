@@ -99,7 +99,7 @@ export async function sendOrderNotification(order: OrderNotification): Promise<v
       headers: {
         "Content-Type": "text/plain; charset=utf-8",
         Title: utf8Header("🎂 Le Rasa Bakery"),
-        Priority: "5",
+        Priority: "max",
         Tags: "cake,shopping_cart",
         Click: CLICK_URL,
       },
