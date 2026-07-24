@@ -97,13 +97,19 @@ export function Navbar() {
         )}
       >
         <nav className="container flex items-center justify-between py-3">
-          <Link href="/" className="flex min-w-0 items-center gap-2.5">
+          <Link href="/" className="flex min-w-0 items-center gap-1.5 sm:gap-2.5">
             <LogoMark logo={settings.logo} />
+            {/* Wordmark. On mobile (<sm) the name + tagline are allowed to wrap
+                across as many lines as needed so the FULL brand name is always
+                visible (Le Rasa / HOUSE OF / EGGLESS DESSERTS) — never
+                truncated, clipped, or ellipsised. From sm up we restore the
+                exact original single-line, ellipsis-guarded styling so
+                tablet/desktop stay pixel-identical. */}
             <span className="flex min-w-0 flex-col leading-none">
-              <span className="truncate font-display text-lg font-semibold text-darkberry">
+              <span className="break-words font-display text-base font-semibold leading-tight text-darkberry sm:truncate sm:text-lg sm:leading-none">
                 {settings.branding.short_name}
               </span>
-              <span className="truncate text-[10px] font-bold uppercase tracking-[0.22em] text-wine-dark">
+              <span className="whitespace-normal break-words text-[9px] font-bold uppercase leading-tight tracking-wide text-wine-dark sm:truncate sm:whitespace-nowrap sm:text-[10px] sm:leading-none sm:tracking-[0.22em]">
                 {settings.branding.tagline}
               </span>
             </span>
@@ -143,7 +149,7 @@ export function Navbar() {
               cart/profile group. Mobile: the icon inside that group below. */}
           <HeaderSearch variant="desktop" />
 
-          <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+          <div className="flex shrink-0 items-center gap-1 sm:gap-2">
             <HeaderSearch variant="mobile" />
 
             {/* Cart: opens the slide-in drawer; badge shows live item count. */}
