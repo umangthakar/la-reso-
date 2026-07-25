@@ -20,7 +20,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { motion } from "framer-motion";
-import { ChevronLeft, Minus, Plus, Sparkles } from "lucide-react";
+import { ArrowRight, ChevronLeft, Minus, Plus, Sparkles } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
 import { useCart } from "@/components/cart/cart-context";
 import { useAuth } from "@/lib/use-auth";
@@ -273,6 +273,45 @@ export default function CustomizePage() {
     setNumberModal(null);
   }
 
+  // ---- Skip an accessory section ----
+  /** Smooth-scroll (~300ms, native) to the section after `key`, or to the order
+   *  summary when it's the last one. Deferred a frame so any state change that
+   *  reflows the sections lands first; a missing target is a safe no-op. */
+  function scrollToNext(key: string) {
+    const idx = shown.findIndex((c) => c.key === key);
+    const next = idx >= 0 ? shown[idx + 1] : undefined;
+    const targetId = next ? `cat-${next.key}` : "order-summary";
+    requestAnimationFrame(() => {
+      const el =
+        document.getElementById(targetId) ??
+        document.getElementById("order-summary");
+      el?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
+  /** "Skip Accessories →": reset this category to its zero-cost "None" state
+   *  (accessory total stays £0, "None" stays selected) and glide to the next
+   *  section. Never validates or blocks — skipping always moves the flow on. */
+  function skipCategory(cat: AccessoryCategory) {
+    if (cat.displayType === "toggle") {
+      update(cat.key, { enabled: false });
+    } else if (cat.displayType === "quantity") {
+      update(cat.key, { quantities: {} });
+    } else if (cat.displayType === "checkbox") {
+      update(cat.key, { values: [] });
+    } else {
+      // radio / dropdown must always hold one value — pick the explicit free
+      // "None" option so nothing is charged and the control never blanks.
+      const none =
+        cat.accessories.find((a) => a.value === "none") ??
+        cat.accessories.find((a) => a.price === 0 && a.isDefault) ??
+        cat.accessories.find((a) => a.price === 0) ??
+        cat.accessories[0];
+      if (none) update(cat.key, { values: [none.value], digits: "" });
+    }
+    scrollToNext(cat.key);
+  }
+
   function handleContinue() {
     if (!product) return;
 
@@ -470,11 +509,11 @@ export default function CustomizePage() {
                   initial={{ opacity: 0, y: 12 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
-                  className={`rounded-clay bg-blush-50 p-6 shadow-clay-sm ${
+                  className={`scroll-mt-28 rounded-clay bg-blush-50 p-6 shadow-clay-sm ${
                     error ? "ring-2 ring-red-400" : ""
                   }`}
                 >
-                  <div className="flex items-start justify-between gap-3">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
                     <div>
                       <h2 className="font-display text-lg font-bold text-darkberry">
                         {cat.name}
@@ -486,11 +525,27 @@ export default function CustomizePage() {
                         <p className="mt-0.5 text-sm text-berry">{cat.description}</p>
                       )}
                     </div>
-                    {/* Toggles and free-text categories price at the category level. */}
-                    {(cat.displayType === "toggle" ||
-                      cat.displayType === "text" ||
-                      cat.displayType === "textarea") &&
-                      cat.price > 0 && <PriceTag price={cat.price} />}
+                    {/* Right cluster: any category-level price, plus a subtle
+                        "Skip Accessories →". Desktop: top-right. Mobile: below the
+                        title (the header stacks). Text/message sections aren't an
+                        accessory to skip, so they don't get the button. */}
+                    <div className="flex shrink-0 items-center gap-3">
+                      {(cat.displayType === "toggle" ||
+                        cat.displayType === "text" ||
+                        cat.displayType === "textarea") &&
+                        cat.price > 0 && <PriceTag price={cat.price} />}
+                      {cat.displayType !== "text" &&
+                        cat.displayType !== "textarea" && (
+                          <button
+                            type="button"
+                            onClick={() => skipCategory(cat)}
+                            className="inline-flex items-center gap-1 py-1 text-xs font-semibold uppercase tracking-wide text-berry/80 underline-offset-4 transition-colors hover:text-wine-dark hover:underline"
+                          >
+                            Skip Accessories
+                            <ArrowRight className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                    </div>
                   </div>
 
                   <div className="mt-4">
@@ -755,7 +810,10 @@ export default function CustomizePage() {
           </div>
 
           {/* ---- Right: live summary — Cake, Accessories, Prices, Grand total ---- */}
-          <aside className="h-fit rounded-clay bg-[#F9EEEA] p-6 shadow-clay-sm lg:sticky lg:top-28">
+          <aside
+            id="order-summary"
+            className="h-fit scroll-mt-28 rounded-clay bg-[#F9EEEA] p-6 shadow-clay-sm lg:sticky lg:top-28"
+          >
             <div className="flex items-center gap-3">
               <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-xl">
                 <Image
