@@ -26,6 +26,7 @@ import { useCart } from "@/components/cart/cart-context";
 import { useAuth } from "@/lib/use-auth";
 import { useCustomization } from "@/lib/use-customization";
 import { loginHrefFor } from "@/lib/purchase-intent";
+import { isCakeCategory } from "@/lib/custom-cake";
 import { slugify } from "@/lib/slug";
 import { money } from "@/lib/pricing";
 import {
@@ -170,12 +171,24 @@ export default function CustomizePage() {
     };
   }, [slug]);
 
-  // The accessory categories offered for THIS product's category.
-  const categories: AccessoryCategory[] = useMemo(
-    () =>
-      product ? categoriesForProduct(config.categories, product.category) : [],
-    [config.categories, product],
+  // Accessories, the cake message and the whole wizard belong to CAKES only —
+  // decided by the product's category, never its name (see isCakeCategory).
+  // Cupcakes and everything else fall through to the minimal add-to-basket view.
+  const isCake = useMemo(
+    () => (product ? isCakeCategory(product.category) : false),
+    [product],
   );
+
+  // The accessory categories offered for THIS cake — every one made OPTIONAL.
+  // "None" stays the default (from defaultSelections) and no accessory or cake
+  // message is ever forced, so the customer can go straight to the basket.
+  // Pricing is untouched: priceSelections/summarize ignore `required` entirely.
+  const categories: AccessoryCategory[] = useMemo(() => {
+    if (!product || !isCake) return [];
+    return categoriesForProduct(config.categories, product.category).map(
+      (cat) => ({ ...cat, required: false }),
+    );
+  }, [config.categories, product, isCake]);
 
   // Open with every category's configured default.
   useEffect(() => {
@@ -184,14 +197,11 @@ export default function CustomizePage() {
     setSeeded(true);
   }, [categories, seeded]);
 
-  // A non-cake (or a product whose accessories were all disabled) has nothing
-  // to customize — send it back to its normal product page.
-  useEffect(() => {
-    if (loading || configLoading || !product) return;
-    if (!product.is_customizable || categories.length === 0) {
-      router.replace(`/menu/${slug}`);
-    }
-  }, [loading, configLoading, product, categories.length, router, slug]);
+  // The full accessories experience shows only for a cake that actually has
+  // accessory categories configured. Anything else (cupcakes, brownies, or a
+  // cake whose accessories were all disabled) renders the minimal add-to-basket
+  // view below instead of the wizard — no redirect, no empty accessories page.
+  const showFull = isCake && categories.length > 0;
 
   const shown = useMemo(
     () => visibleCategories(categories, selections),
@@ -265,6 +275,27 @@ export default function CustomizePage() {
 
   function handleContinue() {
     if (!product) return;
+
+    // Non-cake (or a cake with nothing to customize): add the plain product and
+    // go — no accessories, no message, no validation. Identical line shape to
+    // the menu page's straight-to-checkout path, so pricing is unchanged.
+    if (!showFull) {
+      addItem(
+        {
+          id: product.id,
+          productId: product.id,
+          name: product.name,
+          price: product.price,
+          image: product.image,
+          category: product.category,
+          slug,
+        },
+        qty,
+      );
+      router.push("/checkout");
+      return;
+    }
+
     setSubmitted(true);
 
     const result = validateSelections(categories, selections);
@@ -325,6 +356,85 @@ export default function CustomizePage() {
   }
 
   const lineTotal = (product.price + addons) * qty;
+
+  // ---- Minimal view: non-cake products (cupcakes, brownies, …) ----
+  // Only the product image, a quantity selector, the price and Add to Basket —
+  // no accessories, no candle/sparkler/number/magic candle selectors, and no
+  // cake message. The order summary sits on its own, nothing left empty beside
+  // it. Add to Basket adds the plain product, exactly as the menu page does.
+  if (!showFull) {
+    return (
+      <div className="pb-24 pt-6">
+        <div className="container max-w-md">
+          <Link
+            href={`/menu/${slug}`}
+            className="mb-6 inline-flex items-center gap-1.5 text-sm font-semibold text-wine-dark transition-colors hover:text-wine"
+          >
+            <ChevronLeft className="h-4 w-4" />
+            Back to {product.name}
+          </Link>
+
+          <div className="rounded-clay bg-[#F9EEEA] p-6 shadow-clay-sm">
+            {/* Product image */}
+            <div className="relative aspect-square w-full overflow-hidden rounded-2xl">
+              <Image
+                src={product.image}
+                alt={product.name}
+                fill
+                sizes="(max-width: 768px) 100vw, 448px"
+                className="object-cover"
+              />
+            </div>
+
+            <h1 className="mt-4 font-display text-2xl font-bold text-darkberry">
+              {product.name}
+            </h1>
+            <p className="mt-1 text-berry">{money(product.price)} each</p>
+
+            {/* Quantity */}
+            <div className="mt-5 flex items-center justify-between">
+              <span className="text-sm font-semibold text-darkberry">Quantity</span>
+              <div className="flex items-center gap-2 rounded-full bg-blush-50 p-1 shadow-clay-sm">
+                <button
+                  onClick={() => setQty((q) => Math.max(1, q - 1))}
+                  aria-label="Decrease quantity"
+                  className="grid h-8 w-8 place-items-center rounded-full text-wine-dark transition-transform active:scale-90"
+                >
+                  <Minus className="h-3.5 w-3.5" />
+                </button>
+                <span className="w-6 text-center font-display font-bold text-darkberry">
+                  {qty}
+                </span>
+                <button
+                  onClick={() => setQty((q) => Math.min(99, q + 1))}
+                  aria-label="Increase quantity"
+                  className="grid h-8 w-8 place-items-center rounded-full text-wine-dark transition-transform active:scale-90"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Price */}
+            <div className="mt-5 flex items-center justify-between border-t border-dustyrose/40 pt-4">
+              <span className="font-bold text-darkberry">Total</span>
+              <span className="font-display text-lg font-bold text-wine-dark">
+                {money(lineTotal)}
+              </span>
+            </div>
+
+            <button
+              onClick={handleContinue}
+              disabled={!product.in_stock}
+              className="mt-5 w-full rounded-full bg-wine py-3.5 text-sm font-bold uppercase tracking-wide text-blush-50 shadow-clay-sm transition-all hover:bg-wine-dark hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {product.in_stock ? "Add to basket" : "Currently unavailable"}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="pb-24 pt-6">

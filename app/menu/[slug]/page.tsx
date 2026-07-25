@@ -32,7 +32,7 @@ import { useActiveOffer } from "@/lib/use-active-offer";
 import { usePurchaseGate } from "@/lib/use-purchase-gate";
 import { useCustomization } from "@/lib/use-customization";
 import { useSiteSettings } from "@/lib/use-site-settings";
-import { isCustomCakeCategory, customCakeWhatsappHref } from "@/lib/custom-cake";
+import { isCustomCakeCategory, isCakeCategory, customCakeWhatsappHref } from "@/lib/custom-cake";
 import { consumePurchaseIntent, peekPurchaseIntent } from "@/lib/purchase-intent";
 import { PriceText } from "@/components/product-price";
 import {
@@ -392,8 +392,10 @@ export default function ProductDetailPage() {
     const quantity = Math.min(99, Math.max(1, pending!.quantity ?? 1));
     setQty(quantity);
 
-    // Same fork as a fresh Buy Now: cakes get customized first.
-    if (isCustomizable(product.id)) {
+    // Same fork as a fresh Buy Now: only cakes get customized first. Cupcakes
+    // and every other product skip the accessories page (category-gated, so a
+    // stray is_customizable flag can't drag a cupcake into the wizard).
+    if (isCustomizable(product.id) && isCakeCategory(product.category)) {
       router.push(`/customize/${slugify(product.name)}?qty=${quantity}`);
       return;
     }
@@ -521,7 +523,9 @@ export default function ProductDetailPage() {
       href: `/menu/${cartLine.slug}`,
     });
     if (!allowed) return;
-    if (isCustomizable(product.id)) {
+    // Only cakes go through the accessories page; everything else keeps the
+    // existing straight-to-checkout flow.
+    if (isCustomizable(product.id) && isCakeCategory(product.category)) {
       router.push(`/customize/${cartLine.slug}?qty=${qty}`);
       return;
     }

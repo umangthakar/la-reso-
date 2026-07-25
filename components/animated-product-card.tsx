@@ -14,7 +14,7 @@ import { useActiveOffer, type ActiveOffers } from "@/lib/use-active-offer";
 import { usePurchaseGate } from "@/lib/use-purchase-gate";
 import { useCustomization } from "@/lib/use-customization";
 import { useSiteSettings } from "@/lib/use-site-settings";
-import { isCustomCakeCategory, customCakeWhatsappHref } from "@/lib/custom-cake";
+import { isCustomCakeCategory, isCakeCategory, customCakeWhatsappHref } from "@/lib/custom-cake";
 import { PriceText } from "@/components/product-price";
 
 /* ------------------------------------------------------------------ *
@@ -200,9 +200,10 @@ export function AnimatedProductCard({ product }: { product: Product }) {
       href: detailHref,
     });
     if (!allowed) return;
-    // A cake is customized before it reaches the cart; everything else keeps
-    // the existing straight-to-checkout flow.
-    if (isCustomizable(product.id)) {
+    // Only a cake is customized before it reaches the cart; cupcakes and every
+    // other product keep the existing straight-to-checkout flow (category-gated
+    // so a stray is_customizable flag can't open the accessories page).
+    if (isCustomizable(product.id) && isCakeCategory(product.category)) {
       router.push(`/customize/${slug}?qty=1`);
       return;
     }

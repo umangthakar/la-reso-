@@ -13,6 +13,21 @@ export function isCustomCakeCategory(category: string | null | undefined): boole
   return (category ?? "").trim().toLowerCase() === "custom cakes";
 }
 
+/** True when a product's CATEGORY makes it a cake — the only products that offer
+ *  accessories, a cake message and the customization wizard.
+ *
+ *  Category-based (never product names), so new cake categories light up with no
+ *  code change. "Cupcakes" contains the substring "cake" but is deliberately NOT
+ *  a cake here: cupcakes and every other product skip the accessories page. This
+ *  is the guard the storefront trusts, tighter than the historic
+ *  `is_customizable ilike '%cake%'` backfill that swept cupcakes in. */
+export function isCakeCategory(category: string | null | undefined): boolean {
+  const c = (category ?? "").trim().toLowerCase();
+  if (!c) return false;
+  if (c.includes("cupcake")) return false;
+  return c.includes("cake");
+}
+
 /** Build the WhatsApp enquiry link for a custom cake. `whatsappNumber` comes
  *  from the admin-configured contact WhatsApp; it is reduced to digits and the
  *  same pre-filled message is used everywhere it's shown. Opens the customer's
