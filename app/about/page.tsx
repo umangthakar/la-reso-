@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Image from "next/image";
-import { Heart, Sparkles, Leaf, Award, Users } from "lucide-react";
+import { Heart, Sparkles, Leaf, Award } from "lucide-react";
 import { PageHero } from "@/components/page-hero";
 import { SectionHeading } from "@/components/section-heading";
 import { Reveal, StaggerGroup, StaggerItem } from "@/components/motion";
@@ -25,7 +25,6 @@ function buildStats(googleRating: number) {
     ...(googleRating > 0
       ? [{ value: `${googleRating.toFixed(1)}★`, label: "Average rating", icon: Award }]
       : []),
-    { value: "12", label: "Pastry artisans", icon: Users },
   ];
 }
 
@@ -87,7 +86,7 @@ export default async function AboutPage() {
             />
             <div className="mt-6 space-y-4 text-darkberry-light">
               <p>
-                It started when our founder, Rasa, kept getting asked the same
+                It started when our founder, Dhruti, kept getting asked the same
                 question at family gatherings: &ldquo;Is there anything I can
                 actually eat?&rdquo; Vegetarian relatives, friends with egg
                 allergies, little ones — too many people were left watching
@@ -115,19 +114,22 @@ export default async function AboutPage() {
         <div className="container">
           {/* Columns track the live card count so a row is never left with a
               hole: 3 cards → 2-up on mobile with the last spanning the full
-              width, 3-up from sm. 2 cards (no live rating) → 2-up throughout. */}
+              width, 3-up from sm. 2 cards → 2-up throughout. 1 card (no live
+              rating) → a single full-width card, no empty cell. */}
           <StaggerGroup
             className={cn(
-              "grid grid-cols-2 gap-4",
-              stats.length === 3 && "sm:grid-cols-3",
+              "grid gap-4",
+              stats.length <= 1 && "grid-cols-1",
+              stats.length === 2 && "grid-cols-2",
+              stats.length >= 3 && "grid-cols-2 sm:grid-cols-3",
             )}
           >
             {stats.map((s, i) => (
               <StaggerItem
                 key={s.label}
-                // Odd card count: the last one fills the leftover cell.
+                // 3 cards: the last one fills the leftover mobile cell.
                 className={cn(
-                  stats.length % 2 === 1 &&
+                  stats.length === 3 &&
                     i === stats.length - 1 &&
                     "col-span-2 sm:col-span-1",
                 )}

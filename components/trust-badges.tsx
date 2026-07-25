@@ -1,10 +1,9 @@
-import { Truck, Leaf, Gift, type LucideIcon } from "lucide-react";
+import { Truck, Leaf, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const badges: { icon: LucideIcon; label: string }[] = [
   { icon: Truck, label: "Nationwide Delivery" },
   { icon: Leaf, label: "100% Eggless" },
-  { icon: Gift, label: "Letterbox Friendly" },
 ];
 
 export function TrustBadges({
