@@ -9,7 +9,7 @@
 // password-gated /api/admin/products routes.
 // ============================================================
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   DndContext,
   closestCenter,
@@ -123,6 +123,7 @@ export default function ProductsAdminPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
+  const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -141,6 +142,21 @@ export default function ProductsAdminPage() {
   // Options for the product form's Category dropdown: the live managed list,
   // falling back to the defaults until it loads / while none exist.
   const catOptions = categoryNames.length > 0 ? categoryNames : DEFAULT_CATEGORIES;
+
+  // ---- Instant client-side product search (no DB call, no reload) ----------
+  // Filters the products ALREADY loaded for the current page as the admin
+  // types. Case-insensitive, matches name, category and badge. Memoised so it
+  // only recomputes when the list or the term changes.
+  const searching = searchTerm.trim().length > 0;
+  const filteredProducts = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase();
+    if (!q) return products;
+    return products.filter((p) =>
+      [p.name, p.category, p.badge].some((field) =>
+        (field ?? "").toLowerCase().includes(q),
+      ),
+    );
+  }, [products, searchTerm]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -494,6 +510,10 @@ export default function ProductsAdminPage() {
   }
 
   async function handleDragEnd(event: DragEndEvent) {
+    // Reordering is unavailable while a search filters the list: sort_order is
+    // persisted from the full page order, so dragging a filtered subset would
+    // corrupt it. Clear the search to reorder.
+    if (searching) return;
     const { active, over } = event;
     if (!over || active.id === over.id) return;
     const oldIndex = products.findIndex((p) => p.id === active.id);
@@ -517,13 +537,32 @@ export default function ProductsAdminPage() {
 
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
-        <h1 style={{ color: WINE, fontSize: "1.8rem", fontWeight: 800, margin: 0 }}>Products</h1>
-        <button onClick={openAdd} style={{ ...primaryBtn, ...(isMobile ? { minHeight: 44, width: "100%" } : {}) }}>+ Add product</button>
-      </div>
+      <h1 style={{ color: WINE, fontSize: "1.8rem", fontWeight: 800, margin: 0 }}>Products</h1>
       <p style={{ color: BERRY, opacity: 0.7, marginTop: 4, fontSize: "0.9rem" }}>
         Drag the ⠿ handle to reorder. Toggle Visible to show/hide on the menu.
       </p>
+
+      {/* Search (left) + Add product (right) on desktop; stacked full-width on
+          mobile. Search filters the loaded products instantly, client-side. */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12, marginTop: 16 }}>
+        <div style={{ position: "relative", width: isMobile ? "100%" : 360, maxWidth: "100%" }}>
+          <span aria-hidden style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", display: "flex", pointerEvents: "none" }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(135,56,83,0.55)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+          </span>
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Search products..."
+            aria-label="Search products by name, category or badge"
+            style={{ ...inputStyle, paddingLeft: 38 }}
+          />
+        </div>
+        <button onClick={openAdd} style={{ ...primaryBtn, ...(isMobile ? { minHeight: 44, width: "100%" } : {}) }}>+ Add product</button>
+      </div>
 
       {error && <p style={errorBox}>{error}</p>}
 
@@ -533,14 +572,21 @@ export default function ProductsAdminPage() {
         <p style={{ color: BERRY, opacity: 0.7, marginTop: 24 }}>
           No products yet. Click “Add product” to create your first one.
         </p>
+      ) : filteredProducts.length === 0 ? (
+        <div style={{ marginTop: 16, padding: "36px 16px", textAlign: "center", color: BERRY, background: "white", borderRadius: 16, boxShadow: "0 10px 30px rgba(135,56,83,0.08)" }}>
+          <p style={{ margin: 0, fontWeight: 700 }}>No matching products found.</p>
+          <p style={{ margin: "6px 0 0", opacity: 0.7, fontSize: "0.9rem" }}>
+            Try a different name, category or badge.
+          </p>
+        </div>
       ) : (
         <>
           {isMobile ? (
             /* Stacked card view — drag the ⠿ handle to reorder */
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-              <SortableContext items={products.map((p) => p.id)} strategy={verticalListSortingStrategy}>
+              <SortableContext items={filteredProducts.map((p) => p.id)} strategy={verticalListSortingStrategy}>
                 <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 16 }}>
-                  {products.map((p) => (
+                  {filteredProducts.map((p) => (
                     <SortableCard
                       key={p.id}
                       product={p}
@@ -569,9 +615,9 @@ export default function ProductsAdminPage() {
                   </tr>
                 </thead>
                 <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-                  <SortableContext items={products.map((p) => p.id)} strategy={verticalListSortingStrategy}>
+                  <SortableContext items={filteredProducts.map((p) => p.id)} strategy={verticalListSortingStrategy}>
                     <tbody>
-                      {products.map((p) => (
+                      {filteredProducts.map((p) => (
                         <SortableRow
                           key={p.id}
                           product={p}
@@ -587,8 +633,9 @@ export default function ProductsAdminPage() {
             </div>
           )}
 
-          {/* Pagination */}
-          {totalPages > 1 && (
+          {/* Pagination — hidden while searching, since the filter applies to
+              the loaded page and these controls page the full catalogue. */}
+          {!searching && totalPages > 1 && (
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 16, color: BERRY }}>
               <span style={{ fontSize: "0.9rem", opacity: 0.7 }}>
                 Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} of {total}
