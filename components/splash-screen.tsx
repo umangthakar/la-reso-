@@ -269,20 +269,36 @@ export function SplashScreen({ onComplete }: { onComplete: () => void }) {
           </button>
         )}
 
-        {/* Skip button — subtle branded pill, bottom-right. Sits left of the
-            mute control while the video plays so the two never overlap. Bottom
-            offset clears the mobile/tablet safe area. Same completion path as a
-            natural finish (onComplete) — no second transition. */}
-        <button
-          type="button"
-          onClick={onComplete}
-          aria-label="Skip the intro animation"
-          className={`absolute z-20 bottom-[calc(env(safe-area-inset-bottom,0px)+1.25rem)] inline-flex items-center gap-1 rounded-full bg-[#612437]/30 px-4 py-2 text-xs font-semibold text-white/90 ring-1 ring-white/20 backdrop-blur-md transition hover:bg-[#612437]/50 hover:text-white ${
+        {/* Skip control — subtle branded pill + helper line, bottom-right. Sits
+            left of the mute control while the video plays so the two never
+            overlap. Bottom offset clears the mobile/tablet safe area. Same
+            completion path as a natural finish (onComplete) — no second
+            transition. The helper text fades in and, being part of this overlay,
+            leaves with the loading screen. */}
+        <div
+          className={`absolute z-20 bottom-[calc(env(safe-area-inset-bottom,0px)+1.25rem)] flex flex-col items-center gap-1.5 ${
             playing ? "right-20" : "right-5"
           }`}
         >
-          Skip <span aria-hidden>→</span>
-        </button>
+          <motion.p
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.5, ease: "easeOut" }}
+            className="pointer-events-none select-none text-center text-[13px] leading-tight text-white/75"
+          >
+            {isMobile
+              ? "Double-tap anywhere or tap Skip →"
+              : "Double-click anywhere or press Skip →"}
+          </motion.p>
+          <button
+            type="button"
+            onClick={onComplete}
+            aria-label="Skip the intro animation"
+            className="inline-flex items-center gap-1 rounded-full bg-[#612437]/30 px-4 py-2 text-xs font-semibold text-white/90 ring-1 ring-white/20 backdrop-blur-md transition hover:bg-[#612437]/50 hover:text-white"
+          >
+            Skip <span aria-hidden>→</span>
+          </button>
+        </div>
 
         {/* Skip hint — fades out after 3 seconds */}
         <div
