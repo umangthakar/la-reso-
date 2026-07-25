@@ -187,6 +187,16 @@ export function SplashScreen({ onComplete }: { onComplete: () => void }) {
   // Double-click / double-tap anywhere skips straight to the menu.
   const handleDoubleClick = () => onComplete();
 
+  // Keyboard: Escape skips too — same completion path as a natural finish.
+  // Listener is torn down on unmount, so nothing lingers after the splash.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onComplete();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onComplete]);
+
   // "Double tap to skip" hint — fades out after 3 seconds.
   const [showHint, setShowHint] = useState(true);
   useEffect(() => {
@@ -258,6 +268,21 @@ export function SplashScreen({ onComplete }: { onComplete: () => void }) {
             {muted ? "🔇" : "🔊"}
           </button>
         )}
+
+        {/* Skip button — subtle branded pill, bottom-right. Sits left of the
+            mute control while the video plays so the two never overlap. Bottom
+            offset clears the mobile/tablet safe area. Same completion path as a
+            natural finish (onComplete) — no second transition. */}
+        <button
+          type="button"
+          onClick={onComplete}
+          aria-label="Skip the intro animation"
+          className={`absolute z-20 bottom-[calc(env(safe-area-inset-bottom,0px)+1.25rem)] inline-flex items-center gap-1 rounded-full bg-[#612437]/30 px-4 py-2 text-xs font-semibold text-white/90 ring-1 ring-white/20 backdrop-blur-md transition hover:bg-[#612437]/50 hover:text-white ${
+            playing ? "right-20" : "right-5"
+          }`}
+        >
+          Skip <span aria-hidden>→</span>
+        </button>
 
         {/* Skip hint — fades out after 3 seconds */}
         <div
