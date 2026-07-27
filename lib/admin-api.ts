@@ -88,20 +88,33 @@ export async function adminSend<T>(
  * Upload a single image file; returns its public URL. Defaults to the
  * product-images bucket; pass an endpoint to target another (e.g.
  * "/api/admin/site-assets/upload" for hero/about images).
+ *
+ * The response type is a parameter so an endpoint that returns more than a URL
+ * can be typed at the call site without a second uploader: the hero slider's
+ * /api/admin/hero-slider/upload also returns the DB row it created. It defaults
+ * to { url } — every existing caller is unchanged, and nothing about the
+ * request itself differs.
+ *
+ * `fields` adds extra form fields beside the file, for an endpoint that creates
+ * a row as well as writing an object and therefore needs more than the bytes —
+ * the hero slider sends the product the image is linked to. Omitted by every
+ * other caller, which then sends exactly the request it always did.
  */
-export async function adminUpload(
+export async function adminUpload<T = { url: string }>(
   file: File,
   endpoint = "/api/admin/products/upload",
-): Promise<{ url: string }> {
+  fields?: Record<string, string>,
+): Promise<T> {
   const form = new FormData();
   form.append("file", file);
+  for (const [key, value] of Object.entries(fields ?? {})) form.append(key, value);
   const res = await fetch(endpoint, {
     method: "POST",
     headers: { ...authHeader() }, // do NOT set Content-Type; browser sets multipart boundary
     body: form,
   });
   if (!res.ok) throw await fail(res, "Image upload failed");
-  return res.json() as Promise<{ url: string }>;
+  return res.json() as Promise<T>;
 }
 
 /** Build the error for a non-ok response, preserving the caller's fallback

@@ -32,6 +32,10 @@ const NAV = [
   { href: "/admin/dashboard/delivery", label: "Delivery Settings" },
   // `exact` so the nested WhatsApp route below doesn't also light this up.
   { href: "/admin/dashboard/settings", label: "Content & Settings", exact: true },
+  // Its own module, not a section of Content & Settings: hero images are rows
+  // in their own table with their own routes, so they get their own page. Sits
+  // next to Content because that is where the admin looks for site imagery.
+  { href: "/admin/dashboard/hero-slider", label: "Hero Slider" },
   { href: "/admin/dashboard/settings/whatsapp", label: "WhatsApp" },
   { href: "/admin/dashboard/reviews", label: "Google Reviews" },
   { href: "/admin/dashboard/policies", label: "Policies" },

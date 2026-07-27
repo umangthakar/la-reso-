@@ -9,6 +9,8 @@ import { Marquee } from "@/components/marquee";
 import { Testimonials } from "@/components/testimonials";
 import { getPolicies } from "@/lib/policies-server";
 import { getGoogleReviews } from "@/lib/google-reviews";
+import { getHeroSliderImages } from "@/lib/hero-slider-server";
+import { heroSlidesFrom } from "@/lib/hero-slider";
 
 // Fetch settings + products fresh on every request so admin edits show
 // immediately with no redeploy.
@@ -49,16 +51,33 @@ async function fetchHomeProducts(): Promise<HomeProduct[]> {
 
 export default async function HomeLandingPage() {
   // Policies are read here (not inside the component) so the three reads share
-  // one round trip, like settings and products already do.
-  const [settings, products, policies, googleReviews] = await Promise.all([
+  // one round trip, like settings and products already do. The hero images join
+  // the same batch: the Hero Slider is its own table, so it is its own request,
+  // and running it in parallel keeps it off the page's critical path.
+  const [settings, products, policies, googleReviews, heroImages] = await Promise.all([
     getPublicSettings(),
     fetchHomeProducts(),
     getPolicies(),
     getGoogleReviews(),
+    getHeroSliderImages(),
   ]);
+
+  // THE HERO'S CAKES. The Hero Slider module (/admin/dashboard/hero-slider) is
+  // the source of truth; site_settings.home_slider is only the fallback, for a
+  // hero with no visible images of its own yet — which is also what keeps the
+  // composition whole on a database where 36_hero_slider.sql has not been run.
+  // Resolved after the batch rather than inside it because it needs both
+  // answers; the function itself is pure and does no I/O.
+  //
+  // Each slide carries the URL of the product it advertises, resolved from the
+  // product joined onto its row — that is what the hero's Order Now opens.
+  // Fallback slides have no product, and open the menu.
+  const heroSlides = heroSlidesFrom(heroImages, settings.home_slider);
 
   const waDigits = settings.contact.whatsapp.replace(/[^0-9]/g, "");
   const waText = settings.whatsapp_bar.text || "For any question";
+  // Keep the leading "+" so a tel: link still dials internationally.
+  const phoneDigits = settings.contact.phone.replace(/[^0-9+]/g, "");
 
   return (
     <div className="pb-16">
@@ -81,8 +100,29 @@ export default async function HomeLandingPage() {
         </div>
       )}
 
-      {/* 4. IMAGE SLIDER */}
-      <HomeSlider images={settings.home_slider} />
+      {/* 4. HERO — five layers over a single fixed-aspect stage: background /
+          content / cakes / CTA / floating cards (see home-slider.tsx). Only the
+          cakes change; every other layer is placed once and never moves.
+          Everything in it is admin-driven: the top-left lockup is the uploaded
+          logo plus the branding wordmark, the top-right pill dials the contact
+          phone, the cakes are the VISIBLE Hero Slider images — all of them,
+          three on stage at a time (see heroSlides above) — and the rating card
+          shows the live Google rating when Google Reviews are connected. Order
+          Now opens the product linked to whichever cake is currently centred. */}
+      <HomeSlider
+        slides={heroSlides}
+        rating={
+          googleReviews ? { value: googleReviews.rating, total: googleReviews.total } : null
+        }
+        logo={settings.logo || null}
+        brand={{ name: settings.branding.short_name, tagline: settings.branding.tagline }}
+        action={{
+          label: "Call Us",
+          // Dial straight from the hero when a number is set; otherwise send
+          // them to the contact page rather than rendering a dead tel: link.
+          href: phoneDigits ? `tel:${phoneDigits}` : "/contact",
+        }}
+      />
 
       {/* 5. ABOUT US */}
       <section className="container mt-14 text-center">
