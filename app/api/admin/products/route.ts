@@ -11,6 +11,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/server";
 import { isAuthedRequest } from "@/lib/admin-auth";
 import { persistExtras } from "@/lib/product-variants";
+import { PRODUCT_SORTS, parseProductSort } from "@/lib/product-sort";
 
 export const dynamic = "force-dynamic";
 
@@ -34,27 +35,38 @@ export async function GET(req: Request) {
   const from = (page - 1) * pageSize;
   const to = from + pageSize - 1;
 
+  // Optional category filter for the Products page's dropdown. Applied in the
+  // DB rather than in the browser so it narrows the WHOLE catalogue, not just
+  // the 20 rows this page happens to hold — and so `count` (the pager) reports
+  // the filtered total. Absent/blank = every category, exactly as before.
+  const category = (url.searchParams.get("category") ?? "").trim();
+
+  // Which order to return them in — see lib/product-sort for the options and
+  // why the database rather than the browser does this. Unrecognised or absent
+  // (every caller that predates the Sort dropdown) falls back to A→Z.
+  const sort = PRODUCT_SORTS[parseProductSort(url.searchParams.get("sort"))];
+
   // Wrap the whole DB interaction so a client-level throw (e.g. the Supabase
   // host being unreachable — `TypeError: fetch failed`) returns a clean JSON
   // 500 instead of an unhandled raw stack trace.
   try {
     const supabase = adminDb();
 
-    // Prefer manual sort_order; fall back to created_at if the migration
-    // hasn't been run yet, so the panel still works before columns exist.
-    let { data, error, count } = await supabase
+    let query = supabase
       .from("products")
       .select(PRODUCT_COLS, { count: "exact" })
-      .order("sort_order", { ascending: true })
-      .range(from, to);
+      .order(sort.column, { ascending: sort.ascending });
 
-    if (error) {
-      ({ data, error, count } = await supabase
-        .from("products")
-        .select(PRODUCT_COLS, { count: "exact" })
-        .order("created_at", { ascending: false })
-        .range(from, to));
-    }
+    // Break ties by name so the order is TOTAL. Without this, two products at
+    // £24.00 could swap places between requests, and since the table is
+    // paginated a row that swapped across the boundary would appear on both
+    // page 1 and page 2 — or on neither. Name is unique enough in a bakery
+    // catalogue and exists on every deployment of this table.
+    if (sort.column !== "name") query = query.order("name", { ascending: true });
+
+    if (category) query = query.eq("category", category);
+
+    const { data, error, count } = await query.range(from, to);
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ products: data, total: count ?? 0 });

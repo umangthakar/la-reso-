@@ -44,21 +44,14 @@ export async function GET(req: Request) {
   try {
     const supabase = adminDb();
 
-    // sort_order is the admin's own arrangement of the catalogue, so the picker
-    // opens in the order they already think of their products in. Falling back
-    // to created_at matches the products list: on a database where the
-    // sort_order migration has not run, the panel still works.
-    let { data, error } = await supabase
+    // Alphabetical by name — the same order the Products page itself lists in,
+    // so a product sits in the same place wherever the admin meets it. A picker
+    // is scanned rather than read top to bottom, and A→Z is the only order you
+    // can guess a position in without having seen the list before.
+    const { data, error } = await supabase
       .from("products")
       .select(OPTION_COLS)
-      .order("sort_order", { ascending: true });
-
-    if (error) {
-      ({ data, error } = await supabase
-        .from("products")
-        .select(OPTION_COLS)
-        .order("created_at", { ascending: false }));
-    }
+      .order("name", { ascending: true });
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 

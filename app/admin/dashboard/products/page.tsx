@@ -27,6 +27,11 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { adminGet, adminSend, adminUpload } from "@/lib/admin-api";
 import { useIsMobile } from "@/lib/use-is-mobile";
+import {
+  DEFAULT_PRODUCT_SORT,
+  PRODUCT_SORT_OPTIONS,
+  type ProductSortKey,
+} from "@/lib/product-sort";
 import RichIngredientsEditor from "@/components/admin/rich-ingredients-editor";
 import { INGREDIENT_ICONS } from "@/lib/ingredient-icons";
 import {
@@ -54,6 +59,21 @@ const DEFAULT_CATEGORIES = [
   "Cookies",
   "Gift Boxes",
 ];
+
+/**
+ * The nearest thing this catalogue has to a SKU.
+ *
+ * The products table has NO sku column — it never has — so a product's
+ * reference is the first block of its own id: what the database actually calls
+ * it, stable for the product's whole life, and short enough to read off a
+ * screen and type into the search box. Same definition the hero slider's
+ * product picker shows beside a name (see its `shortRef`); duplicated as a line
+ * rather than imported so this page doesn't pull that whole module into its
+ * bundle for one string operation.
+ */
+function shortRef(id: string): string {
+  return (id ?? "").split("-")[0] ?? "";
+}
 
 type Product = {
   id: string;
@@ -124,6 +144,14 @@ export default function ProductsAdminPage() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [searchTerm, setSearchTerm] = useState("");
+  // "" = All Categories. Applied in the DB (see load()), not in the browser, so
+  // it narrows the whole catalogue rather than only the loaded page.
+  const [categoryFilter, setCategoryFilter] = useState("");
+  // How the table is ordered — see lib/product-sort. A→Z by default so the
+  // list is never arbitrary. "Manual order" is the sort_order arrangement the
+  // homepage picks its featured products from, and the only sort in which
+  // dragging a row means anything, so it is the only one that allows it.
+  const [sortKey, setSortKey] = useState<ProductSortKey>(DEFAULT_PRODUCT_SORT);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -143,27 +171,78 @@ export default function ProductsAdminPage() {
   // falling back to the defaults until it loads / while none exist.
   const catOptions = categoryNames.length > 0 ? categoryNames : DEFAULT_CATEGORIES;
 
+  // Options for the FILTER dropdown above the table. Built from what actually
+  // exists — the managed category list, plus any category found on a loaded
+  // product that isn't in it yet — so a category the admin creates shows up on
+  // its own and nothing in the table is unreachable by the filter. Never the
+  // hardcoded DEFAULT_CATEGORIES: those are form placeholders, not real data.
+  // A-Z, matching the product order. No extra fetch — both sources are loaded.
+  const filterCatOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    const add = (name: string | null) => {
+      const clean = (name ?? "").trim();
+      if (clean && !seen.has(clean.toLowerCase())) seen.set(clean.toLowerCase(), clean);
+    };
+    categoryNames.forEach(add);
+    products.forEach((p) => add(p.category));
+    // Keep the active filter selectable even if its last product just moved
+    // out of it, so the dropdown never shows a blank selection.
+    add(categoryFilter);
+    return Array.from(seen.values()).sort((a, b) => a.localeCompare(b));
+  }, [categoryNames, products, categoryFilter]);
+
   // ---- Instant client-side product search (no DB call, no reload) ----------
   // Filters the products ALREADY loaded for the current page as the admin
-  // types. Case-insensitive, matches name, category and badge. Memoised so it
-  // only recomputes when the list or the term changes.
+  // types. Case-insensitive; matches name, the product's short reference (the
+  // nearest thing this catalogue has to a SKU — the products table has no sku
+  // column, so the same first-block-of-the-id the hero picker shows is used
+  // here), and the category and badge the box has always searched.
+  //
+  // Memoised so it only recomputes when the list or the term changes, and it
+  // preserves the order it is given — the database has already sorted, so
+  // filtering an array cannot disturb it. Runs ON TOP of the category filter,
+  // since the loaded page is already narrowed to it.
   const searching = searchTerm.trim().length > 0;
+  // Either control being active means the table is showing a subset.
+  const filtering = searching || categoryFilter !== "";
+  // Dragging persists sort_order from the row positions on screen, so it is
+  // only honest when those positions ARE sort_order and the page holds the
+  // whole slice — never over a sorted list or a filtered subset.
+  const canReorder = sortKey === "manual" && !filtering;
   const filteredProducts = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
     if (!q) return products;
     return products.filter((p) =>
-      [p.name, p.category, p.badge].some((field) =>
+      [p.name, shortRef(p.id), p.category, p.badge].some((field) =>
         (field ?? "").toLowerCase().includes(q),
       ),
     );
   }, [products, searchTerm]);
 
+  // Switching category restarts at page 1 — page 3 of "all products" is rarely
+  // a page that exists once the list is narrowed to one category.
+  function changeCategory(next: string) {
+    setCategoryFilter(next);
+    setPage(1);
+  }
+
+  // Same reasoning for the sort: row 40 of one ordering is not row 40 of
+  // another, so the page number means nothing across the switch.
+  function changeSort(next: ProductSortKey) {
+    setSortKey(next);
+    setPage(1);
+  }
+
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
+      // ONE request per page/category/sort combination — adminGet caches by
+      // URL, so returning to a combination already viewed is served from
+      // memory without touching the network.
       const data = await adminGet<{ products: Product[]; total: number }>(
-        `/api/admin/products?page=${page}&pageSize=${PAGE_SIZE}`,
+        `/api/admin/products?page=${page}&pageSize=${PAGE_SIZE}&sort=${sortKey}` +
+          (categoryFilter ? `&category=${encodeURIComponent(categoryFilter)}` : ""),
       );
       setProducts(data.products || []);
       setTotal(data.total || 0);
@@ -174,7 +253,7 @@ export default function ProductsAdminPage() {
     } finally {
       setLoading(false);
     }
-  }, [page]);
+  }, [page, categoryFilter, sortKey]);
 
   // Live category names for the product form dropdown. Kept in sync with the
   // Categories panel below via the onChanged callback.
@@ -510,10 +589,12 @@ export default function ProductsAdminPage() {
   }
 
   async function handleDragEnd(event: DragEndEvent) {
-    // Reordering is unavailable while a search filters the list: sort_order is
-    // persisted from the full page order, so dragging a filtered subset would
-    // corrupt it. Clear the search to reorder.
-    if (searching) return;
+    // Reordering is unavailable unless the table IS the sort_order arrangement,
+    // unfiltered: sort_order is persisted from the row positions on screen, so
+    // dragging an alphabetical list, a search hit list, or one category's slice
+    // of the catalogue would overwrite the admin's arrangement with a shape they
+    // never chose. Switch to Manual and clear the filters to reorder.
+    if (!canReorder) return;
     const { active, over } = event;
     if (!over || active.id === over.id) return;
     const oldIndex = products.findIndex((p) => p.id === active.id);
@@ -539,27 +620,62 @@ export default function ProductsAdminPage() {
     <div>
       <h1 style={{ color: WINE, fontSize: "1.8rem", fontWeight: 800, margin: 0 }}>Products</h1>
       <p style={{ color: BERRY, opacity: 0.7, marginTop: 4, fontSize: "0.9rem" }}>
-        Drag the ⠿ handle to reorder. Toggle Visible to show/hide on the menu.
+        {canReorder
+          ? "Drag the ⠿ handle to reorder. Toggle Visible to show/hide on the menu."
+          : sortKey !== "manual"
+            ? "Sort to “Manual order” to drag the ⠿ handle and reorder. Toggle Visible to show/hide on the menu."
+            : "Clear the search and category filter to drag the ⠿ handle and reorder. Toggle Visible to show/hide on the menu."}
       </p>
 
-      {/* Search (left) + Add product (right) on desktop; stacked full-width on
-          mobile. Search filters the loaded products instantly, client-side. */}
+      {/* THE FILTER ROW — Search + Category + Sort on the left, Add product on
+          the right. One row on desktop, wrapping as a group on tablet, each
+          control full-width on its own line on mobile. Search filters the
+          loaded products instantly in the browser; Category and Sort go to the
+          query so they reach the whole catalogue rather than one page. All
+          three combine. */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12, marginTop: 16 }}>
-        <div style={{ position: "relative", width: isMobile ? "100%" : 360, maxWidth: "100%" }}>
-          <span aria-hidden style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", display: "flex", pointerEvents: "none" }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(135,56,83,0.55)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="11" cy="11" r="8" />
-              <line x1="21" y1="21" x2="16.65" y2="16.65" />
-            </svg>
-          </span>
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search products..."
-            aria-label="Search products by name, category or badge"
-            style={{ ...inputStyle, paddingLeft: 38 }}
-          />
+        <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 12, width: isMobile ? "100%" : "auto" }}>
+          <div style={{ position: "relative", width: isMobile ? "100%" : 360, maxWidth: "100%" }}>
+            <span aria-hidden style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", display: "flex", pointerEvents: "none" }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(135,56,83,0.55)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="8" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+            </span>
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search products..."
+              aria-label="Search products by name, reference, category or badge"
+              style={{ ...inputStyle, paddingLeft: 38 }}
+            />
+          </div>
+          <select
+            value={categoryFilter}
+            onChange={(e) => changeCategory(e.target.value)}
+            aria-label="Filter products by category"
+            style={{ ...inputStyle, width: isMobile ? "100%" : 220, ...(isMobile ? { minHeight: 44 } : {}) }}
+          >
+            <option value="">All Categories</option>
+            {filterCatOptions.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+          {/* Sort — the same <select> as the category filter beside it, so the
+              row reads as three of one control rather than three designs. The
+              options come from lib/product-sort, which is also what the query
+              reads, so the list can never offer an order the DB won't give. */}
+          <select
+            value={sortKey}
+            onChange={(e) => changeSort(e.target.value as ProductSortKey)}
+            aria-label="Sort products"
+            style={{ ...inputStyle, width: isMobile ? "100%" : 200, ...(isMobile ? { minHeight: 44 } : {}) }}
+          >
+            {PRODUCT_SORT_OPTIONS.map((o) => (
+              <option key={o.key} value={o.key}>{o.label}</option>
+            ))}
+          </select>
         </div>
         <button onClick={openAdd} style={{ ...primaryBtn, ...(isMobile ? { minHeight: 44, width: "100%" } : {}) }}>+ Add product</button>
       </div>
@@ -568,15 +684,19 @@ export default function ProductsAdminPage() {
 
       {loading ? (
         <p style={{ color: BERRY, opacity: 0.7, marginTop: 24 }}>Loading products…</p>
-      ) : products.length === 0 ? (
+      ) : products.length === 0 && !filtering ? (
         <p style={{ color: BERRY, opacity: 0.7, marginTop: 24 }}>
           No products yet. Click “Add product” to create your first one.
         </p>
       ) : filteredProducts.length === 0 ? (
+        /* Nothing matched — which is a filter result, not an empty catalogue,
+           so it says so rather than repeating "no products yet". */
         <div style={{ marginTop: 16, padding: "36px 16px", textAlign: "center", color: BERRY, background: "white", borderRadius: 16, boxShadow: "0 10px 30px rgba(135,56,83,0.08)" }}>
           <p style={{ margin: 0, fontWeight: 700 }}>No matching products found.</p>
           <p style={{ margin: "6px 0 0", opacity: 0.7, fontSize: "0.9rem" }}>
-            Try a different name, category or badge.
+            {categoryFilter
+              ? "Try a different search, or switch back to All Categories."
+              : "Try a different name, reference, category or badge."}
           </p>
         </div>
       ) : (
