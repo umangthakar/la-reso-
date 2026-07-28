@@ -47,7 +47,7 @@ import {
 import { resolveIngredientIcons } from "@/lib/ingredient-icons";
 import { sanitizeIngredientsRich, isIngredientsRichEmpty } from "@/lib/ingredients-rich";
 import IngredientIconList from "@/components/ingredient-icon-list";
-import VegetarianBadge from "@/components/vegetarian-badge";
+import ProductTrustBadges from "@/components/product-trust-badges";
 
 type DetailProduct = {
   id: string;
@@ -677,15 +677,16 @@ export default function ProductDetailPage() {
               {product.name}
             </h1>
 
-            {/* Vegetarian mark — sits between the title and the rating row. */}
-            <VegetarianBadge className="mt-3" />
+            {/* Trust badges — sit between the title and the rating row. The
+                eggless claim lives here now, so the rating row no longer
+                repeats it. */}
+            <ProductTrustBadges className="mt-3" />
 
             <div className="mt-3 flex items-center gap-2">
               <Stars value={rating} />
               <span className="text-sm font-semibold text-wine-dark">
                 {rating.toFixed(1)}
               </span>
-              <span className="text-sm text-berry">· 100% eggless</span>
             </div>
 
             <p className="mt-4 font-display text-3xl font-bold text-wine-dark">
