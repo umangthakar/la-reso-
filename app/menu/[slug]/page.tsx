@@ -36,7 +36,6 @@ import { isCustomCakeCategory, isCakeCategory, customCakeWhatsappHref } from "@/
 import { consumePurchaseIntent, peekPurchaseIntent } from "@/lib/purchase-intent";
 import { PriceText } from "@/components/product-price";
 import {
-  NUTRITION_ROWS,
   normalizeNutrition,
   normalizeCustomNutrition,
   hasNutrition,
@@ -48,6 +47,7 @@ import { resolveIngredientIcons } from "@/lib/ingredient-icons";
 import { sanitizeIngredientsRich, isIngredientsRichEmpty } from "@/lib/ingredients-rich";
 import IngredientIconList from "@/components/ingredient-icon-list";
 import ProductTrustBadges from "@/components/product-trust-badges";
+import ProductNutrition from "@/components/product-nutrition";
 
 type DetailProduct = {
   id: string;
@@ -604,62 +604,18 @@ export default function ProductDetailPage() {
               </div>
             )}
 
-            {/* Nutrition Information — sits under the gallery so it shares the
-                image column's width. Default rows first, then admin-defined
-                custom rows. Rendered only when the product has default values
-                or at least one custom row (products with none show nothing —
-                fully backward compatible). */}
+            {/* Nutrition Information — TABLET + DESKTOP mount. Sits under the
+                gallery so it shares the image column's width. Hidden below
+                `md`, where the mount inside the details column takes over (see
+                below). Rendered only when the product has default values or at
+                least one custom row (products with none show nothing — fully
+                backward compatible). */}
             {showNutrition && (
-              <div className="mt-6 rounded-2xl bg-[#F9EEEA] p-4">
-                <p className="mb-3 text-xs font-bold uppercase tracking-wide text-wine-dark">
-                  Nutrition Information
-                </p>
-                <table className="w-full table-fixed text-sm">
-                  <thead>
-                    <tr className="text-berry">
-                      <th className="w-1/2 pb-2 text-left font-semibold"></th>
-                      <th className="pb-2 text-right font-semibold">Per 100g</th>
-                      <th className="pb-2 text-right font-semibold">Per Portion</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {NUTRITION_ROWS.map((row) => {
-                      const cell = nutritionRows[row.key];
-                      return (
-                        <tr key={row.key} className="border-t border-dustyrose/40">
-                          <td
-                            className={`py-2 ${
-                              row.indent
-                                ? "pl-4 font-normal text-darkberry-light"
-                                : "font-semibold text-darkberry"
-                            }`}
-                          >
-                            {row.label}
-                          </td>
-                          <td className="py-2 text-right tabular-nums text-darkberry">
-                            {cell?.per_100g || "—"}
-                          </td>
-                          <td className="py-2 text-right tabular-nums text-darkberry">
-                            {cell?.per_portion || "—"}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                    {/* Custom rows, in the order the admin added them. */}
-                    {nutritionCustom.map((row) => (
-                      <tr key={row.id} className="border-t border-dustyrose/40">
-                        <td className="py-2 font-semibold text-darkberry">{row.label}</td>
-                        <td className="py-2 text-right tabular-nums text-darkberry">
-                          {row.per_100g || "—"}
-                        </td>
-                        <td className="py-2 text-right tabular-nums text-darkberry">
-                          {row.per_portion || "—"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <ProductNutrition
+                rows={nutritionRows}
+                custom={nutritionCustom}
+                className="mt-6 hidden md:block"
+              />
             )}
           </div>
 
@@ -815,6 +771,18 @@ export default function ProductDetailPage() {
                   </div>
                 )}
               </div>
+            )}
+
+            {/* Nutrition Information — MOBILE mount. Same component as the one
+                under the gallery; only one of the two is ever displayed. Below
+                `md` the card reads better here, between Ingredients and
+                Allergens. */}
+            {showNutrition && (
+              <ProductNutrition
+                rows={nutritionRows}
+                custom={nutritionCustom}
+                className="mt-5 md:hidden"
+              />
             )}
 
             {product.allergens && (
