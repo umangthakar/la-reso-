@@ -47,6 +47,7 @@ import {
 import { resolveIngredientIcons } from "@/lib/ingredient-icons";
 import { sanitizeIngredientsRich, isIngredientsRichEmpty } from "@/lib/ingredients-rich";
 import IngredientIconList from "@/components/ingredient-icon-list";
+import VegetarianBadge from "@/components/vegetarian-badge";
 
 type DetailProduct = {
   id: string;
@@ -675,6 +676,9 @@ export default function ProductDetailPage() {
             <h1 className="mt-1.5 font-display text-3xl font-bold leading-tight text-darkberry md:text-4xl">
               {product.name}
             </h1>
+
+            {/* Vegetarian mark — sits between the title and the rating row. */}
+            <VegetarianBadge className="mt-3" />
 
             <div className="mt-3 flex items-center gap-2">
               <Stars value={rating} />
