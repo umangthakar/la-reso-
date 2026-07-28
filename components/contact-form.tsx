@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { validateEmail } from "@/lib/email-validation";
 
 const EVENT_TYPES = [
   "Birthday",
@@ -70,6 +71,8 @@ export function ContactForm() {
   const [uploading, setUploading] = useState(false);
   const [status, setStatus] = useState<"idle" | "sending" | "done">("idle");
   const [error, setError] = useState("");
+  // Inline validation for the Email field, shown directly beneath the input.
+  const [emailError, setEmailError] = useState("");
   // The Inquiry Number assigned on save (CQ-YYYYMMDD-NNN) + the customer's
   // WhatsApp number, both shown on the success screen.
   const [inquiryNumber, setInquiryNumber] = useState("");
@@ -91,6 +94,14 @@ export function ContactForm() {
 
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((f) => ({ ...f, [key]: value }));
+  }
+
+  // Email gets its own setter so a showing error clears the moment the address
+  // becomes valid — no re-submit, no refresh. It is never raised while typing,
+  // only cleared, so the field stays quiet until Submit is pressed.
+  function setEmail(value: string) {
+    set("email", value);
+    if (emailError && !validateEmail(value)) setEmailError("");
   }
 
   async function handleFiles(e: React.ChangeEvent<HTMLInputElement>) {
@@ -122,10 +133,19 @@ export function ContactForm() {
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError("");
+
+    // Email is mandatory. Checked alongside the existing name/phone rule so a
+    // single submit surfaces everything that is wrong, then we bail before the
+    // fetch — nothing is sent and no inquiry is created.
+    const emailErr = validateEmail(form.email);
+    setEmailError(emailErr);
+
     if (!form.name.trim() || !form.phone.trim()) {
       setError("Please add at least your name and phone number.");
       return;
     }
+    if (emailErr) return;
+
     setStatus("sending");
 
     // Persist the inquiry → the server saves it, assigns the Inquiry Number and
@@ -216,6 +236,13 @@ export function ContactForm() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             onSubmit={handleSubmit}
+            // Native constraint UI is turned off so validation is decided in
+            // one place. Without this the browser's own bubble fires first for
+            // a malformed `type="email"` value and our inline message never
+            // renders. The `required` attributes below still stand for
+            // semantics/assistive tech, and the existing name/phone check in
+            // handleSubmit is unchanged — it simply becomes the visible path.
+            noValidate
             className="space-y-5"
           >
             <div>
@@ -240,8 +267,21 @@ export function ContactForm() {
 
             <div className="grid gap-5 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input id="email" type="email" value={form.email} onChange={(e) => set("email", e.target.value)} placeholder="jane@email.com" />
+                <Label htmlFor="email">Email *</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  value={form.email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="jane@email.com"
+                  aria-invalid={emailError ? true : undefined}
+                  aria-describedby={emailError ? "email-error" : undefined}
+                />
+                {emailError && (
+                  <p id="email-error" className="mt-1 text-xs font-semibold text-red-600">
+                    {emailError}
+                  </p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="eventType">Event type</Label>

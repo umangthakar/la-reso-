@@ -16,6 +16,7 @@ import { createClient } from "@/utils/supabase/server";
 import { createAdminClient } from "@/lib/supabase/server";
 import { sendEmail, ownerEmail } from "@/lib/email";
 import { buildInquiryOwnerEmail } from "@/lib/inquiry-email";
+import { validateEmail } from "@/lib/email-validation";
 
 export const dynamic = "force-dynamic";
 
@@ -72,6 +73,14 @@ export async function POST(req: Request) {
 
   if (!insert.name && !insert.phone && !insert.email) {
     return NextResponse.json({ error: "Please add your contact details." }, { status: 400 });
+  }
+
+  // Email is mandatory, and must be a real address — enforced here as well as
+  // in the form, so a request that skips the UI is rejected before anything is
+  // saved or the owner is notified. Same rules as the client (shared module).
+  const emailError = validateEmail(insert.email);
+  if (emailError) {
+    return NextResponse.json({ error: emailError, field: "email" }, { status: 400 });
   }
 
   console.log("Saving inquiry...");
