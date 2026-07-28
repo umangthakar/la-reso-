@@ -31,6 +31,8 @@ export type LifecycleOrderRow = {
   status?: string | null;
   payment_status?: string | null;
   stripe_payment_intent?: string | null;
+  /** Set once a Stripe refund has succeeded — the double-refund guard. */
+  refund_id?: string | null;
   total?: number | null;
   amount?: number | null;
 };
@@ -57,6 +59,14 @@ export async function refundOrder(
   supabase: SupabaseClient,
   order: LifecycleOrderRow,
 ): Promise<{ refundId: string } | { error: string }> {
+  // Already refunded once — never charge Stripe a second time. This is the
+  // last line of defence behind the status guard: an order that carries a
+  // refund_id has a completed refund on record, so we report that one.
+  const existingRefund = (order.refund_id ?? "").trim();
+  if (existingRefund) {
+    return { refundId: existingRefund };
+  }
+
   const pi = (order.stripe_payment_intent ?? "").trim();
   if (!pi) {
     return {
@@ -98,12 +108,72 @@ export type CancelResult = {
  * If step 1 fails, payment_status is 'refund_pending' and the error is
  * stored for the admin to retry — the order is still safely Cancelled.
  */
+export type CancelOptions = {
+  /**
+   * Atomically claim the order before doing anything irreversible: the status
+   * is flipped to 'cancelled' with a `WHERE status = <onlyIfStatus>` guard, and
+   * the whole operation is abandoned (returns null) if no row matched — meaning
+   * someone else already moved it (admin accepted, customer cancelled, or a
+   * duplicate sweep got there first). Postgres serialises the conditional
+   * UPDATE, so exactly one caller can ever win the claim and issue the refund.
+   */
+  onlyIfStatus?: string;
+};
+
+// Callers that don't pass a guard always get a result (existing behaviour);
+// guarded callers must handle the "someone else got there first" null.
 export async function cancelAndRefund(
   supabase: SupabaseClient,
   order: LifecycleOrderRow,
   by: "customer" | "auto" | "admin",
-): Promise<CancelResult> {
+): Promise<CancelResult>;
+export async function cancelAndRefund(
+  supabase: SupabaseClient,
+  order: LifecycleOrderRow,
+  by: "customer" | "auto" | "admin",
+  opts: CancelOptions & { onlyIfStatus: string },
+): Promise<CancelResult | null>;
+export async function cancelAndRefund(
+  supabase: SupabaseClient,
+  order: LifecycleOrderRow,
+  by: "customer" | "auto" | "admin",
+  opts: CancelOptions = {},
+): Promise<CancelResult | null> {
   const nowIso = new Date().toISOString();
+
+  // 0) Optional atomic claim — see CancelOptions.onlyIfStatus. Runs BEFORE the
+  //    refund so a losing racer never reaches Stripe.
+  if (opts.onlyIfStatus) {
+    const claim = {
+      status: "cancelled",
+      cancelled_at: nowIso,
+      cancelled_by: by,
+      updated_at: nowIso,
+    };
+    let { data: claimed, error: claimErr } = await supabase
+      .from("orders")
+      .update(claim)
+      .eq("id", order.id)
+      .eq("status", opts.onlyIfStatus)
+      .select("id");
+
+    // Pre-27 database: retry the claim with the one column that always exists.
+    if (claimErr && isMissingColumn(claimErr)) {
+      ({ data: claimed, error: claimErr } = await supabase
+        .from("orders")
+        .update({ status: "cancelled" })
+        .eq("id", order.id)
+        .eq("status", opts.onlyIfStatus)
+        .select("id"));
+    }
+
+    if (claimErr) {
+      console.error("[order-lifecycle] claim failed:", claimErr.message);
+      return null;
+    }
+    // No row matched — the order left `onlyIfStatus` between the read and now.
+    if (!claimed || claimed.length === 0) return null;
+  }
 
   // 1) Refund (best-effort).
   const refund = await refundOrder(supabase, order);
