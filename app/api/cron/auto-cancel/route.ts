@@ -56,22 +56,52 @@ export const dynamic = "force-dynamic";
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
 
 /** "trusted" = proved it knows a secret, so it may see order ids. */
-type Auth = { ok: false } | { ok: true; trusted: boolean };
+type Auth =
+  | { ok: false; reason: string; diagnostics: Record<string, boolean> }
+  | { ok: true; trusted: boolean };
+
+/**
+ * Pull the presented secret out of a request, in both accepted forms.
+ *
+ * Everything is trimmed. Values pasted into a dashboard env field routinely
+ * carry a trailing newline or space, and a strict `===` against an untrimmed
+ * `process.env` value then fails for BOTH the header and the query param —
+ * which looks exactly like "the secret is wrong" while it is byte-for-byte
+ * right apart from the whitespace.
+ */
+function presentedSecrets(req: Request): { fromHeader: string | null; fromQuery: string[] } {
+  const rawAuth = req.headers.get("authorization");
+  // Scheme is matched case-insensitively; a bare token (no "Bearer") is also
+  // accepted, since some schedulers send the value on its own.
+  const fromHeader = rawAuth ? (/^\s*bearer\s+(.*)$/i.exec(rawAuth)?.[1] ?? rawAuth).trim() : null;
+
+  const url = new URL(req.url);
+  const fromQuery: string[] = [];
+  const decoded = url.searchParams.get("secret");
+  if (decoded !== null) fromQuery.push(decoded.trim());
+  // The literal, undecoded value too: URLSearchParams turns "+" into a space,
+  // so a generated secret containing "+" would never match its decoded form.
+  const literal = /[?&]secret=([^&]*)/.exec(url.search)?.[1];
+  if (literal !== undefined) fromQuery.push(literal.trim());
+
+  return { fromHeader, fromQuery };
+}
 
 function authorise(req: Request): Auth {
   if (isAuthedRequest(req)) return { ok: true, trusted: true }; // admin, by hand
 
-  const secret = process.env.CRON_SECRET;
+  const rawSecret = process.env.CRON_SECRET;
+  const secret = (rawSecret ?? "").trim();
+  const { fromHeader, fromQuery } = presentedSecrets(req);
+  const isVercelCron = req.headers.has("x-vercel-cron-schedule");
+
   if (secret) {
-    const auth = req.headers.get("authorization") ?? "";
-    if (auth === `Bearer ${secret}`) return { ok: true, trusted: true };
-    const url = new URL(req.url);
-    if (url.searchParams.get("secret") === secret) return { ok: true, trusted: true };
+    if (fromHeader && fromHeader === secret) return { ok: true, trusted: true };
+    if (fromQuery.some((v) => v && v === secret)) return { ok: true, trusted: true };
   }
 
   // Fallback: a genuine Vercel Cron invocation. Only reachable when the secret
   // is unset — with a secret configured we insist on it.
-  const isVercelCron = req.headers.has("x-vercel-cron-schedule");
   if (!secret && isVercelCron) {
     console.warn(
       "[cron/auto-cancel] Running WITHOUT CRON_SECRET — accepted on the Vercel " +
@@ -80,20 +110,54 @@ function authorise(req: Request): Auth {
     return { ok: true, trusted: false };
   }
 
-  console.error(
-    "[cron/auto-cancel] Rejected an invocation (401). " +
-      (secret
-        ? "CRON_SECRET is set but the request did not present it."
-        : "CRON_SECRET is NOT set, so Vercel sends no Authorization header — " +
-          "set it in the project env, then redeploy."),
-  );
-  return { ok: false };
+  // ---- Rejected. Report precisely WHICH check failed. -------------------
+  // Values are never logged — only presence, lengths and comparison outcomes,
+  // which is enough to tell "env var missing" from "value differs" from
+  // "whitespace" without putting the secret in a log line.
+  const candidates = [fromHeader, ...fromQuery].filter((v): v is string => !!v);
+  const reason = !rawSecret
+    ? "CRON_SECRET is not defined in this runtime. Check it is set for the " +
+      "Production environment and that the deployment was created AFTER you added it."
+    : candidates.length === 0
+      ? "CRON_SECRET is defined, but the request presented no secret (no " +
+        "Authorization header and no ?secret= parameter reached the route)."
+      : "CRON_SECRET is defined and a secret was presented, but they differ.";
+
+  console.error("[cron/auto-cancel] 401 — %s", reason, {
+    cronSecretDefined: rawSecret !== undefined,
+    cronSecretLength: secret.length,
+    // True when the env value had surrounding whitespace — a very common cause
+    // of a "matching" secret failing a strict comparison.
+    cronSecretHadSurroundingWhitespace: rawSecret !== undefined && rawSecret !== rawSecret.trim(),
+    authorizationHeaderReceived: req.headers.has("authorization"),
+    authorizationTokenLength: fromHeader?.length ?? 0,
+    secretQueryParamReceived: fromQuery.length > 0,
+    secretQueryParamLength: fromQuery[0]?.length ?? 0,
+    isVercelCronInvocation: isVercelCron,
+    anyCandidateLengthMatches: candidates.some((v) => v.length === secret.length),
+  });
+
+  return {
+    ok: false,
+    reason,
+    // Booleans only — no values, no lengths — so a curl against the live
+    // endpoint is self-diagnosing without leaking anything about the secret.
+    diagnostics: {
+      cronSecretDefined: rawSecret !== undefined,
+      authorizationHeaderReceived: req.headers.has("authorization"),
+      secretQueryParamReceived: fromQuery.length > 0,
+      presentedSecretLengthMatches: candidates.some((v) => v.length === secret.length),
+    },
+  };
 }
 
 async function runSweep(req: Request) {
   const auth = authorise(req);
   if (!auth.ok) {
-    return NextResponse.json({ error: "Not authorised" }, { status: 401 });
+    return NextResponse.json(
+      { error: "Not authorised", reason: auth.reason, diagnostics: auth.diagnostics },
+      { status: 401 },
+    );
   }
 
   const supabase = createAdminClient() as unknown as SupabaseClient;
