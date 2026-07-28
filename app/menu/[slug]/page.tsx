@@ -602,6 +602,64 @@ export default function ProductDetailPage() {
                 ))}
               </div>
             )}
+
+            {/* Nutrition Information — sits under the gallery so it shares the
+                image column's width. Default rows first, then admin-defined
+                custom rows. Rendered only when the product has default values
+                or at least one custom row (products with none show nothing —
+                fully backward compatible). */}
+            {showNutrition && (
+              <div className="mt-6 rounded-2xl bg-[#F9EEEA] p-4">
+                <p className="mb-3 text-xs font-bold uppercase tracking-wide text-wine-dark">
+                  Nutrition Information
+                </p>
+                <table className="w-full table-fixed text-sm">
+                  <thead>
+                    <tr className="text-berry">
+                      <th className="w-1/2 pb-2 text-left font-semibold"></th>
+                      <th className="pb-2 text-right font-semibold">Per 100g</th>
+                      <th className="pb-2 text-right font-semibold">Per Portion</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {NUTRITION_ROWS.map((row) => {
+                      const cell = nutritionRows[row.key];
+                      return (
+                        <tr key={row.key} className="border-t border-dustyrose/40">
+                          <td
+                            className={`py-2 ${
+                              row.indent
+                                ? "pl-4 font-normal text-darkberry-light"
+                                : "font-semibold text-darkberry"
+                            }`}
+                          >
+                            {row.label}
+                          </td>
+                          <td className="py-2 text-right tabular-nums text-darkberry">
+                            {cell?.per_100g || "—"}
+                          </td>
+                          <td className="py-2 text-right tabular-nums text-darkberry">
+                            {cell?.per_portion || "—"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {/* Custom rows, in the order the admin added them. */}
+                    {nutritionCustom.map((row) => (
+                      <tr key={row.id} className="border-t border-dustyrose/40">
+                        <td className="py-2 font-semibold text-darkberry">{row.label}</td>
+                        <td className="py-2 text-right tabular-nums text-darkberry">
+                          {row.per_100g || "—"}
+                        </td>
+                        <td className="py-2 text-right tabular-nums text-darkberry">
+                          {row.per_portion || "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
           {/* Details */}
@@ -751,63 +809,6 @@ export default function ProductDetailPage() {
                     </div>
                   </div>
                 )}
-              </div>
-            )}
-
-            {/* Nutrition Information — default rows first, then admin-defined
-                custom rows. Rendered only when the product has default values
-                or at least one custom row (products with none show nothing —
-                fully backward compatible). */}
-            {showNutrition && (
-              <div className="mt-5 rounded-2xl bg-[#F9EEEA] p-4">
-                <p className="mb-3 text-xs font-bold uppercase tracking-wide text-wine-dark">
-                  Nutrition Information
-                </p>
-                <table className="w-full table-fixed text-sm">
-                  <thead>
-                    <tr className="text-berry">
-                      <th className="w-1/2 pb-2 text-left font-semibold"></th>
-                      <th className="pb-2 text-right font-semibold">Per 100g</th>
-                      <th className="pb-2 text-right font-semibold">Per Portion</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {NUTRITION_ROWS.map((row) => {
-                      const cell = nutritionRows[row.key];
-                      return (
-                        <tr key={row.key} className="border-t border-dustyrose/40">
-                          <td
-                            className={`py-2 ${
-                              row.indent
-                                ? "pl-4 font-normal text-darkberry-light"
-                                : "font-semibold text-darkberry"
-                            }`}
-                          >
-                            {row.label}
-                          </td>
-                          <td className="py-2 text-right tabular-nums text-darkberry">
-                            {cell?.per_100g || "—"}
-                          </td>
-                          <td className="py-2 text-right tabular-nums text-darkberry">
-                            {cell?.per_portion || "—"}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                    {/* Custom rows, in the order the admin added them. */}
-                    {nutritionCustom.map((row) => (
-                      <tr key={row.id} className="border-t border-dustyrose/40">
-                        <td className="py-2 font-semibold text-darkberry">{row.label}</td>
-                        <td className="py-2 text-right tabular-nums text-darkberry">
-                          {row.per_100g || "—"}
-                        </td>
-                        <td className="py-2 text-right tabular-nums text-darkberry">
-                          {row.per_portion || "—"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
               </div>
             )}
 
