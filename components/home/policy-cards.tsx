@@ -66,10 +66,26 @@ function ruleClasses(i: number): string {
   ].join(" ");
 }
 
+/**
+ * Slugs deliberately left out of THIS grid only.
+ *
+ * The Cookie Policy is reached from the footer and from the cookie consent
+ * banner, so it doesn't need a card here — and as a fifth item it would sit
+ * alone on a second row of the 4-column desktop layout. Its page, its route,
+ * its footer link, its banner link and its card on the /policies index are all
+ * untouched; only this homepage grid skips it.
+ */
+const HIDDEN_FROM_HOME_GRID = new Set(["cookie-policy"]);
+
 export function PolicyCards({ policies }: { policies: PolicySummary[] }) {
+  // Filtered BEFORE the map below, so the index handed to ruleClasses() stays
+  // contiguous — the hairline rules are computed from position, and a gap would
+  // put a border in the wrong place.
+  const shown = policies.filter((p) => !HIDDEN_FROM_HOME_GRID.has(p.slug));
+
   // Nothing enabled (or the table is unreachable) — render nothing at all,
   // rather than an empty bordered band.
-  if (policies.length === 0) return null;
+  if (shown.length === 0) return null;
 
   return (
     <section className="container mt-16 border-t border-[#F2DCD6] pt-4">
@@ -77,7 +93,7 @@ export function PolicyCards({ policies }: { policies: PolicySummary[] }) {
           exactly with the container's content edges. It matches the container's
           own sm gutter (1.5rem), so it can never push the row into overflow. */}
       <div className="grid grid-cols-1 sm:-mx-6 sm:grid-cols-2 lg:grid-cols-4">
-        {policies.map((p, i) => {
+        {shown.map((p, i) => {
           const Icon = ICONS[defaultPolicyIcon(p.slug, p.title)];
           const icon = p.icon_url?.trim();
 
