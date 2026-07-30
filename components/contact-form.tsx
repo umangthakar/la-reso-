@@ -19,7 +19,25 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { validateEmail } from "@/lib/email-validation";
+import {
+  NAME_MAX,
+  normaliseName,
+  validateEmail,
+  validateName,
+  validatePhone,
+} from "@/lib/input-validation";
+
+// The three required contact fields, each validated by the shared rules so this
+// form and /api/inquiry/create can never disagree.
+type FieldKey = "name" | "email" | "phone";
+
+const VALIDATORS: Record<FieldKey, (value: string) => string> = {
+  name: (v) => validateName(v),
+  email: (v) => validateEmail(v),
+  phone: (v) => validatePhone(v),
+};
+
+const ERROR_CLASS = "mt-1 text-xs font-semibold text-red-600";
 
 const EVENT_TYPES = [
   "Birthday",
@@ -71,8 +89,10 @@ export function ContactForm() {
   const [uploading, setUploading] = useState(false);
   const [status, setStatus] = useState<"idle" | "sending" | "done">("idle");
   const [error, setError] = useState("");
-  // Inline validation for the Email field, shown directly beneath the input.
-  const [emailError, setEmailError] = useState("");
+  // Inline validation messages, shown directly beneath their input. Raised on
+  // blur and on submit — never on the first keystroke, so the form stays quiet
+  // while it is being filled in — and cleared the instant a field becomes valid.
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<FieldKey, string>>>({});
   // The Inquiry Number assigned on save (CQ-YYYYMMDD-NNN) + the customer's
   // WhatsApp number, both shown on the success screen.
   const [inquiryNumber, setInquiryNumber] = useState("");
@@ -94,15 +114,32 @@ export function ContactForm() {
 
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((f) => ({ ...f, [key]: value }));
+
+    // Live-clear: a showing message disappears the moment the field becomes
+    // valid — no re-submit, no blur needed. Errors are never RAISED here, so
+    // typing "j" into an empty email doesn't immediately scold the customer.
+    if (key in VALIDATORS) {
+      const k = key as FieldKey;
+      setFieldErrors((prev) => {
+        if (!prev[k]) return prev;
+        return VALIDATORS[k](String(value)) ? prev : { ...prev, [k]: "" };
+      });
+    }
   }
 
-  // Email gets its own setter so a showing error clears the moment the address
-  // becomes valid — no re-submit, no refresh. It is never raised while typing,
-  // only cleared, so the field stays quiet until Submit is pressed.
-  function setEmail(value: string) {
-    set("email", value);
-    if (emailError && !validateEmail(value)) setEmailError("");
+  /** On blur: validate this one field and show/clear its message. */
+  function blurField(key: FieldKey) {
+    // Names are tidied on the way out (spaces trimmed/collapsed) so what the
+    // customer sees is what gets saved.
+    const value = key === "name" ? normaliseName(form.name) : form[key];
+    if (key === "name" && value !== form.name) set("name", value);
+    setFieldErrors((prev) => ({ ...prev, [key]: VALIDATORS[key](value) }));
   }
+
+  // Submission is blocked until all three required contact fields are valid.
+  const contactValid = (Object.keys(VALIDATORS) as FieldKey[]).every(
+    (k) => VALIDATORS[k](form[k]) === "",
+  );
 
   async function handleFiles(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
@@ -134,17 +171,15 @@ export function ContactForm() {
     e.preventDefault();
     setError("");
 
-    // Email is mandatory. Checked alongside the existing name/phone rule so a
-    // single submit surfaces everything that is wrong, then we bail before the
-    // fetch — nothing is sent and no inquiry is created.
-    const emailErr = validateEmail(form.email);
-    setEmailError(emailErr);
-
-    if (!form.name.trim() || !form.phone.trim()) {
-      setError("Please add at least your name and phone number.");
-      return;
+    // Name, email and phone are all mandatory and all format-checked. One
+    // submit surfaces every problem at once, then we bail before the fetch —
+    // nothing is sent and no inquiry is created.
+    const next: Partial<Record<FieldKey, string>> = {};
+    for (const k of Object.keys(VALIDATORS) as FieldKey[]) {
+      next[k] = VALIDATORS[k](form[k]);
     }
-    if (emailErr) return;
+    setFieldErrors(next);
+    if (Object.values(next).some(Boolean)) return;
 
     setStatus("sending");
 
@@ -257,11 +292,45 @@ export function ContactForm() {
             <div className="grid gap-5 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="name">Full name *</Label>
-                <Input id="name" value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="Jane Doe" required />
+                <Input
+                  id="name"
+                  value={form.name}
+                  onChange={(e) => set("name", e.target.value)}
+                  onBlur={() => blurField("name")}
+                  placeholder="Jane Doe"
+                  maxLength={NAME_MAX}
+                  autoComplete="name"
+                  required
+                  aria-invalid={fieldErrors.name ? true : undefined}
+                  aria-describedby={fieldErrors.name ? "name-error" : undefined}
+                />
+                {fieldErrors.name && (
+                  <p id="name-error" className={ERROR_CLASS}>
+                    {fieldErrors.name}
+                  </p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="phone">Phone number *</Label>
-                <Input id="phone" type="tel" value={form.phone} onChange={(e) => set("phone", e.target.value)} placeholder="+44 …" required />
+                <Input
+                  id="phone"
+                  type="tel"
+                  inputMode="tel"
+                  value={form.phone}
+                  onChange={(e) => set("phone", e.target.value)}
+                  onBlur={() => blurField("phone")}
+                  placeholder="+44 …"
+                  maxLength={20}
+                  autoComplete="tel"
+                  required
+                  aria-invalid={fieldErrors.phone ? true : undefined}
+                  aria-describedby={fieldErrors.phone ? "phone-error" : undefined}
+                />
+                {fieldErrors.phone && (
+                  <p id="phone-error" className={ERROR_CLASS}>
+                    {fieldErrors.phone}
+                  </p>
+                )}
               </div>
             </div>
 
@@ -272,14 +341,18 @@ export function ContactForm() {
                   id="email"
                   type="email"
                   value={form.email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => set("email", e.target.value)}
+                  onBlur={() => blurField("email")}
                   placeholder="jane@email.com"
-                  aria-invalid={emailError ? true : undefined}
-                  aria-describedby={emailError ? "email-error" : undefined}
+                  maxLength={254}
+                  autoComplete="email"
+                  required
+                  aria-invalid={fieldErrors.email ? true : undefined}
+                  aria-describedby={fieldErrors.email ? "email-error" : undefined}
                 />
-                {emailError && (
-                  <p id="email-error" className="mt-1 text-xs font-semibold text-red-600">
-                    {emailError}
+                {fieldErrors.email && (
+                  <p id="email-error" className={ERROR_CLASS}>
+                    {fieldErrors.email}
                   </p>
                 )}
               </div>
@@ -397,7 +470,12 @@ export function ContactForm() {
               </p>
             )}
 
-            <Button type="submit" size="lg" className="w-full" disabled={status === "sending" || uploading}>
+            <Button
+              type="submit"
+              size="lg"
+              className="w-full"
+              disabled={status === "sending" || uploading || !contactValid}
+            >
               {status === "sending" ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />

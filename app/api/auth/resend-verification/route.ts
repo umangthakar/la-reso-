@@ -26,6 +26,7 @@ import { randomBytes } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/server";
 import { sendVerificationEmail } from "@/lib/auth-email";
+import { isValidEmail, normaliseEmail } from "@/lib/input-validation";
 
 export const dynamic = "force-dynamic";
 
@@ -52,7 +53,6 @@ function clientIp(req: Request): string {
   return (fwd ? fwd.split(",")[0] : "").trim() || req.headers.get("x-real-ip") || "unknown";
 }
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // Identical response for "sent", "already verified", and "unknown email".
 const GENERIC_OK = {
@@ -66,10 +66,10 @@ function fail(status: number, message: string, extra?: Record<string, unknown>) 
 
 export async function POST(req: Request) {
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
-  const email = String(body.email ?? "").trim().toLowerCase();
+  const email = normaliseEmail(body.email);
 
   // 1. Validate + rate limit.
-  if (!EMAIL_RE.test(email)) {
+  if (!isValidEmail(email)) {
     return NextResponse.json(GENERIC_OK); // no info leak
   }
   const ip = clientIp(req);

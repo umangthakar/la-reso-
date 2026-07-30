@@ -13,6 +13,16 @@ import { getStripe } from "@/lib/stripe";
 import { round2 } from "@/lib/pricing";
 import { notifyOrder } from "@/lib/notifications";
 import { sendOrderNotification } from "@/lib/ntfy";
+import {
+  cleanString,
+  cleanText,
+  normaliseEmail,
+  normaliseName,
+  normalisePhone,
+  validateEmail,
+  validateName,
+  validatePhone,
+} from "@/lib/input-validation";
 
 export const dynamic = "force-dynamic";
 
@@ -129,15 +139,41 @@ export async function POST(req: Request) {
   }
 
   const addr = body.address ?? {};
-  const deliveryAddress = [addr.line, addr.city].filter(Boolean).join(", ");
-  const postcode = String(addr.postcode ?? "").trim();
-  const instructions = String(body.specialInstructions ?? "").trim() || null;
+  // cleanString/cleanText return "" for any non-string, so a crafted payload
+  // like {address:{line:{}}} cannot stringify an object into the database.
+  const addressLine = cleanString(addr.line, 200);
+  const addressCity = cleanString(addr.city, 100);
+  const deliveryAddress = [addressLine, addressCity].filter(Boolean).join(", ");
+  const postcode = cleanString(addr.postcode, 20);
+  const instructions = cleanText(body.specialInstructions, 2000) || null;
+
+  const customerName = normaliseName(cleanString(body.customer?.name, 200));
+  const customerEmail = normaliseEmail(body.customer?.email);
+  const customerPhone = normalisePhone(cleanString(body.customer?.phone, 60));
+
+  // Re-validated server-side with the SAME shared rules the checkout form uses.
+  // A genuine customer cannot reach here with invalid values (step 1 gates the
+  // contact fields and the Back button is hidden on the payment step), so this
+  // only ever rejects a request crafted to bypass the UI — before it can write a
+  // malformed name/email/phone onto a real order.
+  const contactChecks: Array<[field: string, error: string]> = [
+    ["name", validateName(customerName)],
+    ["email", validateEmail(customerEmail)],
+    ["phone", validatePhone(customerPhone)],
+  ];
+  const badContact = contactChecks.find(([, error]) => error !== "");
+  if (badContact) {
+    return NextResponse.json(
+      { error: badContact[1], field: badContact[0] },
+      { status: 400 },
+    );
+  }
 
   // Columns present on every version of the orders table.
   const coreOrder = {
-    customer_name: String(body.customer?.name ?? "").trim(),
-    email: String(body.customer?.email ?? "").trim(),
-    phone: String(body.customer?.phone ?? "").trim(),
+    customer_name: customerName,
+    email: customerEmail,
+    phone: customerPhone,
     message: instructions, // surfaced by the admin Orders drawer
     delivery_date: body.deliveryDate || null,
     subtotal: metaSubtotal,

@@ -25,16 +25,21 @@ import { randomBytes } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/server";
 import { sendVerificationEmail } from "@/lib/auth-email";
+import {
+  cleanString,
+  normaliseEmail,
+  normaliseName,
+  validateEmail,
+  validateName,
+} from "@/lib/input-validation";
 
 export const dynamic = "force-dynamic";
 
 /** Token lifetime: 24 hours. */
 const TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
 function str(v: unknown, max = 200): string {
-  return String(v ?? "").trim().slice(0, max);
+  return cleanString(v, max);
 }
 
 function fail(status: number, message: string, details?: string) {
@@ -44,11 +49,16 @@ function fail(status: number, message: string, details?: string) {
 export async function POST(req: Request) {
   // ── 1. Validate ───────────────────────────────────────────
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
-  const email = str(body.email).toLowerCase();
-  const password = String(body.password ?? "");
-  const name = str(body.name, 200);
+  const email = normaliseEmail(body.email);
+  const password = typeof body.password === "string" ? body.password : "";
+  const name = normaliseName(str(body.name, 200));
 
-  if (!EMAIL_RE.test(email)) return fail(400, "Please enter a valid email address.");
+  // Shared rules, identical to the signup form's. The email check is now the
+  // stricter shared one — the local regex it replaces accepted "abc@gmail".
+  const emailError = validateEmail(email);
+  if (emailError) return fail(400, emailError);
+  const nameError = validateName(name);
+  if (nameError) return fail(400, nameError);
   if (password.length < 6) return fail(400, "Your password must be at least 6 characters.");
 
   let admin: SupabaseClient;

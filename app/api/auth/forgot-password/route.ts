@@ -20,13 +20,13 @@ import { randomBytes } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/server";
 import { sendForgotPasswordEmail } from "@/lib/auth-email";
+import { isValidEmail, normaliseEmail } from "@/lib/input-validation";
 
 export const dynamic = "force-dynamic";
 
 /** Reset tokens are short-lived: 1 hour. */
 const TOKEN_TTL_MS = 60 * 60 * 1000;
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // The same response whether or not the address exists — prevents enumeration.
 const GENERIC_OK = {
@@ -36,11 +36,11 @@ const GENERIC_OK = {
 
 export async function POST(req: Request) {
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
-  const email = String(body.email ?? "").trim().toLowerCase();
+  const email = normaliseEmail(body.email);
 
   // 1. Validate. A bad format still returns generic success (no info leak),
   //    but we skip the work.
-  if (!EMAIL_RE.test(email)) {
+  if (!isValidEmail(email)) {
     console.log("[api/auth/forgot-password] invalid email format — generic response");
     return NextResponse.json(GENERIC_OK);
   }

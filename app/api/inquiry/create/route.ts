@@ -16,12 +16,24 @@ import { createClient } from "@/utils/supabase/server";
 import { createAdminClient } from "@/lib/supabase/server";
 import { sendEmail, ownerEmail } from "@/lib/email";
 import { buildInquiryOwnerEmail } from "@/lib/inquiry-email";
-import { validateEmail } from "@/lib/email-validation";
+import {
+  cleanString,
+  cleanText,
+  normaliseEmail,
+  normaliseName,
+  normalisePhone,
+  validateEmail,
+  validateName,
+  validatePhone,
+} from "@/lib/input-validation";
 
 export const dynamic = "force-dynamic";
 
+// Single-line free text. `cleanString` returns "" for any non-string, so a
+// client sending {name:{}} or {phone:[1,2]} can never have "[object Object]"
+// stringified into the database.
 function s(v: unknown, max = 2000): string {
-  return String(v ?? "").trim().slice(0, max);
+  return cleanString(v, max);
 }
 
 export async function POST(req: Request) {
@@ -55,9 +67,9 @@ export async function POST(req: Request) {
 
   const insert = {
     customer_email: sessionEmail,
-    name: s(body.name, 200),
-    phone: s(body.phone, 60),
-    email: s(body.email, 200),
+    name: normaliseName(s(body.name, 200)),
+    phone: normalisePhone(s(body.phone, 60)),
+    email: normaliseEmail(body.email),
     event_type: s(body.eventType, 60),
     delivery_date: s(body.deliveryDate, 40),
     servings: s(body.servings, 120),
@@ -66,21 +78,23 @@ export async function POST(req: Request) {
     shape: s(body.shape, 200),
     colour_theme: s(body.colour, 200),
     cake_message: s(body.cakeMessage, 300),
-    notes: s(body.notes, 2000),
+    notes: cleanText(body.notes, 2000),
     reference_images: images,
     status: "new",
   };
 
-  if (!insert.name && !insert.phone && !insert.email) {
-    return NextResponse.json({ error: "Please add your contact details." }, { status: 400 });
-  }
-
-  // Email is mandatory, and must be a real address — enforced here as well as
-  // in the form, so a request that skips the UI is rejected before anything is
-  // saved or the owner is notified. Same rules as the client (shared module).
-  const emailError = validateEmail(insert.email);
-  if (emailError) {
-    return NextResponse.json({ error: emailError, field: "email" }, { status: 400 });
+  // Name, email and phone are all mandatory and format-checked with the SAME
+  // shared rules the form uses, so a request that skips the UI is rejected
+  // before anything is saved or the owner is notified. First failing field wins,
+  // so the response stays a single actionable message.
+  const checks: Array<[field: string, error: string]> = [
+    ["name", validateName(insert.name)],
+    ["email", validateEmail(insert.email)],
+    ["phone", validatePhone(insert.phone)],
+  ];
+  const failed = checks.find(([, error]) => error !== "");
+  if (failed) {
+    return NextResponse.json({ error: failed[1], field: failed[0] }, { status: 400 });
   }
 
   console.log("Saving inquiry...");

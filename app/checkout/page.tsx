@@ -29,6 +29,15 @@ import { createClient } from "@/utils/supabase/client";
 import { getStripePromise } from "@/lib/stripe-client";
 import { money, round2, matchDeliveryZone } from "@/lib/pricing";
 import {
+  NAME_MAX,
+  normaliseLine,
+  normaliseName,
+  normaliseText,
+  validateEmail,
+  validateName,
+  validatePhone,
+} from "@/lib/input-validation";
+import {
   firstDeliverableDate,
   isDeliverableDate,
   deliveryDaysLabel,
@@ -51,7 +60,19 @@ type Form = {
 
 const STEPS = ["Contact", "Delivery", "Review", "Payment"] as const;
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Contact fields are validated by the shared rules (lib/input-validation), the
+// same module /api/orders/create and /api/checkout/create-intent use, so the
+// form and the server can never disagree. This replaces a local email regex
+// that accepted single-letter TLDs like "a@b.c".
+type ContactField = "name" | "email" | "phone";
+
+const CONTACT_VALIDATORS: Record<ContactField, (value: string) => string> = {
+  name: (v) => validateName(v),
+  email: (v) => validateEmail(v),
+  phone: (v) => validatePhone(v),
+};
+
+const FIELD_ERROR_CLASS = "mt-1 text-xs font-semibold text-red-600";
 
 /** Short, human order number from a DB uuid or a Stripe PaymentIntent id. */
 function toOrderNumber(id: string): string {
@@ -128,7 +149,30 @@ export default function CheckoutPage() {
     couponCode: appliedCoupon,
   };
 
-  const set = (k: keyof Form, v: string) => setForm((f) => ({ ...f, [k]: v }));
+  // Inline validation messages for the contact step, shown beneath their input.
+  // Raised on blur and when Continue is pressed, never on the first keystroke.
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<ContactField, string>>>({});
+
+  const set = (k: keyof Form, v: string) => {
+    setForm((f) => ({ ...f, [k]: v }));
+
+    // Live-clear: a showing message disappears as soon as the field is valid.
+    // Errors are never raised here, so typing is never interrupted.
+    if (k === "name" || k === "email" || k === "phone") {
+      const field = k as ContactField;
+      setFieldErrors((prev) => {
+        if (!prev[field]) return prev;
+        return CONTACT_VALIDATORS[field](v) ? prev : { ...prev, [field]: "" };
+      });
+    }
+  };
+
+  /** On blur: tidy the value, then show or clear this field's message. */
+  const blurField = (field: ContactField) => {
+    const value = field === "name" ? normaliseName(form.name) : form[field];
+    if (field === "name" && value !== form.name) set("name", value);
+    setFieldErrors((prev) => ({ ...prev, [field]: CONTACT_VALIDATORS[field](value) }));
+  };
 
   // Guest checkout is disabled — purchasing requires a signed-in (Google)
   // customer. Anyone who reaches /checkout without a session is sent to the
@@ -176,8 +220,11 @@ export default function CheckoutPage() {
     })();
   }, [ready, user]);
 
-  const step1Valid =
-    form.name.trim() !== "" && EMAIL_RE.test(form.email) && form.phone.trim() !== "";
+  // All three contact fields must pass the shared format rules, not merely be
+  // non-empty — "John123" and "abcde" no longer get through.
+  const step1Valid = (Object.keys(CONTACT_VALIDATORS) as ContactField[]).every(
+    (f) => CONTACT_VALIDATORS[f](form[f]) === "",
+  );
   const dateChosenValid =
     form.deliveryDate !== "" && isDeliverableDate(form.deliveryDate, deliveryRules);
   const dateError =
@@ -299,7 +346,12 @@ export default function CheckoutPage() {
           })),
           deliveryDate: form.deliveryDate,
           postcode: form.postcode,
-          email: form.email,
+          // Contact details are sent so the server can re-validate them BEFORE
+          // creating the PaymentIntent — the gate that stops a bypassed frontend
+          // from reaching a charge with malformed details.
+          email: form.email.trim().toLowerCase(),
+          name: normaliseName(form.name),
+          phone: form.phone.trim(),
           couponCode: appliedCoupon || undefined,
         }),
       });
@@ -328,7 +380,16 @@ export default function CheckoutPage() {
   }
 
   function next() {
-    if (step === 1 && !step1Valid) return;
+    if (step === 1 && !step1Valid) {
+      // Surface every contact problem at once instead of failing silently —
+      // Continue is disabled, but keyboard/Enter can still reach here.
+      const shown: Partial<Record<ContactField, string>> = {};
+      for (const f of Object.keys(CONTACT_VALIDATORS) as ContactField[]) {
+        shown[f] = CONTACT_VALIDATORS[f](form[f]);
+      }
+      setFieldErrors(shown);
+      return;
+    }
     if (step === 2 && !step2Valid) return;
     if (step === 3) {
       goToPayment();
@@ -412,17 +473,38 @@ export default function CheckoutPage() {
                 <div>
                   <label className={LABEL} htmlFor="name">Full name</label>
                   <input id="name" className={INPUT} value={form.name}
-                    onChange={(e) => set("name", e.target.value)} placeholder="Jane Doe" />
+                    onChange={(e) => set("name", e.target.value)}
+                    onBlur={() => blurField("name")}
+                    placeholder="Jane Doe" maxLength={NAME_MAX} autoComplete="name"
+                    aria-invalid={fieldErrors.name ? true : undefined}
+                    aria-describedby={fieldErrors.name ? "name-error" : undefined} />
+                  {fieldErrors.name && (
+                    <p id="name-error" className={FIELD_ERROR_CLASS}>{fieldErrors.name}</p>
+                  )}
                 </div>
                 <div>
                   <label className={LABEL} htmlFor="email">Email</label>
                   <input id="email" type="email" className={INPUT} value={form.email}
-                    onChange={(e) => set("email", e.target.value)} placeholder="jane@example.com" />
+                    onChange={(e) => set("email", e.target.value)}
+                    onBlur={() => blurField("email")}
+                    placeholder="jane@example.com" maxLength={254} autoComplete="email"
+                    aria-invalid={fieldErrors.email ? true : undefined}
+                    aria-describedby={fieldErrors.email ? "email-error" : undefined} />
+                  {fieldErrors.email && (
+                    <p id="email-error" className={FIELD_ERROR_CLASS}>{fieldErrors.email}</p>
+                  )}
                 </div>
                 <div>
                   <label className={LABEL} htmlFor="phone">Phone</label>
-                  <input id="phone" type="tel" className={INPUT} value={form.phone}
-                    onChange={(e) => set("phone", e.target.value)} placeholder="07123 456789" />
+                  <input id="phone" type="tel" inputMode="tel" className={INPUT} value={form.phone}
+                    onChange={(e) => set("phone", e.target.value)}
+                    onBlur={() => blurField("phone")}
+                    placeholder="07123 456789" maxLength={20} autoComplete="tel"
+                    aria-invalid={fieldErrors.phone ? true : undefined}
+                    aria-describedby={fieldErrors.phone ? "phone-error" : undefined} />
+                  {fieldErrors.phone && (
+                    <p id="phone-error" className={FIELD_ERROR_CLASS}>{fieldErrors.phone}</p>
+                  )}
                 </div>
               </div>
             )}
@@ -555,18 +637,21 @@ export default function CheckoutPage() {
                             headers: { "Content-Type": "application/json" },
                             body: JSON.stringify({
                               paymentIntentId,
+                              // Normalised on the way out so what reaches the DB
+                              // is already tidy. The server re-normalises and
+                              // re-validates regardless — this is not the guard.
                               customer: {
-                                name: form.name,
-                                email: form.email,
-                                phone: form.phone,
+                                name: normaliseName(form.name),
+                                email: form.email.trim().toLowerCase(),
+                                phone: form.phone.trim(),
                               },
                               address: {
-                                line: form.address,
-                                city: form.city,
-                                postcode: form.postcode,
+                                line: normaliseLine(form.address),
+                                city: normaliseLine(form.city, 100),
+                                postcode: normaliseLine(form.postcode, 20),
                               },
                               deliveryDate: form.deliveryDate,
-                              specialInstructions: form.instructions,
+                              specialInstructions: normaliseText(form.instructions),
                               items: items.map((i) => ({
                                 // The PRODUCT id — order_items.product_id is a
                                 // real FK, so a cart-line id would not resolve.

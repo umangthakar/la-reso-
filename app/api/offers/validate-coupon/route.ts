@@ -14,6 +14,7 @@
 // ============================================================
 
 import { NextResponse } from "next/server";
+import { cleanString } from "@/lib/input-validation";
 import {
   offerFromRow,
   isOfferCurrentlyActive,
@@ -49,7 +50,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
 
-  const code = String(body.code ?? "").trim();
+  // Bounded + coerced: a non-string or an unbounded blob must not reach the RPC.
+  const code = cleanString(body.code, 64);
   if (!code) {
     return NextResponse.json({ valid: false, reason: "Enter a coupon code." });
   }

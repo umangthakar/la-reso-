@@ -21,6 +21,15 @@ import { createAdminClient } from "@/lib/supabase/server";
 import { getStripe } from "@/lib/stripe";
 import { resolveDeliveryFee, round2, toPence } from "@/lib/pricing";
 import {
+  cleanString,
+  normaliseEmail,
+  normaliseName,
+  normalisePhone,
+  validateEmail,
+  validateName,
+  validatePhone,
+} from "@/lib/input-validation";
+import {
   fetchAccessoryCategories,
   categoriesForProduct,
   priceSelections,
@@ -70,6 +79,8 @@ export async function POST(req: Request) {
     postcode?: string;
     couponCode?: string;
     email?: string;
+    name?: string;
+    phone?: string;
   };
   try {
     body = await req.json();
@@ -80,6 +91,30 @@ export async function POST(req: Request) {
   const items = Array.isArray(body.items) ? body.items : [];
   if (items.length === 0) {
     return NextResponse.json({ error: "Your basket is empty." }, { status: 400 });
+  }
+
+  // ── Contact gate, BEFORE any money moves ──────────────────
+  // This is the strict pre-payment checkpoint: no PaymentIntent (and therefore
+  // no charge) is created for a request whose contact details fail the shared
+  // rules. /api/orders/create re-checks the same values afterwards, but doing it
+  // here means a bypassed frontend is stopped before the customer is charged
+  // rather than after.
+  const contact = {
+    name: normaliseName(cleanString(body.name, 200)),
+    email: normaliseEmail(body.email),
+    phone: normalisePhone(cleanString(body.phone, 60)),
+  };
+  const contactChecks: Array<[field: string, error: string]> = [
+    ["name", validateName(contact.name)],
+    ["email", validateEmail(contact.email)],
+    ["phone", validatePhone(contact.phone)],
+  ];
+  const badContact = contactChecks.find(([, error]) => error !== "");
+  if (badContact) {
+    return NextResponse.json(
+      { error: badContact[1], field: badContact[0] },
+      { status: 400 },
+    );
   }
 
   // Normalise + validate quantities. Lines are kept SEPARATE (not collapsed
@@ -302,7 +337,7 @@ export async function POST(req: Request) {
 
     // Audience facts (first order / new customer) need a DB lookup — only run
     // it when an applicable offer requires it and we have an email to key on.
-    const email = String(body.email ?? "").trim().toLowerCase();
+    const email = contact.email;
     const applicable = [primary, ...stackable, coupon].filter(Boolean) as Offer[];
     let isFirstOrder: boolean | undefined;
     let isNewCustomer: boolean | undefined;

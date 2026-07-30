@@ -14,6 +14,13 @@ import { motion } from "framer-motion";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { Loader2, ChevronLeft } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import {
+  NAME_MAX,
+  normaliseLine,
+  normaliseName,
+  validateName,
+  validatePhone,
+} from "@/lib/input-validation";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/use-auth";
@@ -49,6 +56,18 @@ export default function CompleteProfilePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Inline per-field messages, raised on blur/save and cleared once corrected.
+  const [fieldErrors, setFieldErrors] = useState<{
+    firstName?: string;
+    lastName?: string;
+    phone?: string;
+  }>({});
+
+  /** Clear a field's message as soon as its new value passes. */
+  function clearIfValid(key: "firstName" | "lastName" | "phone", value: string) {
+    const check = key === "phone" ? validatePhone : validateName;
+    setFieldErrors((prev) => (prev[key] && !check(value) ? { ...prev, [key]: "" } : prev));
+  }
 
   // Redirect to login once we know there's no session.
   useEffect(() => {
@@ -97,10 +116,17 @@ export default function CompleteProfilePage() {
 
   async function handleSave() {
     if (!user) return;
-    if (!firstName.trim() || !lastName.trim() || !phone.trim()) {
-      setError("Please add your name and phone number.");
-      return;
-    }
+
+    // Shared rules. Names are validated by format, not merely non-emptiness, so
+    // "John123" no longer reaches the profiles table. Surfaced inline per field.
+    const problems = {
+      firstName: validateName(firstName),
+      lastName: validateName(lastName),
+      phone: validatePhone(phone),
+    };
+    setFieldErrors(problems);
+    if (Object.values(problems).some(Boolean)) return;
+
     setSaving(true);
     setError(null);
 
@@ -108,14 +134,14 @@ export default function CompleteProfilePage() {
     const { error: upErr } = await supabase.from("profiles").upsert(
       {
         id: user.id,
-        first_name: firstName.trim(),
-        last_name: lastName.trim(),
+        first_name: normaliseName(firstName),
+        last_name: normaliseName(lastName),
         phone: phone.trim(),
         default_address: {
-          line1: address.line1.trim(),
-          street: address.street.trim(),
-          city: address.city.trim(),
-          postcode: address.postcode.trim().toUpperCase(),
+          line1: normaliseLine(address.line1),
+          street: normaliseLine(address.street),
+          city: normaliseLine(address.city, 100),
+          postcode: normaliseLine(address.postcode, 20).toUpperCase(),
         },
       },
       { onConflict: "id" },
@@ -173,17 +199,41 @@ export default function CompleteProfilePage() {
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="firstName">First name</Label>
-                <Input id="firstName" value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder="Jane" autoComplete="given-name" />
+                <Input id="firstName" value={firstName}
+                  onChange={(e) => { setFirstName(e.target.value); clearIfValid("firstName", e.target.value); }}
+                  onBlur={() => { const t = normaliseName(firstName); if (t !== firstName) setFirstName(t); setFieldErrors((p) => ({ ...p, firstName: validateName(t) })); }}
+                  placeholder="Jane" maxLength={NAME_MAX} autoComplete="given-name"
+                  aria-invalid={fieldErrors.firstName ? true : undefined}
+                  aria-describedby={fieldErrors.firstName ? "firstName-error" : undefined} />
+                {fieldErrors.firstName && (
+                  <p id="firstName-error" className="mt-1 text-xs font-semibold text-red-600">{fieldErrors.firstName}</p>
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="lastName">Last name</Label>
-                <Input id="lastName" value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder="Smith" autoComplete="family-name" />
+                <Input id="lastName" value={lastName}
+                  onChange={(e) => { setLastName(e.target.value); clearIfValid("lastName", e.target.value); }}
+                  onBlur={() => { const t = normaliseName(lastName); if (t !== lastName) setLastName(t); setFieldErrors((p) => ({ ...p, lastName: validateName(t) })); }}
+                  placeholder="Smith" maxLength={NAME_MAX} autoComplete="family-name"
+                  aria-invalid={fieldErrors.lastName ? true : undefined}
+                  aria-describedby={fieldErrors.lastName ? "lastName-error" : undefined} />
+                {fieldErrors.lastName && (
+                  <p id="lastName-error" className="mt-1 text-xs font-semibold text-red-600">{fieldErrors.lastName}</p>
+                )}
               </div>
             </div>
 
             <div className="space-y-1.5">
               <Label htmlFor="phone">Phone number</Label>
-              <Input id="phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="07123 456789" autoComplete="tel" />
+              <Input id="phone" type="tel" inputMode="tel" value={phone}
+                onChange={(e) => { setPhone(e.target.value); clearIfValid("phone", e.target.value); }}
+                onBlur={() => setFieldErrors((p) => ({ ...p, phone: validatePhone(phone) }))}
+                placeholder="07123 456789" maxLength={20} autoComplete="tel"
+                aria-invalid={fieldErrors.phone ? true : undefined}
+                aria-describedby={fieldErrors.phone ? "phone-error" : undefined} />
+              {fieldErrors.phone && (
+                <p id="phone-error" className="mt-1 text-xs font-semibold text-red-600">{fieldErrors.phone}</p>
+              )}
             </div>
 
             <div className="pt-2">
@@ -217,7 +267,17 @@ export default function CompleteProfilePage() {
               </p>
             )}
 
-            <Button onClick={handleSave} disabled={saving} className="w-full" size="lg">
+            <Button
+              onClick={handleSave}
+              disabled={
+                saving ||
+                !!validateName(firstName) ||
+                !!validateName(lastName) ||
+                !!validatePhone(phone)
+              }
+              className="w-full"
+              size="lg"
+            >
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               {saving ? "Saving…" : "Save profile"}
             </Button>

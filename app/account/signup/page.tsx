@@ -16,6 +16,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/use-auth";
+import {
+  NAME_MAX,
+  normaliseName,
+  validateEmail,
+  validateName,
+} from "@/lib/input-validation";
 
 /** Only same-origin paths are honoured as a post-signup destination. */
 function safeNext(raw: string | null): string {
@@ -34,6 +40,10 @@ export default function SignupPage() {
   const [confirm, setConfirm] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Inline field messages: raised on blur/submit, cleared as soon as the value
+  // becomes valid.
+  const [nameError, setNameError] = useState("");
+  const [emailError, setEmailError] = useState("");
   // Switches the card to the "check your inbox" state.
   const [sent, setSent] = useState(false);
 
@@ -48,10 +58,15 @@ export default function SignupPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!name.trim()) {
-      setError("Please tell us your name.");
-      return;
-    }
+
+    // Shared rules, identical to /api/auth/signup's, so the inline message and
+    // the API's 400 always agree.
+    const nameErr = validateName(name);
+    setNameError(nameErr);
+    const emailErr = validateEmail(email);
+    setEmailError(emailErr);
+    if (nameErr || emailErr) return;
+
     if (password.length < 6) {
       setError("Your password must be at least 6 characters.");
       return;
@@ -148,11 +163,27 @@ export default function SignupPage() {
                   <Input
                     id="name"
                     value={name}
-                    onChange={(e) => setName(e.target.value)}
+                    onChange={(e) => {
+                      setName(e.target.value);
+                      if (nameError && !validateName(e.target.value)) setNameError("");
+                    }}
+                    onBlur={() => {
+                      const tidy = normaliseName(name);
+                      if (tidy !== name) setName(tidy);
+                      setNameError(validateName(tidy));
+                    }}
                     placeholder="Jane Smith"
+                    maxLength={NAME_MAX}
                     autoComplete="name"
                     required
+                    aria-invalid={nameError ? true : undefined}
+                    aria-describedby={nameError ? "name-error" : undefined}
                   />
+                  {nameError && (
+                    <p id="name-error" className="mt-1 text-xs font-semibold text-red-600">
+                      {nameError}
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-1.5">
@@ -161,11 +192,23 @@ export default function SignupPage() {
                     id="email"
                     type="email"
                     value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    onChange={(e) => {
+                      setEmail(e.target.value);
+                      if (emailError && !validateEmail(e.target.value)) setEmailError("");
+                    }}
+                    onBlur={() => setEmailError(validateEmail(email))}
                     placeholder="you@example.com"
+                    maxLength={254}
                     autoComplete="email"
                     required
+                    aria-invalid={emailError ? true : undefined}
+                    aria-describedby={emailError ? "email-error" : undefined}
                   />
+                  {emailError && (
+                    <p id="email-error" className="mt-1 text-xs font-semibold text-red-600">
+                      {emailError}
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-1.5">
@@ -202,7 +245,13 @@ export default function SignupPage() {
 
                 <Button
                   type="submit"
-                  disabled={submitting}
+                  disabled={
+                    submitting ||
+                    !!validateName(name) ||
+                    !!validateEmail(email) ||
+                    password.length < 6 ||
+                    password !== confirm
+                  }
                   className="w-full"
                   size="lg"
                 >
