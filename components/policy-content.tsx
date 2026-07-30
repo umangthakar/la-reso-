@@ -77,6 +77,17 @@ export function PolicyContent({ content }: { content: string }) {
         ),
         a: ({ href, children }) => {
           const to = href ?? "";
+          // Same-page anchors (a policy's own cross-references, e.g. "see
+          // section 4 below") are plain <a> jumps: routing through next/link
+          // would be pointless, and the external branch below would wrongly
+          // open them in a new tab.
+          if (to.startsWith("#")) {
+            return (
+              <a href={to} className="font-medium text-wine underline hover:text-darkberry">
+                {children}
+              </a>
+            );
+          }
           // Internal links go through next/link so they don't full-page reload;
           // anything else is treated as external and opened safely (noreferrer
           // strips the referrer, and target=_blank keeps the bakery's tab).
