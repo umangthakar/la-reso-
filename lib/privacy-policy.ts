@@ -23,10 +23,9 @@
 //      as links.
 //   3. Termly's two unfilled Cookie Notice blanks ('__________', in sections 5
 //      and 11) were filled at the owner's instruction. The link TEXT is the
-//      public URL (https://www.lerasa.co.uk/cookie-policy) but the href is the
-//      internal route /cookie-policy, so the jump stays in-tab and survives a
-//      domain change. Fill the field in Termly too, so the next export doesn't
-//      reintroduce the blanks.
+//      public URL but the href is the internal route /policies/cookie-policy,
+//      so the jump stays in-tab and survives a domain change. Fill the field in
+//      Termly too, so the next export doesn't reintroduce the blanks.
 //
 // `heading` values include Termly's own numbering, so the page renders them
 // as-is and adds no numbering of its own. Keep `id`s stable — they are the
@@ -217,7 +216,7 @@ We also permit third parties and service providers to use online tracking techno
 
 To the extent these online tracking technologies are deemed to be a 'sale'/'sharing' (which includes targeted advertising, as defined under the applicable laws) under applicable US state laws, you can opt out of these online tracking technologies by submitting a request as described below under section '[DO UNITED STATES RESIDENTS HAVE SPECIFIC PRIVACY RIGHTS?](#us-privacy-rights)'
 
-Specific information about how we use such technologies and how you can refuse certain cookies is set out in our Cookie Notice: [https://www.lerasa.co.uk/cookie-policy](/cookie-policy).`),
+Specific information about how we use such technologies and how you can refuse certain cookies is set out in our Cookie Notice: [https://www.lerasa.co.uk/policies/cookie-policy](/policies/cookie-policy).`),
     ],
   },
 
@@ -328,7 +327,7 @@ If you would at any time like to review or change the information in your accoun
 
 Upon your request to terminate your account, we will deactivate or delete your account and information from our active databases. However, we may retain some information in our files to prevent fraud, troubleshoot problems, assist with any investigations, enforce our legal terms and/or comply with applicable legal requirements.
 
-**Cookies and similar technologies:** Most Web browsers are set to accept cookies by default. If you prefer, you can usually choose to set your browser to remove cookies and to reject cookies. If you choose to remove cookies or reject cookies, this could affect certain features or services of our Services. For further information, please see our Cookie Notice: [https://www.lerasa.co.uk/cookie-policy](/cookie-policy).
+**Cookies and similar technologies:** Most Web browsers are set to accept cookies by default. If you prefer, you can usually choose to set your browser to remove cookies and to reject cookies. If you choose to remove cookies or reject cookies, this could affect certain features or services of our Services. For further information, please see our Cookie Notice: [https://www.lerasa.co.uk/policies/cookie-policy](/policies/cookie-policy).
 
 If you have questions or comments about your privacy rights, you may email us at [Info.lerasa@gmail.com](mailto:Info.lerasa@gmail.com).`),
     ],

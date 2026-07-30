@@ -96,6 +96,32 @@ export function isValidPolicySlug(slug: string): boolean {
   return POLICY_SLUG_PATTERN.test(slug);
 }
 
+// ============================================================
+// Where a policy actually links to
+// ============================================================
+
+/** The slug whose public page is NOT served by /policies/[slug]. */
+export const PRIVACY_POLICY_SLUG = "privacy-policy";
+
+/** The one canonical Privacy Policy URL for the whole site. */
+export const PRIVACY_POLICY_HREF = "/privacy-policy";
+
+/**
+ * The public URL for a policy row.
+ *
+ * Every policy lives at /policies/<slug> EXCEPT the Privacy Policy, which is a
+ * hand-written Termly document at its own top-level route (app/privacy-policy).
+ * Its `policies` row is kept so the footer//policies index still list it, but
+ * every link must resolve to the canonical page — /policies/privacy-policy is a
+ * 301 to it (see next.config.mjs), and linking straight here avoids the hop.
+ *
+ * Use this EVERYWHERE a policy is linked, so a new link site cannot reintroduce
+ * the duplicate-URL problem this function exists to fix.
+ */
+export function policyHref(slug: string): string {
+  return slug === PRIVACY_POLICY_SLUG ? PRIVACY_POLICY_HREF : `/policies/${slug}`;
+}
+
 /**
  * The slug to save, given what the admin typed.
  *

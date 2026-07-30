@@ -17,6 +17,7 @@ import { ArrowRight } from "lucide-react";
 import { PageHero } from "@/components/page-hero";
 import { Reveal, StaggerGroup, StaggerItem } from "@/components/motion";
 import { getPolicies } from "@/lib/policies-server";
+import { policyHref } from "@/lib/policies";
 
 export const dynamic = "force-dynamic";
 
@@ -50,7 +51,7 @@ export default async function PoliciesPage() {
               {policies.map((p) => (
                 <StaggerItem key={p.id}>
                   <Link
-                    href={`/policies/${p.slug}`}
+                    href={policyHref(p.slug)}
                     className="group flex h-full flex-col rounded-clay bg-white p-6 shadow-clay transition-shadow hover:shadow-lg sm:p-8"
                   >
                     <h2 className="font-display text-xl font-semibold text-darkberry">

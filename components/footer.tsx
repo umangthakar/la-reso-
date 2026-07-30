@@ -6,6 +6,7 @@ import { CardCarousel } from "@/components/ui/card-carousel";
 import { LogoMark } from "@/components/logo-mark";
 import { useSiteSettings } from "@/lib/use-site-settings";
 import { usePolicies } from "@/lib/use-policies";
+import { policyHref, PRIVACY_POLICY_HREF, PRIVACY_POLICY_SLUG } from "@/lib/policies";
 import { instagramUrl, instagramHandle } from "@/lib/site-settings";
 
 // The static image set shown when no Instagram Reels are configured — keeps
@@ -31,10 +32,8 @@ const FALLBACK = {
 
 // The Privacy Policy is the one policy that is NOT admin-managed: it's a legal
 // document for Le Rasa Limited, hand-written at /privacy-policy (see
-// lib/privacy-policy.ts). So its footer link points there rather than at the
-// generic /policies/<slug> route.
-const PRIVACY_SLUG = "privacy-policy";
-const PRIVACY_HREF = "/privacy-policy";
+// lib/privacy-policy.ts). policyHref() encodes that exception once, and every
+// policy link on the site goes through it.
 
 export function Footer() {
   const { settings } = useSiteSettings();
@@ -70,11 +69,15 @@ export function Footer() {
   // all — /privacy-policy exists in code, so it must always be reachable.
   const policyLinks: { key: string; href: string; label: string }[] = policies.map((p) => ({
     key: p.id,
-    href: p.slug === PRIVACY_SLUG ? PRIVACY_HREF : `/policies/${p.slug}`,
+    href: policyHref(p.slug),
     label: p.title,
   }));
-  if (!policies.some((p) => p.slug === PRIVACY_SLUG)) {
-    policyLinks.push({ key: PRIVACY_SLUG, href: PRIVACY_HREF, label: "Privacy Policy" });
+  if (!policies.some((p) => p.slug === PRIVACY_POLICY_SLUG)) {
+    policyLinks.push({
+      key: PRIVACY_POLICY_SLUG,
+      href: PRIVACY_POLICY_HREF,
+      label: "Privacy Policy",
+    });
   }
 
   // Only render social icons whose URL is configured.

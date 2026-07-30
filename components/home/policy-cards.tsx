@@ -26,7 +26,12 @@ import {
   Truck,
   type LucideIcon,
 } from "lucide-react";
-import { defaultPolicyIcon, type PolicyIconKey, type PolicySummary } from "@/lib/policies";
+import {
+  defaultPolicyIcon,
+  policyHref,
+  type PolicyIconKey,
+  type PolicySummary,
+} from "@/lib/policies";
 
 /** The keys defaultPolicyIcon() returns -> the outline icons they draw. */
 const ICONS: Record<PolicyIconKey, LucideIcon> = {
@@ -79,7 +84,7 @@ export function PolicyCards({ policies }: { policies: PolicySummary[] }) {
           return (
             <Link
               key={p.id}
-              href={`/policies/${p.slug}`}
+              href={policyHref(p.slug)}
               className={`group flex flex-col border-[#F2DCD6] px-0 py-8 sm:px-6 lg:py-10 ${ruleClasses(i)}`}
             >
               {icon ? (

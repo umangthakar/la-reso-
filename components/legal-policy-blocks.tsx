@@ -1,10 +1,10 @@
 // ============================================================
 // Le Rasa — renders one legal section's content blocks.
 //
-// Shared by /privacy-policy and /cookie-policy so the two pages cannot drift
-// apart typographically. Markdown goes through PolicyContent (the same renderer
-// the admin-managed policies use); tables are rendered here because Markdown
-// pipe tables need remark-gfm, which this project doesn't have.
+// Used by /privacy-policy. Markdown goes through PolicyContent (the same
+// renderer the admin-managed /policies/[slug] pages use, so the two stay
+// typographically identical); tables are rendered here because Markdown pipe
+// tables need remark-gfm, which this project doesn't have.
 //
 // The table classes deliberately mirror PolicyContent's own table mapping, so a
 // structured table and a Markdown one would look identical.

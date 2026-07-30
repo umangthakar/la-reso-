@@ -1,10 +1,13 @@
 // ============================================================
 // Le Rasa — shared shape for the hand-written legal pages.
 //
-// Used by /privacy-policy (lib/privacy-policy.ts) and /cookie-policy
-// (lib/cookie-policy.ts). Both are verbatim Termly exports kept in code rather
-// than in the admin-managed `policies` table, because they are legal documents
-// that should be version-controlled and reviewed like code.
+// Used by /privacy-policy (lib/privacy-policy.ts): the verbatim Termly export,
+// kept in code rather than in the admin-managed `policies` table because it is a
+// legal document that should be version-controlled and reviewed like code.
+//
+// The Cookie Policy deliberately does NOT use this: it lives in the `policies`
+// table alongside Terms/Delivery/Refund and renders through
+// app/policies/[slug]/page.tsx, so the owner can edit it from the admin panel.
 //
 // A section's content is an ORDERED list of blocks rather than one Markdown
 // string, for one concrete reason: Termly's exports embed tables mid-section,

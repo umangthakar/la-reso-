@@ -1,8 +1,7 @@
 "use client";
 
 // ============================================================
-// Le Rasa — sticky desktop table of contents for the legal pages
-// (/privacy-policy, /cookie-policy).
+// Le Rasa — sticky desktop table of contents for /privacy-policy.
 //
 // The links are plain #anchors, so they work with JavaScript disabled and the
 // smooth-scroll / scroll-margin rules already in globals.css. The only thing
