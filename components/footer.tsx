@@ -29,6 +29,13 @@ const FALLBACK = {
   email: "hello@lerasabakery.com",
 };
 
+// The Privacy Policy is the one policy that is NOT admin-managed: it's a legal
+// document for Le Rasa Limited, hand-written at /privacy-policy (see
+// lib/privacy-policy.ts). So its footer link points there rather than at the
+// generic /policies/<slug> route.
+const PRIVACY_SLUG = "privacy-policy";
+const PRIVACY_HREF = "/privacy-policy";
+
 export function Footer() {
   const { settings } = useSiteSettings();
   // Admin-managed, from the policies table. No fallback list: if none are
@@ -57,6 +64,18 @@ export function Footer() {
           href: r.url,
         }))
       : FALLBACK_GALLERY;
+
+  // Policy bar links, in the admin's order. The privacy entry is redirected to
+  // its own page, and appended when the policies table has no privacy row at
+  // all — /privacy-policy exists in code, so it must always be reachable.
+  const policyLinks: { key: string; href: string; label: string }[] = policies.map((p) => ({
+    key: p.id,
+    href: p.slug === PRIVACY_SLUG ? PRIVACY_HREF : `/policies/${p.slug}`,
+    label: p.title,
+  }));
+  if (!policies.some((p) => p.slug === PRIVACY_SLUG)) {
+    policyLinks.push({ key: PRIVACY_SLUG, href: PRIVACY_HREF, label: "Privacy Policy" });
+  }
 
   // Only render social icons whose URL is configured.
   const socials = [
@@ -210,19 +229,19 @@ export function Footer() {
           </div>
         </div>
 
-        {/* Policy links — order, labels and visibility all come from the
-            admin panel (the policies table). Renders nothing when none are
-            enabled, so the bar keeps its original two-item layout. */}
-        {policies.length > 0 && (
+        {/* Policy links — order and labels come from the admin panel (the
+            policies table), with the one exception built in policyLinks above:
+            Privacy Policy always appears and always points at /privacy-policy. */}
+        {policyLinks.length > 0 && (
           <div className="border-t border-blush-100/10">
             <nav className="container flex flex-wrap items-center justify-center gap-x-6 gap-y-2 py-5 text-xs text-blush-100/70 sm:justify-start">
-              {policies.map((p) => (
+              {policyLinks.map((l) => (
                 <Link
-                  key={p.id}
-                  href={`/policies/${p.slug}`}
+                  key={l.key}
+                  href={l.href}
                   className="transition-colors hover:text-dustyrose"
                 >
-                  {p.title}
+                  {l.label}
                 </Link>
               ))}
             </nav>
