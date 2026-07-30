@@ -1,12 +1,15 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
+import { cookies } from "next/headers";
 import { Fraunces, Nunito } from "next/font/google";
 import "./globals.css";
 import { Navbar } from "@/components/navbar";
 import { AnnouncementBar } from "@/components/announcement-bar";
 import { ConditionalFooter } from "@/components/conditional-footer";
+import { CookieConsent } from "@/components/cookie-consent";
 import { Providers } from "@/components/providers";
 import { getPublicSettings } from "@/lib/site-settings-server";
+import { CONSENT_COOKIE_NAME, parseConsent } from "@/lib/cookie-consent";
 
 // Never statically cache any route — the announcement bar (and any other
 // site_settings-driven chrome) must reflect admin edits without a redeploy.
@@ -58,6 +61,12 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Read the consent decision on the SERVER so the first paint already knows
+  // whether to show the banner. This is what keeps it hydration-safe and stops
+  // a returning visitor seeing the banner flash before JS hides it. The layout
+  // is already `force-dynamic`, so reading cookies costs nothing extra.
+  const consent = parseConsent(cookies().get(CONSENT_COOKIE_NAME)?.value);
+
   return (
     <html lang="en" className={`${fraunces.variable} ${nunito.variable}`}>
       <head>
@@ -74,6 +83,9 @@ export default function RootLayout({
           <Navbar />
           <main className="overflow-x-clip">{children}</main>
           <ConditionalFooter />
+          {/* Site-wide, so the banner is on every page. Its open/closed state
+              comes from the server-read cookie above. */}
+          <CookieConsent initialConsent={consent} />
         </Providers>
       </body>
     </html>
