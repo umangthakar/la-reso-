@@ -78,14 +78,31 @@ async function publish(label: string, push: NtfyPush): Promise<void> {
   const url = (process.env.NTFY_URL ?? "").trim().replace(/\/+$/, "");
   const topic = (process.env.NTFY_TOPIC ?? "").trim();
 
+  // WHICH deployment is running this, and did it see the config? The commonest
+  // cause of "no notifications" is not the request failing but this function
+  // returning at the guard below, because NTFY_URL/NTFY_TOPIC exist in a local
+  // .env (gitignored, never deployed) and were never added to the hosting
+  // environment. `vercelEnv` tells you production/preview/local at a glance.
+  console.log(`[ntfy:${label}] publish requested`, {
+    urlConfigured: !!url,
+    topicConfigured: !!topic,
+    vercelEnv: process.env.VERCEL_ENV ?? "local",
+    nodeEnv: process.env.NODE_ENV,
+  });
+
   if (!url || !topic) {
-    console.warn(`[ntfy:${label}] NTFY_URL / NTFY_TOPIC not set — skipping push.`);
+    console.error(
+      `[ntfy:${label}] SKIPPED — NTFY_URL / NTFY_TOPIC missing in this runtime ` +
+        `(urlConfigured=${!!url}, topicConfigured=${!!topic}). A local .env is NOT ` +
+        `deployed: set both in the hosting project's environment and redeploy.`,
+    );
     return;
   }
 
   // Official ntfy publish format: POST to `<server>/<topic>` with metadata in
   // headers and the message as the UTF-8 text/plain body.
   const endpoint = `${url}/${topic}`;
+  const startedAt = Date.now();
 
   try {
     const res = await fetch(endpoint, {
@@ -103,13 +120,29 @@ async function publish(label: string, push: NtfyPush): Promise<void> {
       signal: AbortSignal.timeout(8000),
     });
 
+    const detail = await res.text().catch(() => "");
     if (!res.ok) {
-      const detail = await res.text().catch(() => "");
-      console.error(`[ntfy:${label}] push failed — ${res.status}: ${detail.slice(0, 300)}`);
+      console.error(
+        `[ntfy:${label}] push FAILED — HTTP ${res.status} ${res.statusText} ` +
+          `after ${Date.now() - startedAt}ms: ${detail.slice(0, 300)}`,
+      );
+      return;
     }
+    // ntfy echoes the accepted message back as JSON (id, topic, priority),
+    // which confirms it reached the right topic — the last thing that can be
+    // wrong once the request itself succeeds is the phone's subscription.
+    console.log(
+      `[ntfy:${label}] push accepted — HTTP ${res.status} in ${Date.now() - startedAt}ms: ` +
+        detail.slice(0, 300),
+    );
   } catch (err) {
     // fetch itself threw (DNS, TLS, network, timeout, invalid header, etc.).
-    console.error(`[ntfy:${label}] fetch threw:`, err);
+    // AbortError here means the 8s budget was hit, not that ntfy rejected it.
+    const name = err instanceof Error ? err.name : "unknown";
+    console.error(
+      `[ntfy:${label}] fetch THREW after ${Date.now() - startedAt}ms (${name}):`,
+      err,
+    );
   }
 }
 
