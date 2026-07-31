@@ -25,38 +25,37 @@
 //   3. THE STORED refund_id. An order that already carries one is filtered
 //      out here and short-circuited again inside refundOrder.
 //
-// SCHEDULE: hourly (vercel.json, `0 * * * *`). A sub-daily cron requires
-// Vercel PRO — on the Hobby plan the deployment is rejected with "cron
-// expressions must be at most once per day", so either upgrade, drop the
-// schedule back to `0 3 * * *`, or point an external scheduler
-// (cron-job.org, GitHub Actions, UptimeRobot, …) at this endpoint with
-// ?secret=<CRON_SECRET>. The sweep itself supports any cadence.
+// SCHEDULING — THIS ENDPOINT IS DRIVEN EXTERNALLY. There is no Vercel Cron
+// entry any more (vercel.json is gone): Vercel's Hobby plan caps cron at once
+// per day, and a sub-daily expression fails the DEPLOYMENT ITSELF with "cron
+// expressions must be at most once per day". Any external scheduler can call
+// this instead, at whatever cadence you want, on any hosting plan.
 //
-// AUTH — accepts any of:
-//   • Vercel Cron's `Authorization: Bearer <CRON_SECRET>` (set CRON_SECRET
-//     in the project env; Vercel sends it automatically), OR
-//   • `?secret=<CRON_SECRET>` for manual/external triggering, OR
-//   • the admin password header (lets the owner run it by hand), OR
-//   • a Vercel Cron invocation identified by `x-vercel-cron-schedule` — the
-//     no-config fallback described below.
+// The sweep is cadence-agnostic: nothing here assumes a particular gap between
+// runs. It only ever touches orders that are past the 24h deadline, and it is
+// safe to run concurrently with itself (see the three guards above), so a
+// scheduler that fires every minute is as correct as one that fires daily —
+// just noisier. Hourly is a sensible default.
 //
-// !! THIS WAS THE BUG. Vercel only attaches the `Authorization: Bearer …`
-// header when CRON_SECRET is defined in the project env. With it undefined the
-// nightly invocation arrived with NO credentials at all, `isAuthorised()`
-// returned false on the `if (!secret) return false` line, and every single run
-// answered 401 without ever reaching the sweep — so Pending orders were never
-// cancelled. Nothing logged it, so the failure was invisible.
+// SETTING IT UP (cron-job.org, and the same shape everywhere else):
+//   URL      https://<your-domain>/api/cron/auto-cancel
+//   Method   POST   (GET also works — some schedulers only offer GET)
+//   Header   Authorization: Bearer <CRON_SECRET>
+//   Schedule whatever you like, e.g. every hour at :00
+// Enable "treat non-2xx as failure" so a 401 (wrong/absent secret) surfaces as
+// a failed job in the scheduler's dashboard instead of passing silently.
 //
-// The fix has two halves:
-//   1. CRON_SECRET is now documented in .env.example / .env.local.example, and
-//      a missing one is logged loudly on every rejected call instead of failing
-//      silently. Setting it is still the recommended, strongest setup.
-//   2. So the feature is not dead when it is unset, a request carrying Vercel's
-//      `x-vercel-cron-schedule` header (present on genuine cron invocations) is
-//      accepted, but answers with counts only — no order ids — so an untrusted
-//      caller learns nothing. The worst it can do is cancel orders that are
-//      already past the 24h deadline, which is precisely what is meant to
-//      happen to them.
+// AUTH — a valid CRON_SECRET is REQUIRED. Anything else gets 401:
+//   • `Authorization: Bearer <CRON_SECRET>` — the documented way, and what
+//     external schedulers should send. A bare token without the "Bearer "
+//     prefix is also accepted, since some schedulers send the value alone.
+//   • `?secret=<CRON_SECRET>` — fallback for schedulers that cannot set
+//     headers at all. Weaker: query strings land in access logs and browser
+//     history, so prefer the header whenever the scheduler supports it.
+//   • the admin password header — lets the owner trigger a sweep by hand from
+//     an authenticated admin session.
+// There is NO unauthenticated path. With CRON_SECRET unset the endpoint
+// refuses every request rather than falling back to running unprotected.
 // ============================================================
 
 import { timingSafeEqual } from "node:crypto";
@@ -73,9 +72,10 @@ import {
 export const dynamic = "force-dynamic";
 // node:crypto + the ws-based Supabase admin client both need the Node runtime.
 export const runtime = "nodejs";
-// Vercel's cap for a scheduled function. The sweep respects its own, smaller
-// budget below and finishes the rest on the next run rather than being killed
-// mid-refund.
+// Hosting cap for a single invocation (60s is also the Vercel Hobby ceiling).
+// The sweep respects its own, smaller budget below and finishes the rest on the
+// next run rather than being killed mid-refund. Set your scheduler's request
+// timeout at or above this so it doesn't record a false failure on a long run.
 export const maxDuration = 60;
 
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
@@ -83,14 +83,15 @@ const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
  *  strands at most this many mid-flight, large enough for a normal backlog. */
 const BATCH_SIZE = 25;
 /** Stop claiming new batches after this long, leaving headroom under
- *  maxDuration to finish the batch in hand and answer. Hourly runs mean
- *  whatever is left is picked up 60 minutes later. */
+ *  maxDuration to finish the batch in hand and answer. Anything left over is
+ *  reported as `truncated` and picked up by the next scheduled run. */
 const TIME_BUDGET_MS = 45_000;
 
-/** "trusted" = proved it knows a secret, so it may see order ids. */
+/** `via` records which credential was accepted — logged on every run so a
+ *  scheduler misconfiguration is visible without guessing. */
 type Auth =
   | { ok: false; reason: string; diagnostics: Record<string, boolean> }
-  | { ok: true; trusted: boolean };
+  | { ok: true; via: "bearer" | "query" | "admin" };
 
 /**
  * Pull the presented secret out of a request, in both accepted forms.
@@ -133,26 +134,19 @@ function secretMatches(presented: string, expected: string): boolean {
 }
 
 function authorise(req: Request): Auth {
-  if (isAuthedRequest(req)) return { ok: true, trusted: true }; // admin, by hand
+  if (isAuthedRequest(req)) return { ok: true, via: "admin" }; // admin, by hand
 
   const rawSecret = process.env.CRON_SECRET;
   const secret = (rawSecret ?? "").trim();
   const { fromHeader, fromQuery } = presentedSecrets(req);
-  const isVercelCron = req.headers.has("x-vercel-cron-schedule");
 
+  // No secret configured = no way in. Previously an unauthenticated Vercel Cron
+  // invocation was accepted here as a no-config fallback; with Vercel Cron gone
+  // that path would be a public endpoint that cancels and refunds orders, so it
+  // is deliberately absent. Misconfiguration must fail closed.
   if (secret) {
-    if (fromHeader && secretMatches(fromHeader, secret)) return { ok: true, trusted: true };
-    if (fromQuery.some((v) => secretMatches(v, secret))) return { ok: true, trusted: true };
-  }
-
-  // Fallback: a genuine Vercel Cron invocation. Only reachable when the secret
-  // is unset — with a secret configured we insist on it.
-  if (!secret && isVercelCron) {
-    console.warn(
-      "[cron/auto-cancel] Running WITHOUT CRON_SECRET — accepted on the Vercel " +
-        "cron header. Set CRON_SECRET in the project env to authenticate properly.",
-    );
-    return { ok: true, trusted: false };
+    if (fromHeader && secretMatches(fromHeader, secret)) return { ok: true, via: "bearer" };
+    if (fromQuery.some((v) => secretMatches(v, secret))) return { ok: true, via: "query" };
   }
 
   // ---- Rejected. Report precisely WHICH check failed. -------------------
@@ -160,9 +154,10 @@ function authorise(req: Request): Auth {
   // which is enough to tell "env var missing" from "value differs" from
   // "whitespace" without putting the secret in a log line.
   const candidates = [fromHeader, ...fromQuery].filter((v): v is string => !!v);
-  const reason = !rawSecret
-    ? "CRON_SECRET is not defined in this runtime. Check it is set for the " +
-      "Production environment and that the deployment was created AFTER you added it."
+  const reason = !secret
+    ? "CRON_SECRET is not configured in this runtime, so the endpoint refuses " +
+      "every request. Set it for the Production environment and redeploy — a " +
+      "local .env file is never deployed."
     : candidates.length === 0
       ? "CRON_SECRET is defined, but the request presented no secret (no " +
         "Authorization header and no ?secret= parameter reached the route)."
@@ -178,7 +173,6 @@ function authorise(req: Request): Auth {
     authorizationTokenLength: fromHeader?.length ?? 0,
     secretQueryParamReceived: fromQuery.length > 0,
     secretQueryParamLength: fromQuery[0]?.length ?? 0,
-    isVercelCronInvocation: isVercelCron,
     anyCandidateLengthMatches: candidates.some((v) => v.length === secret.length),
   });
 
@@ -271,6 +265,15 @@ async function runSweep(req: Request) {
   }
 
   const startedAt = Date.now();
+  // EXECUTION START. Every run leaves a trace even when it sweeps nothing, so
+  // "the scheduler never fired" is distinguishable from "it fired and found no
+  // eligible orders" — the two look identical from the database alone.
+  console.log("[cron/auto-cancel] START", {
+    at: new Date(startedAt).toISOString(),
+    via: auth.via,
+    method: req.method,
+  });
+
   const supabase = createAdminClient() as unknown as SupabaseClient;
   // Cutoff in UTC. Date.now() is epoch-based (no local-time component) and
   // toISOString() emits a Z-suffixed instant, which Postgres compares against
@@ -282,7 +285,7 @@ async function runSweep(req: Request) {
   let skipped = 0;
   let batches = 0;
   // True when the time budget ran out with orders still eligible — the next
-  // hourly run continues from there. Worth surfacing: a sweep that is
+  // scheduled run continues from there. Worth surfacing: a sweep that is
   // permanently truncated means the backlog is growing faster than it drains.
   let truncated = false;
   let mode: "transactional" | "fallback" = "transactional";
@@ -298,10 +301,22 @@ async function runSweep(req: Request) {
     // null = the claim function isn't installed. Do the whole sweep the old way.
     if (claimed === null) {
       mode = "fallback";
+      console.warn(
+        "[cron/auto-cancel] auto_cancel_claim_orders unavailable — falling back to " +
+          "per-order claims. Run supabase/sql/39_auto_cancel_sweep.sql to enable the " +
+          "transactional path.",
+      );
       const legacy = await sweepWithoutRpc(supabase, cutoff);
       if (legacy.error) {
+        // FAILURE — the read itself failed, so nothing was swept.
+        console.error("[cron/auto-cancel] FAILED to load eligible orders:", legacy.error);
         return NextResponse.json({ error: legacy.error }, { status: 500 });
       }
+      console.log("[cron/auto-cancel] ELIGIBLE (fallback path)", {
+        found: legacy.results.length + legacy.skipped,
+        claimed: legacy.results.length,
+        skipped: legacy.skipped,
+      });
       results.push(...legacy.results);
       skipped += legacy.skipped;
       break;
@@ -310,13 +325,31 @@ async function runSweep(req: Request) {
     if (claimed.length === 0) break;
     batches += 1;
 
+    // ELIGIBLE ORDERS FOUND — logged per batch, since a large backlog drains
+    // over several batches within one run.
+    console.log("[cron/auto-cancel] ELIGIBLE", {
+      batch: batches,
+      claimed: claimed.length,
+      cutoff,
+    });
+
     // These rows are ours: the claim already flipped them to 'cancelled' inside
     // its transaction, so alreadyClaimed skips a second (now impossible) claim
     // and goes straight to the refund + notifications.
     for (const order of claimed) {
       const res = await cancelAndRefund(supabase, order, "auto", { alreadyClaimed: true });
+      const orderId = String(order.id);
+      if (res.paymentStatus === "refunded") {
+        // REFUND PROCESSED.
+        console.log(`[cron/auto-cancel] REFUNDED order ${orderId} (refund ${res.refundId})`);
+      } else {
+        // FAILURE — order is cancelled but the money is still held.
+        console.error(
+          `[cron/auto-cancel] REFUND FAILED for order ${orderId}: ${res.refundError ?? "unknown error"}`,
+        );
+      }
       results.push({
-        id: String(order.id),
+        id: orderId,
         payment_status: res.paymentStatus,
         refund_id: res.refundId,
         refund_error: res.refundError,
@@ -350,10 +383,13 @@ async function runSweep(req: Request) {
     cutoff,
     durationMs: Date.now() - startedAt,
   };
-  console.log("[cron/auto-cancel] sweep complete", summary);
+  // EXECUTION COMPLETED. `ok: true` and this line are what a scheduler's
+  // dashboard and the platform logs are checked against after a failed night.
+  console.log("[cron/auto-cancel] COMPLETE", summary);
 
-  // Order ids only for a caller that proved it knows a secret.
-  return NextResponse.json(auth.trusted ? { ...summary, results } : summary);
+  // Every authorised caller has proved it knows a secret (there is no
+  // unauthenticated path any more), so the per-order detail is always included.
+  return NextResponse.json({ ok: true, ...summary, results });
 }
 
 export async function GET(req: Request) {
