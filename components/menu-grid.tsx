@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Product } from "@/lib/data";
 import { createClient } from "@/utils/supabase/client";
@@ -10,6 +10,13 @@ import { AnimatedProductCard } from "@/components/animated-product-card";
 import { RotatingBanners } from "@/components/rotating-banners";
 import { useSiteSettings } from "@/lib/use-site-settings";
 import { slugify } from "@/lib/slug";
+import {
+  childrenOf,
+  descendantsOf,
+  rootOf,
+  topLevelOf,
+  type ParentMap,
+} from "@/lib/category-hierarchy";
 import { cn } from "@/lib/utils";
 
 // Shown only when a product row has no image_url, so next/image never gets
@@ -46,6 +53,9 @@ export function MenuGrid() {
   const [active, setActive] = useState("All");
   const [products, setProducts] = useState<Product[]>([]);
   const [categoryNames, setCategoryNames] = useState<string[]>([]);
+  // child → parent, from the admin-managed hierarchy. Empty on a database
+  // without it, which renders exactly the flat tab row this menu had before.
+  const [parents, setParents] = useState<ParentMap>({});
   const [loading, setLoading] = useState(true);
   const { settings } = useSiteSettings();
 
@@ -58,9 +68,13 @@ export function MenuGrid() {
       try {
         const res = await fetch("/api/categories", { cache: "no-store" });
         if (!res.ok) return;
-        const data = (await res.json()) as { categories?: string[] };
+        const data = (await res.json()) as {
+          categories?: string[];
+          parents?: ParentMap;
+        };
         if (!cancelled && Array.isArray(data.categories)) {
           setCategoryNames(data.categories);
+          setParents(data.parents ?? {});
         }
       } catch {
         /* keep whatever we had */
@@ -75,7 +89,21 @@ export function MenuGrid() {
     };
   }, []);
 
-  const filters = ["All", ...categoryNames];
+  // ---- Hierarchy-aware tabs ------------------------------------------------
+  // The top row shows "All" plus only TOP-LEVEL categories; subcategories are
+  // revealed underneath once their parent's branch is selected. Which branch
+  // is open is DERIVED from the existing `active` state — there is no second
+  // piece of state, so only one parent can ever be expanded, and selecting a
+  // child keeps its parent's row open.
+  const filters = useMemo(
+    () => ["All", ...topLevelOf(categoryNames, parents)],
+    [categoryNames, parents],
+  );
+  const activeRoot = active === "All" ? null : rootOf(parents, active);
+  const subFilters = useMemo(
+    () => (activeRoot ? childrenOf(categoryNames, parents, activeRoot) : []),
+    [activeRoot, categoryNames, parents],
+  );
 
   // Deep-link support: /menu?category=<slug> selects the matching tab. Slugs
   // are derived from the live category names (same slugify as elsewhere).
@@ -112,10 +140,15 @@ export function MenuGrid() {
     };
   }, []);
 
-  const filtered =
-    active === "All"
-      ? products
-      : products.filter((p) => p.category === active);
+  // Selecting a PARENT shows its own products plus everything filed under any
+  // of its subcategories, so a customer never has to click each child. A
+  // subcategory (or a category with no children) has no descendants, so this
+  // is the exact `p.category === active` match it has always been.
+  const filtered = useMemo(() => {
+    if (active === "All") return products;
+    const scope = new Set([active, ...descendantsOf(categoryNames, parents, active)]);
+    return products.filter((p) => scope.has(p.category));
+  }, [active, products, categoryNames, parents]);
 
   // Auto-rotating banners come from site_settings.rotating_banners (admin-
   // editable, fetched no-store). useSiteSettings already applies the default
@@ -154,6 +187,49 @@ export function MenuGrid() {
             </button>
           ))}
         </div>
+
+        {/* Subcategories of the open branch. Same pill markup, same tokens —
+            it reads as a second line of the row that's already there, not a
+            new control. Only the selected parent's children ever appear, and
+            they collapse when another parent (or All) is chosen. */}
+        <AnimatePresence initial={false}>
+          {subFilters.length > 0 && (
+            <motion.div
+              key={activeRoot}
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.22, ease: "easeOut" }}
+              className="overflow-hidden"
+            >
+              <div className="glass mt-2 flex flex-nowrap items-center justify-start gap-2 overflow-x-auto rounded-full p-1.5 shadow-clay-sm [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:flex-wrap md:justify-center md:overflow-visible">
+                {subFilters.map((f) => (
+                  <button
+                    key={f}
+                    onClick={() => setActive(f)}
+                    className={cn(
+                      "relative shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-semibold transition-colors sm:px-4",
+                      active === f
+                        ? "text-blush-50"
+                        : "text-darkberry/80 hover:text-wine-dark"
+                    )}
+                  >
+                    {/* Shares the parent row's layoutId, so the highlight
+                        glides between the two rows instead of popping. */}
+                    {active === f && (
+                      <motion.span
+                        layoutId="menu-filter-pill"
+                        className="absolute inset-0 -z-10 rounded-full bg-wine shadow-clay-sm"
+                        transition={{ type: "spring", stiffness: 380, damping: 30 }}
+                      />
+                    )}
+                    {f}
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {loading ? (

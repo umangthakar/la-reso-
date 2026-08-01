@@ -128,3 +128,53 @@ export function childrenOf(
 ): string[] {
   return list.filter((c) => parents[c] === name);
 }
+
+/** The top-level categories (those with no parent), in the list's order. */
+export function topLevelOf(list: string[], parents: ParentMap): string[] {
+  return list.filter((c) => !parents[c]);
+}
+
+/**
+ * Every category beneath `name`, at any depth, in the list's order. Used to
+ * scope a filter: selecting a parent should show its own products AND those
+ * of everything under it, without the customer clicking each child.
+ * A leaf returns []. Guarded against a malformed tree looping.
+ */
+export function descendantsOf(
+  list: string[],
+  parents: ParentMap,
+  name: string,
+): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>([name]);
+  let frontier = [name];
+  while (frontier.length > 0) {
+    const next: string[] = [];
+    for (const parent of frontier) {
+      for (const child of childrenOf(list, parents, parent)) {
+        if (seen.has(child)) continue;
+        seen.add(child);
+        out.push(child);
+        next.push(child);
+      }
+    }
+    frontier = next;
+  }
+  return out;
+}
+
+/**
+ * The top-level ancestor of a category — itself when it has no parent. Lets a
+ * selected subcategory keep its parent's branch open without a second piece of
+ * state. Guarded against a malformed tree looping.
+ */
+export function rootOf(parents: ParentMap, name: string): string {
+  const seen = new Set<string>();
+  let cursor = name;
+  while (parents[cursor]) {
+    if (seen.has(cursor)) break; // already-broken data — stop rather than spin
+    seen.add(cursor);
+    cursor = parents[cursor];
+  }
+  return cursor;
+}
