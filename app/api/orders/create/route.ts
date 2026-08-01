@@ -10,7 +10,7 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/server";
 import { getStripe } from "@/lib/stripe";
-import { round2 } from "@/lib/pricing";
+import { matchDeliveryZone, normalizePostcode, round2 } from "@/lib/pricing";
 import { notifyOrder } from "@/lib/notifications";
 import { sendOrderNotification } from "@/lib/ntfy";
 import {
@@ -106,6 +106,8 @@ export async function POST(req: Request) {
   let metaDiscount = 0;
   let metaCoupon: string | null = null;
   let metaOffer: string | null = null;
+  /** The postcode this charge was priced and validated for, per Stripe. */
+  let metaPostcode = "";
   try {
     const { stripe } = await getStripe(supabase);
     const pi = await stripe.paymentIntents.retrieve(paymentIntentId);
@@ -121,6 +123,7 @@ export async function POST(req: Request) {
     metaDiscount = Number(pi.metadata?.discount_amount) || 0;
     metaCoupon = (pi.metadata?.coupon_code || "").trim() || null;
     metaOffer = (pi.metadata?.offer_id || "").trim() || null;
+    metaPostcode = normalizePostcode(pi.metadata?.delivery_postcode);
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Could not verify payment." },
@@ -161,12 +164,48 @@ export async function POST(req: Request) {
     ["email", validateEmail(customerEmail)],
     ["phone", validatePhone(customerPhone)],
   ];
-  const badContact = contactChecks.find(([, error]) => error !== "");
-  if (badContact) {
-    return NextResponse.json(
-      { error: badContact[1], field: badContact[0] },
-      { status: 400 },
-    );
+  // ---- DELIVERY AREA GATE (independent re-check, before ANY write) --------
+  // /api/checkout/create-intent already refused an out-of-area postcode, but
+  // this route is reachable on its own, so it verifies the postcode itself
+  // rather than assuming the earlier call happened. Zones are read live from
+  // the admin's settings and matched with matchDeliveryZone — the same function
+  // the form and the PaymentIntent route use. Same `zones.length > 0` condition,
+  // so an unconfigured bakery is unaffected.
+  const zonesRes = await supabase
+    .from("site_settings")
+    .select("delivery_zones")
+    .limit(1)
+    .maybeSingle();
+  const zones = Array.isArray(zonesRes.data?.delivery_zones)
+    ? (zonesRes.data!.delivery_zones as { postcode_prefix?: string; fee?: number }[])
+    : [];
+
+  if (zones.length > 0 && !matchDeliveryZone(postcode, zones)) {
+    // One narrow exception, and it is not a weakening: the postcode is accepted
+    // when it is byte-identical to the one Stripe records this charge as having
+    // been priced and validated for. Such metadata can only exist on an intent
+    // that already passed the gate above, so it cannot be manufactured — it only
+    // covers the case where an admin edits a zone in the seconds between paying
+    // and saving, which must not cost a customer the order they've been charged
+    // for. A client that swaps the postcode after paying does NOT match, and is
+    // rejected.
+    const chargedForThisPostcode =
+      metaPostcode !== "" && metaPostcode === normalizePostcode(postcode);
+
+    if (!chargedForThisPostcode) {
+      console.warn("[orders/create] blocked — postcode outside every delivery zone", {
+        paymentIntentId,
+        postcode,
+      });
+      return NextResponse.json(
+        { error: "Invalid delivery postcode" },
+        { status: 400 },
+      );
+    }
+    console.warn("[orders/create] postcode no longer in a zone but was validated at payment", {
+      paymentIntentId,
+      postcode,
+    });
   }
 
   // Columns present on every version of the orders table.

@@ -19,7 +19,13 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/server";
 import { getStripe } from "@/lib/stripe";
-import { resolveDeliveryFee, round2, toPence } from "@/lib/pricing";
+import {
+  matchDeliveryZone,
+  normalizePostcode,
+  resolveDeliveryFee,
+  round2,
+  toPence,
+} from "@/lib/pricing";
 import {
   cleanString,
   normaliseEmail,
@@ -281,6 +287,27 @@ export async function POST(req: Request) {
     ? (zonesRes.data!.delivery_zones as DeliveryZone[])
     : [];
 
+  // ---- DELIVERY AREA GATE (before any money moves) ------------------------
+  // The checkout form disables Continue on an out-of-area postcode, but that is
+  // a courtesy: THIS is the guard. A direct fetch(), a re-enabled button or a
+  // hand-edited request all arrive here, and none of them reaches Stripe.
+  //
+  // Validity is decided by matchDeliveryZone — the same function the form, the
+  // "Invalid postcode" message and resolveDeliveryFee below all use, against the
+  // zones just read from the admin's own settings. Nothing is duplicated or
+  // re-implemented, so a zone edited in the panel changes what is deliverable
+  // here immediately.
+  //
+  // Only enforced once zones exist, mirroring the form's `zonesLoaded` rule: a
+  // bakery that hasn't configured any zones keeps working exactly as before
+  // rather than having every order rejected.
+  if (zones.length > 0 && !matchDeliveryZone(body.postcode, zones)) {
+    return NextResponse.json(
+      { error: "Invalid delivery postcode" },
+      { status: 400 },
+    );
+  }
+
   // ---- OFFER DISCOUNT (inserted between subtotal and delivery fee) --------
   // Computed from the SAME server-verified cart items + DB prices as the
   // subtotal above — never the client's numbers. Any failure here (e.g. the
@@ -421,6 +448,10 @@ export async function POST(req: Request) {
         delivery_fee: deliveryFee.toFixed(2),
         total: total.toFixed(2),
         delivery_date: body.deliveryDate ?? "",
+        // The postcode this charge was priced and validated for. Held by Stripe,
+        // so /api/orders/create can tell "the zone was edited a moment ago"
+        // apart from "the client swapped the postcode after paying".
+        delivery_postcode: normalizePostcode(body.postcode),
         discount_amount: discountAmount.toFixed(2),
         coupon_code: appliedCouponCode ?? "",
         offer_id: appliedOfferId ?? "",

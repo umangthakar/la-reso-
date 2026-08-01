@@ -134,6 +134,13 @@ export default function CheckoutPage() {
     Array.isArray(settings.delivery_zones) && settings.delivery_zones.length > 0;
   const zoneMatch = matchDeliveryZone(form.postcode, settings.delivery_zones);
   const deliveryFee = freeDelivery ? 0 : zoneMatch ? zoneMatch.fee : 0;
+  // Deliverable = the postcode falls in a configured zone. This is the SAME
+  // condition the summary already reports as "Invalid postcode" below, read off
+  // the same zoneMatch the fee is derived from — no second matcher, no new rule.
+  // While zones are still loading (or none are configured) nothing is called
+  // invalid, exactly as the summary already behaves, so a bakery that hasn't set
+  // its zones up yet checks out precisely as it does today.
+  const postcodeDeliverable = !zonesLoaded || zoneMatch !== null;
   const total = round2(subtotal - discount + deliveryFee);
   // The amount is known once the server has priced it (charged), an offer
   // waives it, or the postcode matched a delivery zone.
@@ -235,9 +242,13 @@ export default function CheckoutPage() {
           settings.lead_time_days === 1 ? "" : "s"
         }' notice.`
       : "";
+  // An out-of-area postcode now fails this step the same way an undeliverable
+  // date does: Continue disables, next() refuses, and the summary keeps showing
+  // "Invalid postcode". Nothing else about the step changes.
   const step2Valid =
     form.address.trim() !== "" &&
     form.postcode.trim() !== "" &&
+    postcodeDeliverable &&
     dateChosenValid;
 
   // Auth guard (after hooks, so hook order stays stable). While the session
@@ -324,6 +335,15 @@ export default function CheckoutPage() {
   }
 
   async function goToPayment() {
+    // Reaching Review with an out-of-area postcode should be impossible — step 2
+    // gates it — so if zones change under us, send them back to the step that
+    // owns the postcode rather than starting a spinner and letting the server's
+    // 400 be the first sign. The summary is on every step, so "Invalid postcode"
+    // is already on screen when they land.
+    if (!postcodeDeliverable) {
+      setStep(2);
+      return;
+    }
     setLoadingIntent(true);
     setIntentError(null);
     try {
