@@ -10,8 +10,8 @@
 // POST   → rename a category (updates every product + the persisted list).
 // PUT    → add a new (empty) category to the persisted list.
 // PATCH  → set / clear a category's PARENT (hierarchy only — never products).
-// DELETE → remove a category from the persisted list — only when 0 products
-//          use it AND it has no subcategories.
+// DELETE → remove a category AND the products filed directly under it; its
+//          subcategories survive and become top-level categories.
 //
 // HIERARCHY (added on top of the above, nothing replaced):
 //   • site_settings.category_parents — { "<child>": "<parent>" }, see
@@ -36,13 +36,13 @@ import { createAdminClient } from "@/lib/supabase/server";
 import { isAuthedRequest } from "@/lib/admin-auth";
 import {
   canonical,
-  childrenOf,
   createsCycle,
   inTreeOrder,
   renameInParents,
   sanitiseParents,
   type ParentMap,
 } from "@/lib/category-hierarchy";
+import { removeProductImages } from "@/lib/product-storage";
 
 export const dynamic = "force-dynamic";
 
@@ -77,6 +77,21 @@ function isMissingColumn(err: { code?: string; message?: string } | null): boole
 
 const MIGRATION_HINT =
   "Category hierarchy isn't set up on this database yet. Run supabase/sql/40_category_hierarchy.sql, then try again.";
+
+/**
+ * True when an RPC failed because delete_category_cascade isn't installed
+ * (41_category_delete.sql not run). Same test lib/order-lifecycle.ts applies to
+ * its own transactional functions.
+ */
+function isMissingFunction(err: { code?: string; message?: string } | null): boolean {
+  if (!err) return false;
+  // PGRST202 = no matching function in the schema cache; 42883 = undefined_function.
+  if (err.code === "PGRST202" || err.code === "42883") return true;
+  return /could not find the function|function .* does not exist/i.test(err.message ?? "");
+}
+
+const DELETE_MIGRATION_HINT =
+  "Category deletion isn't set up on this database yet. Run supabase/sql/41_category_delete.sql, then try again. Nothing was deleted.";
 
 // --- the admin-curated ordered list from site_settings.categories ----------
 // Returns { id, list, parents, hasParents }. `id` is null when no settings row
@@ -355,8 +370,19 @@ export async function PATCH(req: Request) {
   }
 }
 
-// DELETE — remove a category, but only when no products use it and it has no
-// subcategories (deleting a parent must never orphan its children).
+// DELETE — remove a category, the products filed DIRECTLY under it, and their
+// image files. Its direct SUBCATEGORIES SURVIVE: they lose their parent and
+// become top-level categories, and the products filed under them are never
+// touched.
+//
+//   Cakes                    <- deleted, along with its own products
+//   ├── Custom Cakes         <- kept, promoted to top level, products intact
+//   └── Wedding Cake         <- kept, promoted to top level, products intact
+//
+// The database half runs as ONE transaction inside delete_category_cascade
+// (41_category_delete.sql), so the children, the products, the category list
+// and the parent map all move together or not at all. Storage is cleaned
+// afterwards — see removeProductImages for why that order is the safe one.
 export async function DELETE(req: Request) {
   if (!isAuthedRequest(req)) {
     return NextResponse.json({ error: "Not authorised" }, { status: 401 });
@@ -369,46 +395,50 @@ export async function DELETE(req: Request) {
 
   try {
     const supabase = adminDb();
-    const counts = await productCounts(supabase);
-    const count = counts.get(target) ?? 0;
-    if (count > 0) {
-      return NextResponse.json(
-        {
-          error: `Cannot delete "${target}" — ${count} product${count === 1 ? "" : "s"} still use it. Move or delete them first.`,
-        },
-        { status: 409 },
-      );
+    const { data, error } = await supabase.rpc("delete_category_cascade", {
+      p_name: target,
+    });
+
+    if (error) {
+      // Without the function there is no way to do this atomically, and a
+      // half-finished cascade is far worse than a refusal — so say what to run
+      // rather than falling back to a stepwise delete.
+      if (isMissingFunction(error)) {
+        return NextResponse.json({ error: DELETE_MIGRATION_HINT }, { status: 409 });
+      }
+      // P0002 is the "no such category" the function raises.
+      if (error.code === "P0002") {
+        return NextResponse.json({ error: error.message }, { status: 404 });
+      }
+      return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    const { id, list, parents, hasParents } = await persistedCategories(supabase);
+    const result = (data ?? {}) as {
+      category?: string;
+      deleted_products?: number;
+      promoted_children?: unknown;
+      image_urls?: unknown;
+    };
+    const promotedChildren = Array.isArray(result.promoted_children)
+      ? result.promoted_children.map((c) => String(c))
+      : [];
+    const imageUrls = Array.isArray(result.image_urls)
+      ? result.image_urls.map((u) => String(u))
+      : [];
 
-    // A parent with subcategories can't go: removing it would leave them
-    // pointing at a category that no longer exists. Re-parent or delete the
-    // children first.
-    const children = childrenOf(list, parents, target);
-    if (children.length > 0) {
-      return NextResponse.json(
-        {
-          error: `Cannot delete "${target}" — ${children.length} subcategor${
-            children.length === 1 ? "y" : "ies"
-          } still sit under it (${children.join(", ")}). Move them out first.`,
-        },
-        { status: 409 },
-      );
-    }
+    // The rows are already gone; files are the tidy-up. A Storage failure is
+    // reported, never thrown — the delete DID happen, and telling the admin it
+    // failed would be a lie that costs them a second attempt.
+    const files = await removeProductImages(supabase, imageUrls);
 
-    await saveCategories(
-      supabase,
-      id,
-      list.filter((c) => c !== target),
-    );
-    // Drop its own parent link so the map never keeps a dangling key.
-    if (hasParents && parents[target]) {
-      const next = { ...parents };
-      delete next[target];
-      await saveParents(supabase, id, next);
-    }
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({
+      ok: true,
+      category: result.category ?? target,
+      deletedProducts: Number(result.deleted_products) || 0,
+      promotedChildren,
+      removedFiles: files.removed.length,
+      orphanedFiles: files.failed.map((f) => f.path),
+    });
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Delete failed" },

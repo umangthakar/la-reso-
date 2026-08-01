@@ -6,10 +6,9 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/server";
 import { isAuthedRequest } from "@/lib/admin-auth";
+import { PRODUCT_IMAGE_BUCKET as BUCKET } from "@/lib/product-storage";
 
 export const dynamic = "force-dynamic";
-
-const BUCKET = "product-images";
 
 export async function POST(req: Request) {
   if (!isAuthedRequest(req)) {

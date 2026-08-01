@@ -1375,6 +1375,13 @@ function CategoriesSection({ onChanged }: { onChanged: () => void }) {
   const [newName, setNewName] = useState("");
   const [newParent, setNewParent] = useState("");
   const [adding, setAdding] = useState(false);
+  // The category the delete confirmation is open for, and whether that delete
+  // is in flight — kept apart from `busy` so the dialog's own button is the
+  // only control that shows the spinner.
+  const [confirming, setConfirming] = useState<CategoryRow | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  // Success feedback for a delete, in the same box the errors already use.
+  const [notice, setNotice] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1399,6 +1406,7 @@ function CategoriesSection({ onChanged }: { onChanged: () => void }) {
     setEditing(name);
     setDraft(name);
     setError("");
+    setNotice("");
   }
 
   async function save(oldName: string) {
@@ -1426,6 +1434,7 @@ function CategoriesSection({ onChanged }: { onChanged: () => void }) {
     if (!name) return;
     setAdding(true);
     setError("");
+    setNotice("");
     try {
       // `parent` is optional — "" means top level, exactly as before.
       await adminSend("/api/admin/products/categories", "PUT", { name, parent: newParent });
@@ -1445,6 +1454,7 @@ function CategoriesSection({ onChanged }: { onChanged: () => void }) {
   async function setParent(c: CategoryRow, parent: string) {
     setBusy(true);
     setError("");
+    setNotice("");
     try {
       await adminSend("/api/admin/products/categories", "PATCH", { name: c.name, parent });
       await load();
@@ -1456,31 +1466,53 @@ function CategoriesSection({ onChanged }: { onChanged: () => void }) {
     }
   }
 
-  async function remove(c: CategoryRow) {
-    if (c.count > 0) {
-      setError(`Cannot delete "${c.name}" — ${c.count} product${c.count === 1 ? "" : "s"} still use it. Move or delete them first.`);
-      return;
-    }
-    // Deleting a parent would orphan its children. The API refuses this too;
-    // catching it here saves a round trip and reads the same.
-    const kids = cats.filter((x) => x.parent === c.name);
-    if (kids.length > 0) {
-      setError(
-        `Cannot delete "${c.name}" — ${kids.length} subcategor${kids.length === 1 ? "y" : "ies"} still sit under it (${kids.map((k) => k.name).join(", ")}). Move them out first.`,
-      );
-      return;
-    }
-    if (!window.confirm(`Delete the category "${c.name}"?`)) return;
-    setBusy(true);
+  /** Open the confirmation. Nothing is sent until it is confirmed. */
+  function askRemove(c: CategoryRow) {
+    setError("");
+    setNotice("");
+    setConfirming(c);
+  }
+
+  /**
+   * Delete the category the dialog is showing: it goes, so do the products
+   * filed DIRECTLY under it, while its subcategories survive as top-level
+   * categories with their own products intact. The API does all of that in one
+   * transaction — this just reports what came back.
+   */
+  async function confirmRemove() {
+    const c = confirming;
+    // `deleting` also guards the button, so a double click can't send twice.
+    if (!c || deleting) return;
+    setDeleting(true);
     setError("");
     try {
-      await adminSend("/api/admin/products/categories", "DELETE", { name: c.name });
+      const res = await adminSend<{
+        deletedProducts?: number;
+        promotedChildren?: string[];
+        orphanedFiles?: string[];
+      }>("/api/admin/products/categories", "DELETE", { name: c.name });
+
+      const products = res.deletedProducts ?? 0;
+      const promoted = res.promotedChildren?.length ?? 0;
+      const stranded = res.orphanedFiles?.length ?? 0;
+      setNotice(
+        `Category deleted successfully. ` +
+          `${products} product${products === 1 ? "" : "s"} removed. ` +
+          `${promoted} child categor${promoted === 1 ? "y" : "ies"} moved to top level.` +
+          // Only ever shown when Storage refused: the rows are gone, so the
+          // files need clearing by hand rather than another delete.
+          (stranded > 0
+            ? ` ${stranded} image file${stranded === 1 ? "" : "s"} could not be removed from storage — delete ${res.orphanedFiles?.join(", ")} in Supabase Storage.`
+            : ""),
+      );
+      setConfirming(null);
       await load();
       onChanged();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Delete failed");
+      setConfirming(null);
     } finally {
-      setBusy(false);
+      setDeleting(false);
     }
   }
 
@@ -1488,10 +1520,16 @@ function CategoriesSection({ onChanged }: { onChanged: () => void }) {
     <div style={{ marginTop: 36 }}>
       <h2 style={{ color: WINE, fontSize: "1.25rem", fontWeight: 800, margin: 0 }}>Categories</h2>
       <p style={{ color: BERRY, opacity: 0.7, marginTop: 4, fontSize: "0.9rem" }}>
-        Add a new category, rename one (updates every product using it), or delete an empty one.
+        Add a new category, rename one (updates every product using it), or delete one along with
+        the products filed directly under it — its subcategories are kept and become top level.
         Give a category a parent to file it as a subcategory — products never move.
       </p>
       {error && <p style={errorBox}>{error}</p>}
+      {notice && (
+        <p role="status" aria-live="polite" style={noticeBox}>
+          {notice}
+        </p>
+      )}
 
       {/* Add a new (empty) category, optionally under a parent */}
       <form onSubmit={add} style={{ display: "flex", gap: 10, marginTop: 14, maxWidth: 520, flexWrap: "wrap" }}>
@@ -1580,10 +1618,10 @@ function CategoriesSection({ onChanged }: { onChanged: () => void }) {
                   </select>
                   <button onClick={() => start(c.name)} style={linkBtn}>Rename</button>
                   <button
-                    onClick={() => remove(c)}
-                    disabled={busy}
-                    title={c.count > 0 ? "Only empty categories can be deleted" : "Delete category"}
-                    style={{ ...linkBtn, color: c.count > 0 ? "rgba(135,56,83,0.35)" : "#d9534f", cursor: c.count > 0 ? "not-allowed" : "pointer" }}
+                    onClick={() => askRemove(c)}
+                    disabled={busy || deleting}
+                    title="Delete this category and the products filed directly under it"
+                    style={{ ...linkBtn, color: "#d9534f" }}
                   >
                     Delete
                   </button>
@@ -1593,6 +1631,100 @@ function CategoriesSection({ onChanged }: { onChanged: () => void }) {
           ))}
         </div>
       )}
+
+      {confirming && (
+        <DeleteCategoryDialog
+          category={confirming}
+          childCount={cats.filter((x) => x.parent === confirming.name).length}
+          deleting={deleting}
+          onCancel={() => setConfirming(null)}
+          onConfirm={confirmRemove}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * The confirmation shown before a category is deleted. Spells out exactly what
+ * goes and what stays, because the two are easy to confuse: the products filed
+ * DIRECTLY under this category are deleted, while its subcategories — and
+ * everything filed under those — survive as top-level categories.
+ *
+ * Built from the panel's existing overlay/modal and button styles; the only
+ * control that can start the delete is its own button, which disables itself
+ * for the duration so a second click cannot send a second request.
+ */
+function DeleteCategoryDialog({
+  category,
+  childCount,
+  deleting,
+  onCancel,
+  onConfirm,
+}: {
+  category: CategoryRow;
+  childCount: number;
+  deleting: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div style={overlay} onClick={deleting ? undefined : onCancel}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="delete-category-title"
+        onClick={(e) => e.stopPropagation()}
+        style={{ ...modal, maxWidth: 440 }}
+      >
+        <h2 id="delete-category-title" style={{ color: WINE, marginTop: 0, fontSize: "1.3rem" }}>
+          Delete category?
+        </h2>
+
+        <dl style={{ margin: "0 0 14px", color: BERRY, fontSize: "0.95rem" }}>
+          <div style={confirmRow}>
+            <dt style={confirmLabel}>Category</dt>
+            <dd style={confirmValue}>{category.name}</dd>
+          </div>
+          <div style={confirmRow}>
+            <dt style={confirmLabel}>Products to delete</dt>
+            <dd style={confirmValue}>{category.count}</dd>
+          </div>
+          <div style={confirmRow}>
+            <dt style={confirmLabel}>Child categories</dt>
+            <dd style={confirmValue}>{childCount}</dd>
+          </div>
+        </dl>
+
+        {childCount > 0 && (
+          <p style={{ color: BERRY, opacity: 0.75, fontSize: "0.9rem", margin: "0 0 10px" }}>
+            Child categories will NOT be deleted. They will become top-level categories, and their
+            products stay where they are.
+          </p>
+        )}
+        <p style={{ color: "#b03030", fontWeight: 600, fontSize: "0.9rem", margin: "0 0 18px" }}>
+          This action cannot be undone.
+        </p>
+
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", flexWrap: "wrap" }}>
+          <button type="button" onClick={onCancel} disabled={deleting} style={secondaryBtn}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={deleting}
+            style={{
+              ...primaryBtn,
+              background: "#d9534f",
+              opacity: deleting ? 0.6 : 1,
+              cursor: deleting ? "not-allowed" : "pointer",
+            }}
+          >
+            {deleting ? "Deleting…" : "Delete Forever"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1655,5 +1787,11 @@ const primaryBtn: React.CSSProperties = { padding: "10px 18px", borderRadius: 10
 const secondaryBtn: React.CSSProperties = { padding: "10px 18px", borderRadius: 10, border: `1px solid ${WINE}`, background: "transparent", color: WINE, fontWeight: 700, cursor: "pointer" };
 const linkBtn: React.CSSProperties = { background: "none", border: "none", color: WINE, fontWeight: 700, cursor: "pointer", marginLeft: 12, fontSize: "0.9rem" };
 const errorBox: React.CSSProperties = { background: "#fde8e8", color: "#b03030", padding: "10px 14px", borderRadius: 10, marginTop: 16 };
+// Success twin of errorBox — same box, the panel's own colours.
+const noticeBox: React.CSSProperties = { background: "rgba(135,56,83,0.08)", color: BERRY, padding: "10px 14px", borderRadius: 10, marginTop: 16 };
+// Rows of the delete confirmation's summary list.
+const confirmRow: React.CSSProperties = { display: "flex", gap: 12, justifyContent: "space-between", padding: "6px 0" };
+const confirmLabel: React.CSSProperties = { margin: 0, opacity: 0.7 };
+const confirmValue: React.CSSProperties = { margin: 0, fontWeight: 700 };
 const overlay: React.CSSProperties = { position: "fixed", inset: 0, background: "rgba(60,20,40,0.45)", display: "grid", placeItems: "center", padding: "1.5rem", zIndex: 50 };
 const modal: React.CSSProperties = { width: "100%", maxWidth: 520, maxHeight: "90vh", overflowY: "auto", background: "white", borderRadius: 18, padding: "1.75rem" };
