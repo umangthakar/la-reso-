@@ -1,0 +1,36 @@
+-- ============================================================
+-- 40_category_hierarchy.sql — optional parent for each category.
+--
+-- Categories in this project are NOT a table: they are a flat, ordered
+-- jsonb string[] on site_settings (see 09_categories.sql), and products
+-- reference them BY NAME (products.category is free text — 00_full_setup.sql
+-- calls it "flat text (no categories FK)"). There are no category ids, so a
+-- parent is recorded by name, exactly like every other category reference in
+-- the system.
+--
+-- This column is purely ADDITIVE:
+--
+--   site_settings.categories        UNCHANGED — still a flat string[], so
+--                                   /api/categories, the storefront menu
+--                                   tabs, offer category rules and accessory
+--                                   applies_to all keep working untouched.
+--   site_settings.category_parents  NEW — { "<child name>": "<parent name>" }
+--
+-- A category with NO entry in the map is a TOP-LEVEL category (the NULL
+-- parent_category_id equivalent). The default '{}' therefore makes every
+-- existing category top-level with no data migration and no data loss.
+--
+-- Product assignments are NOT touched: a category that becomes a
+-- subcategory keeps every product already filed under its name, because
+-- products still store that same name.
+--
+-- Integrity (parent must exist, no self-parenting, no cycles) is enforced in
+-- the admin API, which is the only writer — the same place the existing
+-- add/rename/delete rules live. The map is also sanitised on every read, so
+-- a hand-edited row cannot produce a broken tree.
+--
+-- Safe to run more than once.
+-- ============================================================
+
+alter table public.site_settings
+  add column if not exists category_parents jsonb not null default '{}'::jsonb;

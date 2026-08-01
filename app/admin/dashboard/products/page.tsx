@@ -161,7 +161,10 @@ export default function ProductsAdminPage() {
   const [uploading, setUploading] = useState(false);
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [ingredientInput, setIngredientInput] = useState("");
-  const [categoryNames, setCategoryNames] = useState<string[]>([]);
+  // Categories in tree order, each carrying its nesting depth so the form
+  // dropdown can indent subcategories. Names are unchanged — depth is display
+  // only, and the value stored on a product is still the plain category name.
+  const [categoryTree, setCategoryTree] = useState<{ name: string; depth: number }[]>([]);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
@@ -169,7 +172,14 @@ export default function ProductsAdminPage() {
 
   // Options for the product form's Category dropdown: the live managed list,
   // falling back to the defaults until it loads / while none exist.
+  const categoryNames = useMemo(() => categoryTree.map((c) => c.name), [categoryTree]);
   const catOptions = categoryNames.length > 0 ? categoryNames : DEFAULT_CATEGORIES;
+  // The same options with their depth, so subcategories render indented under
+  // their parent. Falls back to flat defaults exactly as catOptions does.
+  const catOptionRows =
+    categoryTree.length > 0
+      ? categoryTree
+      : DEFAULT_CATEGORIES.map((name) => ({ name, depth: 0 }));
 
   // Options for the FILTER dropdown above the table. Built from what actually
   // exists — the managed category list, plus any category found on a loaded
@@ -259,11 +269,12 @@ export default function ProductsAdminPage() {
   // Categories panel below via the onChanged callback.
   const loadCategories = useCallback(async () => {
     try {
-      const data = await adminGet<{ categories: { name: string; count: number }[] }>(
-        "/api/admin/products/categories",
-        { force: true },
+      const data = await adminGet<{
+        categories: { name: string; count: number; depth?: number }[];
+      }>("/api/admin/products/categories", { force: true });
+      setCategoryTree(
+        (data.categories || []).map((c) => ({ name: c.name, depth: c.depth ?? 0 })),
       );
-      setCategoryNames((data.categories || []).map((c) => c.name));
     } catch {
       /* leave the previous list in place */
     }
@@ -797,8 +808,11 @@ export default function ProductsAdminPage() {
               <label style={labelStyle}>Category</label>
               <select style={inputStyle} value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
                 <option value="">— Select a category —</option>
-                {catOptions.map((c) => (
-                  <option key={c} value={c}>{c}</option>
+                {catOptionRows.map((c) => (
+                  // The VALUE is always the plain category name — indentation
+                  // is display only, so selecting a subcategory stores exactly
+                  // what it always did.
+                  <option key={c.name} value={c.name}>{hierarchyLabel(c.name, c.depth)}</option>
                 ))}
                 {/* keep an existing custom category selectable */}
                 {form.category && !catOptions.includes(form.category) && (
@@ -1342,7 +1356,14 @@ function Toggle({ on, onClick }: { on: boolean; onClick: () => void }) {
 // Every change calls onChanged() so the product table + form dropdown
 // (and, via /api/categories, the storefront menu tabs) stay in sync.
 // ------------------------------------------------------------
-type CategoryRow = { name: string; count: number };
+type CategoryRow = {
+  name: string;
+  count: number;
+  /** Parent category name; null for a top-level category. */
+  parent?: string | null;
+  /** Nesting level, 0 for top level. Drives the indentation below. */
+  depth?: number;
+};
 
 function CategoriesSection({ onChanged }: { onChanged: () => void }) {
   const [cats, setCats] = useState<CategoryRow[]>([]);
@@ -1352,6 +1373,7 @@ function CategoriesSection({ onChanged }: { onChanged: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [newName, setNewName] = useState("");
+  const [newParent, setNewParent] = useState("");
   const [adding, setAdding] = useState(false);
 
   const load = useCallback(async () => {
@@ -1405,8 +1427,10 @@ function CategoriesSection({ onChanged }: { onChanged: () => void }) {
     setAdding(true);
     setError("");
     try {
-      await adminSend("/api/admin/products/categories", "PUT", { name });
+      // `parent` is optional — "" means top level, exactly as before.
+      await adminSend("/api/admin/products/categories", "PUT", { name, parent: newParent });
       setNewName("");
+      setNewParent("");
       await load();
       onChanged();
     } catch (e) {
@@ -1416,9 +1440,34 @@ function CategoriesSection({ onChanged }: { onChanged: () => void }) {
     }
   }
 
+  /** Move a category under a different parent, or back to top level ("").
+   *  Hierarchy only — products stay exactly where they are. */
+  async function setParent(c: CategoryRow, parent: string) {
+    setBusy(true);
+    setError("");
+    try {
+      await adminSend("/api/admin/products/categories", "PATCH", { name: c.name, parent });
+      await load();
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to change parent");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function remove(c: CategoryRow) {
     if (c.count > 0) {
       setError(`Cannot delete "${c.name}" — ${c.count} product${c.count === 1 ? "" : "s"} still use it. Move or delete them first.`);
+      return;
+    }
+    // Deleting a parent would orphan its children. The API refuses this too;
+    // catching it here saves a round trip and reads the same.
+    const kids = cats.filter((x) => x.parent === c.name);
+    if (kids.length > 0) {
+      setError(
+        `Cannot delete "${c.name}" — ${kids.length} subcategor${kids.length === 1 ? "y" : "ies"} still sit under it (${kids.map((k) => k.name).join(", ")}). Move them out first.`,
+      );
       return;
     }
     if (!window.confirm(`Delete the category "${c.name}"?`)) return;
@@ -1440,10 +1489,11 @@ function CategoriesSection({ onChanged }: { onChanged: () => void }) {
       <h2 style={{ color: WINE, fontSize: "1.25rem", fontWeight: 800, margin: 0 }}>Categories</h2>
       <p style={{ color: BERRY, opacity: 0.7, marginTop: 4, fontSize: "0.9rem" }}>
         Add a new category, rename one (updates every product using it), or delete an empty one.
+        Give a category a parent to file it as a subcategory — products never move.
       </p>
       {error && <p style={errorBox}>{error}</p>}
 
-      {/* Add a new (empty) category */}
+      {/* Add a new (empty) category, optionally under a parent */}
       <form onSubmit={add} style={{ display: "flex", gap: 10, marginTop: 14, maxWidth: 520, flexWrap: "wrap" }}>
         <input
           value={newName}
@@ -1451,6 +1501,17 @@ function CategoriesSection({ onChanged }: { onChanged: () => void }) {
           placeholder="New category name"
           style={{ ...inputStyle, flex: 1, minWidth: 180 }}
         />
+        <select
+          value={newParent}
+          onChange={(e) => setNewParent(e.target.value)}
+          aria-label="Parent category for the new category"
+          style={{ ...inputStyle, width: 170 }}
+        >
+          <option value="">Parent: None</option>
+          {cats.map((c) => (
+            <option key={c.name} value={c.name}>{hierarchyLabel(c.name, c.depth ?? 0)}</option>
+          ))}
+        </select>
         <button type="submit" disabled={adding || !newName.trim()} style={{ ...primaryBtn, opacity: adding || !newName.trim() ? 0.6 : 1 }}>
           {adding ? "Adding…" : "Add Category"}
         </button>
@@ -1471,6 +1532,9 @@ function CategoriesSection({ onChanged }: { onChanged: () => void }) {
                 flexWrap: "wrap",
                 gap: 12,
                 padding: "12px 16px",
+                // Indentation is the ONLY visual change to the list: a
+                // subcategory sits under its parent, nothing is restyled.
+                paddingLeft: 16 + (c.depth ?? 0) * 20,
                 borderTop: i === 0 ? "none" : "1px solid rgba(135,56,83,0.08)",
               }}
             >
@@ -1489,8 +1553,31 @@ function CategoriesSection({ onChanged }: { onChanged: () => void }) {
                 </>
               ) : (
                 <>
-                  <span style={{ flex: 1, fontWeight: 600, color: BERRY }}>{c.name}</span>
+                  <span style={{ flex: 1, fontWeight: 600, color: BERRY }}>
+                    {(c.depth ?? 0) > 0 && (
+                      <span style={{ opacity: 0.45, marginRight: 6 }}>└</span>
+                    )}
+                    {c.name}
+                  </span>
                   <span style={{ color: BERRY, opacity: 0.6, fontSize: "0.85rem" }}>{c.count} product{c.count === 1 ? "" : "s"}</span>
+                  {/* Change the parent in place — the rename flow is untouched.
+                      Its own subtree is excluded so a cycle can't be picked
+                      (the API refuses one regardless). */}
+                  <select
+                    value={c.parent ?? ""}
+                    disabled={busy}
+                    onChange={(e) => setParent(c, e.target.value)}
+                    aria-label={`Parent category for ${c.name}`}
+                    title="Move this category under another one"
+                    style={{ ...inputStyle, width: 150, padding: "6px 8px", fontSize: "0.85rem" }}
+                  >
+                    <option value="">Parent: None</option>
+                    {cats
+                      .filter((o) => o.name !== c.name && !isDescendantOf(cats, o.name, c.name))
+                      .map((o) => (
+                        <option key={o.name} value={o.name}>{hierarchyLabel(o.name, o.depth ?? 0)}</option>
+                      ))}
+                  </select>
                   <button onClick={() => start(c.name)} style={linkBtn}>Rename</button>
                   <button
                     onClick={() => remove(c)}
@@ -1508,6 +1595,38 @@ function CategoriesSection({ onChanged }: { onChanged: () => void }) {
       )}
     </div>
   );
+}
+
+/**
+ * Label a category for a <select>, indented by its depth so subcategories read
+ * as nested. Display only — the option's VALUE is always the plain name, so a
+ * product still stores exactly the category name it always did.
+ * Uses non-breaking spaces because browsers collapse ordinary ones in options.
+ */
+function hierarchyLabel(name: string, depth: number): string {
+  return depth > 0 ? `${" ".repeat(depth * 4)}└ ${name}` : name;
+}
+
+/**
+ * True when `name` sits anywhere beneath `ancestor`. Used to hide a category's
+ * own subtree from its parent picker, so the UI can't even offer the move that
+ * would create a cycle. The visited set keeps a malformed tree from looping.
+ */
+function isDescendantOf(
+  rows: { name: string; parent?: string | null }[],
+  name: string,
+  ancestor: string,
+): boolean {
+  const parentOf = new Map(rows.map((r) => [r.name, r.parent ?? null]));
+  const seen = new Set<string>();
+  let cursor = parentOf.get(name) ?? null;
+  while (cursor) {
+    if (cursor === ancestor) return true;
+    if (seen.has(cursor)) return false;
+    seen.add(cursor);
+    cursor = parentOf.get(cursor) ?? null;
+  }
+  return false;
 }
 
 const inputStyle: React.CSSProperties = { width: "100%", boxSizing: "border-box", padding: "10px 12px", borderRadius: 10, border: "1px solid rgba(135,56,83,0.25)", fontSize: "0.95rem", color: BERRY, outline: "none" };

@@ -9,8 +9,23 @@
 // GET    → union of both, each with a product count (persisted order first).
 // POST   → rename a category (updates every product + the persisted list).
 // PUT    → add a new (empty) category to the persisted list.
+// PATCH  → set / clear a category's PARENT (hierarchy only — never products).
 // DELETE → remove a category from the persisted list — only when 0 products
-//          use it (rename first if you want to move the products).
+//          use it AND it has no subcategories.
+//
+// HIERARCHY (added on top of the above, nothing replaced):
+//   • site_settings.category_parents — { "<child>": "<parent>" }, see
+//     supabase/sql/40_category_hierarchy.sql. No entry = top level.
+//   • Parents are recorded BY NAME because that is how this whole system
+//     references categories (products.category is the name; there are no
+//     category ids). Renaming therefore remaps the map too.
+//   • GET still returns { name, count } on every row — `parent` and `depth`
+//     are ADDITIONS, so existing callers that only read name/count are
+//     unaffected. Rows now come back in tree order (each parent immediately
+//     followed by its children) so a list can indent without re-sorting.
+//   • Everything degrades gracefully when 40_category_hierarchy.sql has not
+//     been run: the column is treated as empty and add/rename/delete behave
+//     exactly as before. Only PATCH requires the migration.
 //
 // Service-role, password-gated.
 // ============================================================
@@ -19,6 +34,15 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/server";
 import { isAuthedRequest } from "@/lib/admin-auth";
+import {
+  canonical,
+  childrenOf,
+  createsCycle,
+  inTreeOrder,
+  renameInParents,
+  sanitiseParents,
+  type ParentMap,
+} from "@/lib/category-hierarchy";
 
 export const dynamic = "force-dynamic";
 
@@ -40,23 +64,71 @@ async function productCounts(
   return counts;
 }
 
+/**
+ * True when a query failed because site_settings.category_parents doesn't
+ * exist yet (40_category_hierarchy.sql not run). Mirrors the tolerance the
+ * orders route already applies to newer columns.
+ */
+function isMissingColumn(err: { code?: string; message?: string } | null): boolean {
+  if (!err) return false;
+  if (err.code === "PGRST204" || err.code === "42703") return true;
+  return /column .* does not exist|could not find the .* column/i.test(err.message ?? "");
+}
+
+const MIGRATION_HINT =
+  "Category hierarchy isn't set up on this database yet. Run supabase/sql/40_category_hierarchy.sql, then try again.";
+
 // --- the admin-curated ordered list from site_settings.categories ----------
-// Returns { id, list }. `id` is null when no settings row exists yet.
-async function persistedCategories(
-  supabase: SupabaseClient,
-): Promise<{ id: string | null; list: string[] }> {
-  const { data, error } = await supabase
+// Returns { id, list, parents, hasParents }. `id` is null when no settings row
+// exists yet; `hasParents` is false when the hierarchy column isn't migrated,
+// in which case every category simply reads as top level.
+async function persistedCategories(supabase: SupabaseClient): Promise<{
+  id: string | null;
+  list: string[];
+  parents: ParentMap;
+  hasParents: boolean;
+}> {
+  // Try the hierarchy column first, then fall back to the original select so
+  // an un-migrated database keeps working exactly as it did before.
+  let hasParents = true;
+  let { data, error } = await supabase
     .from("site_settings")
-    .select("id,categories")
+    .select("id,categories,category_parents")
     .limit(1)
     .maybeSingle();
+
+  if (error && isMissingColumn(error)) {
+    hasParents = false;
+    ({ data, error } = await supabase
+      .from("site_settings")
+      .select("id,categories")
+      .limit(1)
+      .maybeSingle());
+  }
   if (error) throw new Error(error.message);
+
   const list = Array.isArray(data?.categories)
     ? (data!.categories as unknown[]).filter(
         (c): c is string => typeof c === "string" && c.trim() !== "",
       )
     : [];
-  return { id: data?.id ?? null, list };
+  const parents = hasParents
+    ? sanitiseParents(list, (data as { category_parents?: unknown } | null)?.category_parents)
+    : {};
+
+  return { id: data?.id ?? null, list, parents, hasParents };
+}
+
+/** Persist the parent map. Only ever called once the column is known to exist. */
+async function saveParents(
+  supabase: SupabaseClient,
+  id: string | null,
+  parents: ParentMap,
+): Promise<void> {
+  const result = id
+    ? await supabase.from("site_settings").update({ category_parents: parents }).eq("id", id)
+    : await supabase.from("site_settings").insert({ category_parents: parents });
+  if (result.error) throw new Error(result.error.message);
 }
 
 async function saveCategories(
@@ -79,7 +151,9 @@ async function saveCategories(
 }
 
 // GET — the admin-curated site_settings.categories list (source of truth),
-// in its stored order, each annotated with how many products use it.
+// in TREE order, each annotated with how many products use it plus its parent
+// and depth. `name` and `count` are unchanged, so callers that read only those
+// (the offer editor, the product form dropdown) are unaffected.
 export async function GET(req: Request) {
   if (!isAuthedRequest(req)) {
     return NextResponse.json({ error: "Not authorised" }, { status: 401 });
@@ -87,15 +161,22 @@ export async function GET(req: Request) {
   try {
     const supabase = adminDb();
     const counts = await productCounts(supabase);
-    const { list } = await persistedCategories(supabase);
+    const { list, parents } = await persistedCategories(supabase);
 
     const seen = new Set<string>();
-    const ordered: { name: string; count: number }[] = [];
+    const unique: string[] = [];
     for (const name of list) {
       if (seen.has(name.toLowerCase())) continue;
       seen.add(name.toLowerCase());
-      ordered.push({ name, count: counts.get(name) ?? 0 });
+      unique.push(name);
     }
+
+    const ordered = inTreeOrder(unique, parents).map(({ name, depth }) => ({
+      name,
+      count: counts.get(name) ?? 0,
+      parent: parents[name] ?? null,
+      depth,
+    }));
 
     return NextResponse.json({ categories: ordered });
   } catch (e) {
@@ -128,10 +209,18 @@ export async function POST(req: Request) {
 
     // Reflect the rename in the persisted list (preserve position; drop the
     // old name if the new one is already present so we don't duplicate).
-    const { id, list } = await persistedCategories(supabase);
+    const { id, list, parents, hasParents } = await persistedCategories(supabase);
     if (list.some((c) => c === oldName || c === next)) {
       const renamed = list.map((c) => (c === oldName ? next : c));
       await saveCategories(supabase, id, renamed);
+    }
+
+    // The hierarchy is keyed by name, so a rename has to follow: the category
+    // keeps its own parent, and anything filed under it keeps its parent too.
+    // Renaming therefore changes the label only — never the tree, and never a
+    // product's category (that was updated above).
+    if (hasParents) {
+      await saveParents(supabase, id, renameInParents(parents, oldName, next));
     }
     return NextResponse.json({ ok: true });
   } catch (e) {
@@ -147,8 +236,10 @@ export async function PUT(req: Request) {
   if (!isAuthedRequest(req)) {
     return NextResponse.json({ error: "Not authorised" }, { status: 401 });
   }
-  const { name } = await req.json();
+  const { name, parent } = await req.json();
   const clean = String(name ?? "").trim();
+  // Optional — omitted / "" / null all mean "top level", exactly as before.
+  const wantedParent = String(parent ?? "").trim();
   if (!clean) {
     return NextResponse.json({ error: "Category name is required" }, { status: 400 });
   }
@@ -156,7 +247,7 @@ export async function PUT(req: Request) {
   try {
     const supabase = adminDb();
     const counts = await productCounts(supabase);
-    const { id, list } = await persistedCategories(supabase);
+    const { id, list, parents, hasParents } = await persistedCategories(supabase);
 
     const exists =
       list.some((c) => c.toLowerCase() === clean.toLowerCase()) ||
@@ -165,7 +256,27 @@ export async function PUT(req: Request) {
       return NextResponse.json({ error: "That category already exists." }, { status: 409 });
     }
 
+    // Resolve the parent BEFORE writing anything, so a bad parent never leaves
+    // a half-created category behind. A brand-new category has no children, so
+    // no cycle is possible here — only "does the parent exist".
+    let resolvedParent: string | null = null;
+    if (wantedParent) {
+      if (!hasParents) {
+        return NextResponse.json({ error: MIGRATION_HINT }, { status: 409 });
+      }
+      resolvedParent = canonical(list, wantedParent);
+      if (!resolvedParent) {
+        return NextResponse.json(
+          { error: `"${wantedParent}" isn't a category, so it can't be a parent.` },
+          { status: 400 },
+        );
+      }
+    }
+
     await saveCategories(supabase, id, [...list, clean]);
+    if (resolvedParent) {
+      await saveParents(supabase, id, { ...parents, [clean]: resolvedParent });
+    }
     return NextResponse.json({ ok: true });
   } catch (e) {
     return NextResponse.json(
@@ -175,7 +286,77 @@ export async function PUT(req: Request) {
   }
 }
 
-// DELETE — remove a category, but only when no products use it.
+// PATCH — set or clear a category's parent. HIERARCHY ONLY: it never touches
+// products.category, so a category that becomes a subcategory keeps every
+// product already filed under it, and one promoted back to top level keeps
+// them too. Send parent: null / "" to make it top level again.
+export async function PATCH(req: Request) {
+  if (!isAuthedRequest(req)) {
+    return NextResponse.json({ error: "Not authorised" }, { status: 401 });
+  }
+  const { name, parent } = await req.json();
+  const target = String(name ?? "").trim();
+  const wantedParent = String(parent ?? "").trim();
+  if (!target) {
+    return NextResponse.json({ error: "Category name is required" }, { status: 400 });
+  }
+
+  try {
+    const supabase = adminDb();
+    const { id, list, parents, hasParents } = await persistedCategories(supabase);
+    if (!hasParents) {
+      return NextResponse.json({ error: MIGRATION_HINT }, { status: 409 });
+    }
+
+    const child = canonical(list, target);
+    if (!child) {
+      return NextResponse.json({ error: `"${target}" isn't a category.` }, { status: 404 });
+    }
+
+    // Clear → back to a normal top-level category.
+    if (!wantedParent) {
+      const next = { ...parents };
+      delete next[child];
+      await saveParents(supabase, id, next);
+      return NextResponse.json({ ok: true, name: child, parent: null });
+    }
+
+    const parentName = canonical(list, wantedParent);
+    if (!parentName) {
+      return NextResponse.json(
+        { error: `"${wantedParent}" isn't a category, so it can't be a parent.` },
+        { status: 400 },
+      );
+    }
+    if (parentName === child) {
+      return NextResponse.json(
+        { error: "A category can't be its own parent." },
+        { status: 400 },
+      );
+    }
+    // A → B → C → A must never happen: walking up from the proposed parent
+    // must not lead back to the category being moved.
+    if (createsCycle(parents, child, parentName)) {
+      return NextResponse.json(
+        {
+          error: `"${parentName}" is already under "${child}", so this would create a circular hierarchy.`,
+        },
+        { status: 400 },
+      );
+    }
+
+    await saveParents(supabase, id, { ...parents, [child]: parentName });
+    return NextResponse.json({ ok: true, name: child, parent: parentName });
+  } catch (e) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "Failed to update parent" },
+      { status: 500 },
+    );
+  }
+}
+
+// DELETE — remove a category, but only when no products use it and it has no
+// subcategories (deleting a parent must never orphan its children).
 export async function DELETE(req: Request) {
   if (!isAuthedRequest(req)) {
     return NextResponse.json({ error: "Not authorised" }, { status: 401 });
@@ -199,12 +380,34 @@ export async function DELETE(req: Request) {
       );
     }
 
-    const { id, list } = await persistedCategories(supabase);
+    const { id, list, parents, hasParents } = await persistedCategories(supabase);
+
+    // A parent with subcategories can't go: removing it would leave them
+    // pointing at a category that no longer exists. Re-parent or delete the
+    // children first.
+    const children = childrenOf(list, parents, target);
+    if (children.length > 0) {
+      return NextResponse.json(
+        {
+          error: `Cannot delete "${target}" — ${children.length} subcategor${
+            children.length === 1 ? "y" : "ies"
+          } still sit under it (${children.join(", ")}). Move them out first.`,
+        },
+        { status: 409 },
+      );
+    }
+
     await saveCategories(
       supabase,
       id,
       list.filter((c) => c !== target),
     );
+    // Drop its own parent link so the map never keeps a dangling key.
+    if (hasParents && parents[target]) {
+      const next = { ...parents };
+      delete next[target];
+      await saveParents(supabase, id, next);
+    }
     return NextResponse.json({ ok: true });
   } catch (e) {
     return NextResponse.json(
