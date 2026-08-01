@@ -38,6 +38,12 @@
 -- Paste-and-run in the Supabase SQL Editor. Fully IDEMPOTENT and ADDITIVE —
 -- safe to run repeatedly and safe on the live database. Nothing is deleted by
 -- running it; it only creates the function the admin panel calls.
+--
+-- ⚠ IF YOU ALREADY RAN AN EARLIER COPY OF THIS FILE, RUN IT AGAIN. The first
+-- version declared v_settings_id as uuid, but site_settings.id is an INTEGER on
+-- this database, so every delete failed on the first statement with
+-- "invalid input syntax for type uuid: 1" and nothing was ever deleted.
+-- `create or replace` overwrites the old function in place.
 -- ============================================================
 
 -- ------------------------------------------------------------
@@ -80,7 +86,13 @@ set search_path = public, pg_temp
 as $$
 declare
   v_name        text := nullif(btrim(coalesce(p_name, '')), '');
-  v_settings_id uuid;
+  -- TEXT, not uuid: site_settings.id is a uuid in 00_full_setup.sql but an
+  -- integer on the live database (the single row is id = 1). Declaring the
+  -- variable as uuid made the very first SELECT ... INTO fail with
+  -- "invalid input syntax for type uuid: 1" — before any of the logic below —
+  -- so EVERY delete came back 500 whatever category it named. Holding the key
+  -- as text and matching on id::text works whichever type the column is.
+  v_settings_id text;
   v_categories  jsonb;
   v_parents     jsonb;
   v_target      text;
@@ -98,7 +110,7 @@ begin
   -- mirrors how every other reader of this table selects it — there is exactly
   -- one row. A database with no settings row yet still works: the product side
   -- runs and the jsonb writes are skipped.
-  select id, coalesce(categories, '[]'::jsonb), coalesce(category_parents, '{}'::jsonb)
+  select id::text, coalesce(categories, '[]'::jsonb), coalesce(category_parents, '{}'::jsonb)
     into v_settings_id, v_categories, v_parents
     from public.site_settings
    limit 1
@@ -186,7 +198,7 @@ begin
               where t.value <> v_target
            ),
            category_parents = v_parents
-     where id = v_settings_id;
+     where id::text = v_settings_id;
   end if;
 
   -- --- files no surviving product references any more ---------------------

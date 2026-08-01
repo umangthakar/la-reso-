@@ -400,6 +400,9 @@ export async function DELETE(req: Request) {
     });
 
     if (error) {
+      // Always logged: the admin sees a sentence, the server keeps the detail.
+      console.error("[categories] delete_category_cascade failed:", error);
+
       // Without the function there is no way to do this atomically, and a
       // half-finished cascade is far worse than a refusal — so say what to run
       // rather than falling back to a stepwise delete.
@@ -409,6 +412,20 @@ export async function DELETE(req: Request) {
       // P0002 is the "no such category" the function raises.
       if (error.code === "P0002") {
         return NextResponse.json({ error: error.message }, { status: 404 });
+      }
+      // 23503 = foreign_key_violation: something still points at one of these
+      // products with a constraint that blocks the delete. The transaction has
+      // already rolled back, so nothing was removed — say so, because the raw
+      // Postgres sentence reads like a partial failure.
+      if (error.code === "23503") {
+        return NextResponse.json(
+          {
+            error:
+              `Some products in "${target}" are still referenced by another table, which blocked the delete: ` +
+              `${error.details || error.message}. Nothing was deleted.`,
+          },
+          { status: 409 },
+        );
       }
       return NextResponse.json({ error: error.message }, { status: 500 });
     }

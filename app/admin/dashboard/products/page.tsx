@@ -1380,6 +1380,11 @@ function CategoriesSection({ onChanged }: { onChanged: () => void }) {
   // only control that shows the spinner.
   const [confirming, setConfirming] = useState<CategoryRow | null>(null);
   const [deleting, setDeleting] = useState(false);
+  // Why the delete failed, shown INSIDE the dialog. The section-level `error`
+  // box sits at the top of the panel, which is off-screen when you delete a
+  // row further down the list — a failure reported only there reads as the
+  // button doing nothing at all.
+  const [deleteError, setDeleteError] = useState("");
   // Success feedback for a delete, in the same box the errors already use.
   const [notice, setNotice] = useState("");
 
@@ -1470,7 +1475,14 @@ function CategoriesSection({ onChanged }: { onChanged: () => void }) {
   function askRemove(c: CategoryRow) {
     setError("");
     setNotice("");
+    setDeleteError("");
     setConfirming(c);
+  }
+
+  /** Close the confirmation without deleting, discarding any failed attempt. */
+  function cancelRemove() {
+    setConfirming(null);
+    setDeleteError("");
   }
 
   /**
@@ -1485,6 +1497,7 @@ function CategoriesSection({ onChanged }: { onChanged: () => void }) {
     if (!c || deleting) return;
     setDeleting(true);
     setError("");
+    setDeleteError("");
     try {
       const res = await adminSend<{
         deletedProducts?: number;
@@ -1509,8 +1522,11 @@ function CategoriesSection({ onChanged }: { onChanged: () => void }) {
       await load();
       onChanged();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Delete failed");
-      setConfirming(null);
+      // The dialog STAYS OPEN and says why, right where the click happened.
+      // Also logged, so the exact server message survives even if the admin
+      // dismisses the dialog before reading it.
+      console.error("[categories] delete failed:", e);
+      setDeleteError(e instanceof Error ? e.message : "Delete failed");
     } finally {
       setDeleting(false);
     }
@@ -1637,7 +1653,8 @@ function CategoriesSection({ onChanged }: { onChanged: () => void }) {
           category={confirming}
           childCount={cats.filter((x) => x.parent === confirming.name).length}
           deleting={deleting}
-          onCancel={() => setConfirming(null)}
+          error={deleteError}
+          onCancel={cancelRemove}
           onConfirm={confirmRemove}
         />
       )}
@@ -1659,12 +1676,16 @@ function DeleteCategoryDialog({
   category,
   childCount,
   deleting,
+  error,
   onCancel,
   onConfirm,
 }: {
   category: CategoryRow;
   childCount: number;
   deleting: boolean;
+  /** Why the last attempt failed, if it did. Shown here rather than at the top
+   *  of the panel so the reason is where the admin is already looking. */
+  error: string;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
@@ -1705,6 +1726,12 @@ function DeleteCategoryDialog({
         <p style={{ color: "#b03030", fontWeight: 600, fontSize: "0.9rem", margin: "0 0 18px" }}>
           This action cannot be undone.
         </p>
+
+        {error && (
+          <p role="alert" style={{ ...errorBox, marginTop: 0, marginBottom: 18 }}>
+            {error}
+          </p>
+        )}
 
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", flexWrap: "wrap" }}>
           <button type="button" onClick={onCancel} disabled={deleting} style={secondaryBtn}>

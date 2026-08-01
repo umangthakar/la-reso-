@@ -4,6 +4,20 @@ Run this **after** pasting `supabase/sql/41_category_delete.sql` into the
 Supabase SQL Editor (it also (re-)adds the `category_parents` column from
 `40_category_hierarchy.sql`, so running 41 alone is enough).
 
+> **If you applied 41 before 2026-08-01, apply it again.** The first version
+> declared the settings-row key as `uuid` while `site_settings.id` is an
+> **integer** here, so every delete failed on its first statement with
+> *"invalid input syntax for type uuid: 1"* and nothing was deleted. A quick
+> check that the current function is installed — it should answer **404 "is not
+> a category"**, not a 500:
+>
+> ```bash
+> curl -s -X DELETE -H "content-type: application/json" \
+>   -H "x-admin-auth: $ADMIN_PASSWORD" \
+>   -d '{"name":"__no_such_category__"}' \
+>   http://localhost:3000/api/admin/products/categories
+> ```
+
 Until 41 is applied, the Delete button returns a friendly 409 —
 *"Category deletion isn't set up on this database yet… Nothing was deleted."* —
 and **nothing is touched**. That is the intended pre-migration behaviour: there
