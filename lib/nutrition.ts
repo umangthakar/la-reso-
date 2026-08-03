@@ -96,6 +96,66 @@ export function hasNutrition(n: NutritionData | null | undefined): boolean {
 }
 
 // ------------------------------------------------------------
+// Per-SIZE-VARIANT nutrition — the same nine rows, stored per size on
+// product_sizes.nutrition (jsonb, nullable) instead of on the product.
+//
+// A size with no values of its own stores null and FALLS BACK to the
+// product-level products.nutrition, so every product that had nutrition
+// before size variants gained their own keeps showing exactly what it
+// showed. Custom rows stay product-level (they are shown under the table
+// for every size).
+// ------------------------------------------------------------
+
+/** Clean one variant cell to a non-negative numeric string, or "" when it is
+ *  blank / not a number / negative. Decimals are preserved exactly as typed
+ *  ("12.50" stays "12.50") — only the validity of the value is enforced. */
+function cleanNumericValue(v: unknown): string {
+  const s = cleanValue(v);
+  if (!s) return "";
+  const n = Number(s);
+  if (!Number.isFinite(n) || n < 0) return "";
+  return s;
+}
+
+/**
+ * Normalize a size variant's nutrition value, rejecting anything that isn't a
+ * valid non-negative number. Returns `null` when nothing meaningful is left, so
+ * the size stores null and inherits the product's nutrition (see
+ * `resolveNutrition`).
+ */
+export function normalizeSizeNutrition(raw: unknown): NutritionData | null {
+  if (!raw || typeof raw !== "object") return null;
+  const src = raw as Record<string, unknown>;
+  const out = {} as NutritionData;
+  let hasAny = false;
+  for (const key of KEYS) {
+    const cellRaw = src[key];
+    let per100 = "";
+    let perPortion = "";
+    if (cellRaw && typeof cellRaw === "object") {
+      const c = cellRaw as Record<string, unknown>;
+      per100 = cleanNumericValue(c.per_100g);
+      perPortion = cleanNumericValue(c.per_portion);
+    }
+    if (per100 || perPortion) hasAny = true;
+    out[key] = { per_100g: per100, per_portion: perPortion };
+  }
+  return hasAny ? out : null;
+}
+
+/**
+ * The nutrition actually shown for the selected size: the size's own values
+ * when it has any, otherwise the product-level ones. Pure and synchronous, so
+ * switching size on the storefront swaps the table with no fetch.
+ */
+export function resolveNutrition(
+  sizeNutrition: NutritionData | null | undefined,
+  productNutrition: NutritionData | null | undefined,
+): NutritionData | null {
+  return hasNutrition(sizeNutrition) ? sizeNutrition! : productNutrition ?? null;
+}
+
+// ------------------------------------------------------------
 // Custom nutrition rows — admin-defined extra rows (e.g. Vitamin C,
 // Calcium, Iron). Stored SEPARATELY from the fixed default rows above, in
 // their own products.nutrition_custom jsonb array, so the default fields

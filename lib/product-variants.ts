@@ -15,6 +15,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   normalizeNutrition,
+  normalizeSizeNutrition,
   normalizeCustomNutrition,
   type NutritionData,
   type NutritionCustomRow,
@@ -34,6 +35,9 @@ export type ProductSizeInput = {
   serves?: number | string | null;
   price?: number | string | null;
   sort_order?: number;
+  /** This size's own nutrition table. Blank/invalid cells are dropped; a size
+   *  with nothing left stores null and inherits the product's nutrition. */
+  nutrition?: unknown;
 };
 
 /** True when an error is "table/column/relation does not exist" — i.e. the
@@ -222,6 +226,9 @@ export async function saveSizes(
         serves,
         price: Math.max(0, Number(s?.price) || 0),
         sort_order: Number.isFinite(Number(s?.sort_order)) ? Number(s.sort_order) : i,
+        // Each size carries its OWN nutrition table. Normalizing per row is
+        // what keeps the sizes independent: editing 6" can never reach 8".
+        nutrition: normalizeSizeNutrition(s?.nutrition),
       };
     })
     .filter((s) => s.label);
@@ -240,10 +247,22 @@ export async function saveSizes(
       serves: s.serves,
       price: s.price,
       sort_order: s.sort_order ?? i,
+      nutrition: s.nutrition,
     }));
     const ins = await supabase.from("product_sizes").insert(rows);
-    if (ins.error && !isMissingObject(ins.error)) {
-      console.error("[product-variants] saveSizes insert:", ins.error.message);
+    if (ins.error) {
+      // `nutrition` missing means 42_size_nutrition.sql hasn't been run — retry
+      // without it so labels, serves and prices still save exactly as before.
+      if (isMissingObject(ins.error)) {
+        const retry = await supabase
+          .from("product_sizes")
+          .insert(rows.map(({ nutrition: _n, ...rest }) => rest));
+        if (retry.error && !isMissingObject(retry.error)) {
+          console.error("[product-variants] saveSizes insert:", retry.error.message);
+        }
+      } else {
+        console.error("[product-variants] saveSizes insert:", ins.error.message);
+      }
     }
   }
 }
@@ -317,7 +336,14 @@ export async function readProductExtras(
   nutrition: NutritionData | null;
   nutritionCustom: NutritionCustomRow[];
   images: { id: string; url: string; sort_order: number; is_primary: boolean }[];
-  sizes: { id: string; label: string; serves: number | null; price: number; sort_order: number }[];
+  sizes: {
+    id: string;
+    label: string;
+    serves: number | null;
+    price: number;
+    sort_order: number;
+    nutrition: NutritionData | null;
+  }[];
 }> {
   let ingredients: string[] = [];
   try {
@@ -423,20 +449,36 @@ export async function readProductExtras(
     images = [];
   }
 
-  let sizes: { id: string; label: string; serves: number | null; price: number; sort_order: number }[] = [];
+  let sizes: {
+    id: string;
+    label: string;
+    serves: number | null;
+    price: number;
+    sort_order: number;
+    nutrition: NutritionData | null;
+  }[] = [];
   try {
-    const { data, error } = await supabase
-      .from("product_sizes")
-      .select("id,label,serves,price,sort_order")
-      .eq("product_id", productId)
-      .order("sort_order", { ascending: true });
+    // Ask for each size's own nutrition; if that column isn't there yet
+    // (42_size_nutrition.sql not run) retry without it so the size list still
+    // loads and the edit form opens exactly as before.
+    const base = "id,label,serves,price,sort_order";
+    const read = (cols: string) =>
+      supabase
+        .from("product_sizes")
+        .select(cols)
+        .eq("product_id", productId)
+        .order("sort_order", { ascending: true });
+    let res = await read(`${base},nutrition`);
+    if (res.error && isMissingObject(res.error)) res = await read(base);
+    const { data, error } = res;
     if (!error && Array.isArray(data)) {
-      sizes = data.map((r) => ({
+      sizes = (data as unknown as Record<string, unknown>[]).map((r) => ({
         id: String(r.id),
         label: String(r.label),
         serves: r.serves === null || r.serves === undefined ? null : Number(r.serves),
         price: Number(r.price) || 0,
         sort_order: Number(r.sort_order) || 0,
+        nutrition: normalizeSizeNutrition(r.nutrition),
       }));
     }
   } catch {

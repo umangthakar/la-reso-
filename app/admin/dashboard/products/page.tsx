@@ -38,6 +38,7 @@ import {
   NUTRITION_ROWS,
   emptyNutrition,
   normalizeNutrition,
+  normalizeSizeNutrition,
   normalizeCustomNutrition,
   newCustomRowId,
   type NutritionData,
@@ -91,7 +92,15 @@ type Product = {
 
 // Gallery image + size variant shapes used by the form (client-side only).
 type ImageItem = { url: string; is_primary: boolean };
-type SizeItem = { id?: string; label: string; serves: string; price: string };
+// Each size variant owns its nutrition table (all cells present; blank =
+// unset). Blank throughout means "inherit the product-level nutrition".
+type SizeItem = {
+  id?: string;
+  label: string;
+  serves: string;
+  price: string;
+  nutrition: NutritionData;
+};
 
 type FormState = {
   id: string | null;
@@ -161,6 +170,9 @@ export default function ProductsAdminPage() {
   const [uploading, setUploading] = useState(false);
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [ingredientInput, setIngredientInput] = useState("");
+  // Which size variant has its nutrition panel expanded (index into
+  // form.sizes, or null). Display only — never part of the saved payload.
+  const [openSizeNutrition, setOpenSizeNutrition] = useState<number | null>(null);
   // Categories in tree order, each carrying its nesting depth so the form
   // dropdown can indent subcategories. Names are unchanged — depth is display
   // only, and the value stored on a product is still the plain category name.
@@ -291,6 +303,7 @@ export default function ProductsAdminPage() {
   function openAdd() {
     setForm(EMPTY_FORM);
     setIngredientInput("");
+    setOpenSizeNutrition(null);
     setShowForm(true);
   }
 
@@ -318,6 +331,7 @@ export default function ProductsAdminPage() {
       nutritionCustom: [],
     });
     setIngredientInput("");
+    setOpenSizeNutrition(null);
     setShowForm(true);
 
     // Pull ingredients / gallery / sizes for this product. Degrades to the
@@ -332,7 +346,13 @@ export default function ProductsAdminPage() {
           nutrition: NutritionData | null;
           nutritionCustom: NutritionCustomRow[];
           images: { url: string; is_primary: boolean }[];
-          sizes: { id: string; label: string; serves: number | null; price: number }[];
+          sizes: {
+            id: string;
+            label: string;
+            serves: number | null;
+            price: number;
+            nutrition?: NutritionData | null;
+          }[];
         }>(`/api/admin/products/${p.id}/details`, { force: true });
         setForm((f) => {
           if (f.id !== p.id) return f; // a different product was opened meanwhile
@@ -354,6 +374,9 @@ export default function ProductsAdminPage() {
               label: s.label,
               serves: s.serves === null || s.serves === undefined ? "" : String(s.serves),
               price: String(s.price ?? ""),
+              // Fill blanks for any missing keys so every cell renders. A size
+              // with none stays blank and keeps inheriting the product table.
+              nutrition: normalizeSizeNutrition(s.nutrition) ?? emptyNutrition(),
             })),
           };
         });
@@ -369,6 +392,7 @@ export default function ProductsAdminPage() {
     setShowForm(false);
     setForm(EMPTY_FORM);
     setIngredientInput("");
+    setOpenSizeNutrition(null);
   }
 
   // ---- Ingredient tag helpers ----
@@ -461,7 +485,10 @@ export default function ProductsAdminPage() {
 
   // ---- Size variant helpers ----
   function addSize() {
-    setForm((f) => ({ ...f, sizes: [...f.sizes, { label: "", serves: "", price: "" }] }));
+    setForm((f) => ({
+      ...f,
+      sizes: [...f.sizes, { label: "", serves: "", price: "", nutrition: emptyNutrition() }],
+    }));
   }
   function updateSize(i: number, patch: Partial<SizeItem>) {
     setForm((f) => ({
@@ -469,8 +496,28 @@ export default function ProductsAdminPage() {
       sizes: f.sizes.map((s, n) => (n === i ? { ...s, ...patch } : s)),
     }));
   }
+  /** Edit ONE cell of ONE size's nutrition table. Every other size is returned
+   *  by identity, so saving 6" can never overwrite 8" / 10" / 12". */
+  function updateSizeNutrition(
+    i: number,
+    key: NutritionKey,
+    field: "per_100g" | "per_portion",
+    value: string,
+  ) {
+    setForm((f) => ({
+      ...f,
+      sizes: f.sizes.map((s, n) =>
+        n === i
+          ? { ...s, nutrition: { ...s.nutrition, [key]: { ...s.nutrition[key], [field]: value } } }
+          : s,
+      ),
+    }));
+  }
   function removeSize(i: number) {
     setForm((f) => ({ ...f, sizes: f.sizes.filter((_, n) => n !== i) }));
+    // The open panel is tracked by index — collapse rather than leave it
+    // pointing at whichever size shifted up into this slot.
+    setOpenSizeNutrition((open) => (open === null || open === i ? null : open > i ? open - 1 : open));
   }
   function moveSize(i: number, dir: -1 | 1) {
     setForm((f) => {
@@ -479,6 +526,14 @@ export default function ProductsAdminPage() {
       const sizes = [...f.sizes];
       [sizes[i], sizes[j]] = [sizes[j], sizes[i]];
       return { ...f, sizes };
+    });
+    // Follow the row that moved, so the expanded panel stays with its size.
+    setOpenSizeNutrition((open) => {
+      const j = i + dir;
+      if (open === null || j < 0 || j >= form.sizes.length) return open;
+      if (open === i) return j;
+      if (open === j) return i;
+      return open;
     });
   }
 
@@ -560,6 +615,10 @@ export default function ProductsAdminPage() {
           serves: s.serves === "" ? null : Number(s.serves),
           price: Number(s.price) || 0,
           sort_order: i,
+          // This size's own nutrition. The server validates each cell and
+          // stores null when the whole table is blank, in which case the size
+          // keeps inheriting the product-level nutrition above.
+          nutrition: s.nutrition,
         })),
     };
     try {
@@ -1121,43 +1180,133 @@ export default function ProductsAdminPage() {
               <label style={labelStyle}>Sizes (optional)</label>
               {form.sizes.length > 0 && (
                 <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 8 }}>
-                  {form.sizes.map((s, i) => (
-                    <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                      <input
-                        style={{ ...inputStyle, flex: 2, minWidth: 110 }}
-                        value={s.label}
-                        onChange={(e) => updateSize(i, { label: e.target.value })}
-                        placeholder="Label e.g. Medium"
-                      />
-                      <input
-                        style={{ ...inputStyle, flex: 1, minWidth: 80 }}
-                        type="number"
-                        min="0"
-                        value={s.serves}
-                        onChange={(e) => updateSize(i, { serves: e.target.value })}
-                        placeholder="Serves"
-                      />
-                      <input
-                        style={{ ...inputStyle, flex: 1, minWidth: 80 }}
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={s.price}
-                        onChange={(e) => updateSize(i, { price: e.target.value })}
-                        placeholder="Price £"
-                      />
-                      <button type="button" onClick={() => moveSize(i, -1)} disabled={i === 0} title="Move up" style={miniBtn(i === 0)}>↑</button>
-                      <button type="button" onClick={() => moveSize(i, 1)} disabled={i === form.sizes.length - 1} title="Move down" style={miniBtn(i === form.sizes.length - 1)}>↓</button>
-                      <button
-                        type="button"
-                        onClick={() => removeSize(i)}
-                        aria-label="Delete size"
-                        style={{ ...miniBtn(false), color: "#d9534f", borderColor: "#d9534f" }}
-                      >
-                        ×
-                      </button>
+                  {form.sizes.map((s, i) => {
+                    const nutritionOpen = openSizeNutrition === i;
+                    // How many of this size's own cells are filled — surfaced on
+                    // the toggle so the admin can see at a glance which sizes
+                    // already have their own table without opening each one.
+                    const filled = NUTRITION_ROWS.reduce(
+                      (n, row) =>
+                        n +
+                        (s.nutrition[row.key]?.per_100g ? 1 : 0) +
+                        (s.nutrition[row.key]?.per_portion ? 1 : 0),
+                      0,
+                    );
+                    const sizeName = s.label.trim() || `size ${i + 1}`;
+                    return (
+                    <div key={i} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                        <input
+                          style={{ ...inputStyle, flex: 2, minWidth: 110 }}
+                          value={s.label}
+                          onChange={(e) => updateSize(i, { label: e.target.value })}
+                          placeholder="Label e.g. Medium"
+                        />
+                        <input
+                          style={{ ...inputStyle, flex: 1, minWidth: 80 }}
+                          type="number"
+                          min="0"
+                          value={s.serves}
+                          onChange={(e) => updateSize(i, { serves: e.target.value })}
+                          placeholder="Serves"
+                        />
+                        <input
+                          style={{ ...inputStyle, flex: 1, minWidth: 80 }}
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={s.price}
+                          onChange={(e) => updateSize(i, { price: e.target.value })}
+                          placeholder="Price £"
+                        />
+                        {/* Opens THIS size's own nutrition table below. Each size
+                            edits its own copy, so one never overwrites another. */}
+                        <button
+                          type="button"
+                          onClick={() => setOpenSizeNutrition(nutritionOpen ? null : i)}
+                          aria-expanded={nutritionOpen}
+                          title={`Nutrition for ${sizeName}`}
+                          style={{ ...miniBtn(false), width: "auto", padding: "0 8px", fontSize: "0.7rem", fontWeight: 700, height: 24, gap: 4 }}
+                        >
+                          {nutritionOpen ? "▾" : "▸"} Nutrition
+                          {filled > 0 && <span style={{ opacity: 0.7 }}>({filled})</span>}
+                        </button>
+                        <button type="button" onClick={() => moveSize(i, -1)} disabled={i === 0} title="Move up" style={miniBtn(i === 0)}>↑</button>
+                        <button type="button" onClick={() => moveSize(i, 1)} disabled={i === form.sizes.length - 1} title="Move down" style={miniBtn(i === form.sizes.length - 1)}>↓</button>
+                        <button
+                          type="button"
+                          onClick={() => removeSize(i)}
+                          aria-label="Delete size"
+                          style={{ ...miniBtn(false), color: "#d9534f", borderColor: "#d9534f" }}
+                        >
+                          ×
+                        </button>
+                      </div>
+
+                      {/* This size's own Nutrition Information — the same nine
+                          rows as the product-level table above, stored against
+                          this size. Blank throughout = inherit the product's. */}
+                      {nutritionOpen && (
+                        <div style={{ border: "1px solid rgba(135,56,83,0.18)", borderRadius: 12, overflow: "hidden", marginLeft: 12 }}>
+                          <div style={{ display: "flex", alignItems: "center", background: "rgba(135,56,83,0.06)", padding: "8px 12px", gap: 8 }}>
+                            <span style={{ flex: 1, fontSize: "0.78rem", fontWeight: 700, color: BERRY, opacity: 0.75 }}>
+                              Nutrition — {sizeName}
+                            </span>
+                            <span style={{ width: 96, textAlign: "center", fontSize: "0.72rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.03em", color: BERRY, opacity: 0.75 }}>Per 100g</span>
+                            <span style={{ width: 96, textAlign: "center", fontSize: "0.72rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.03em", color: BERRY, opacity: 0.75 }}>Per Portion</span>
+                          </div>
+                          {NUTRITION_ROWS.map((row) => (
+                            <div
+                              key={row.key}
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 8,
+                                padding: "8px 12px",
+                                borderTop: "1px solid rgba(135,56,83,0.08)",
+                              }}
+                            >
+                              <span
+                                style={{
+                                  flex: 1,
+                                  fontSize: "0.88rem",
+                                  color: BERRY,
+                                  fontWeight: row.indent ? 500 : 600,
+                                  paddingLeft: row.indent ? 14 : 0,
+                                  opacity: row.indent ? 0.85 : 1,
+                                }}
+                              >
+                                {row.label}
+                              </span>
+                              <input
+                                style={{ ...inputStyle, width: 96, padding: "8px 10px" }}
+                                type="number"
+                                step="0.1"
+                                min="0"
+                                inputMode="decimal"
+                                value={s.nutrition[row.key].per_100g}
+                                onChange={(e) => updateSizeNutrition(i, row.key, "per_100g", e.target.value)}
+                                placeholder="—"
+                                aria-label={`${sizeName} — ${row.label} per 100g`}
+                              />
+                              <input
+                                style={{ ...inputStyle, width: 96, padding: "8px 10px" }}
+                                type="number"
+                                step="0.1"
+                                min="0"
+                                inputMode="decimal"
+                                value={s.nutrition[row.key].per_portion}
+                                onChange={(e) => updateSizeNutrition(i, row.key, "per_portion", e.target.value)}
+                                placeholder="—"
+                                aria-label={`${sizeName} — ${row.label} per portion`}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
               <button type="button" onClick={addSize} style={{ ...secondaryBtn, padding: "8px 14px" }}>
@@ -1165,6 +1314,9 @@ export default function ProductsAdminPage() {
               </button>
               <p style={{ color: BERRY, opacity: 0.6, fontSize: "0.78rem", marginTop: 6 }}>
                 Add sizes to let customers pick (e.g. Small / Medium / Large). The selected size price is charged. Leave empty to keep a single price.
+              </p>
+              <p style={{ color: BERRY, opacity: 0.6, fontSize: "0.78rem", marginTop: 6 }}>
+                Each size has its own Nutrition Information — the customer sees the selected size&apos;s table. Leave a size&apos;s table blank to fall back to the product-level nutrition above.
               </p>
             </div>
 

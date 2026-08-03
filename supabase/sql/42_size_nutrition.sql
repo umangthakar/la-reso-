@@ -1,0 +1,46 @@
+-- ============================================================
+-- LE RASA BAKERY — Per-SIZE-VARIANT Nutrition Information.
+-- ------------------------------------------------------------
+-- Paste-and-run in the Supabase SQL Editor. Fully IDEMPOTENT and
+-- ADDITIVE — safe to run repeatedly and safe on the live database
+-- without touching existing products, sizes, orders or checkout.
+--
+-- Until now nutrition was per PRODUCT (products.nutrition, 28_nutrition.sql).
+-- A 6" and a 12" cake obviously don't share a per-portion figure, so each
+-- size variant now carries its own copy of the same nine rows.
+--
+-- Adds ONE nullable jsonb column to product_sizes. Existing size rows get
+-- NULL, which means "no nutrition of my own" — the storefront then falls
+-- back to the product's own products.nutrition, so every product that
+-- already showed a nutrition table keeps showing exactly the same table.
+-- Nothing is migrated, copied or removed.
+--
+-- The admin API + storefront also degrade gracefully when this migration
+-- has NOT been run: both retry their product_sizes query without this
+-- column, so sizes, prices and the existing product-level nutrition all
+-- keep working untouched.
+--
+-- Shape of the stored value — identical to products.nutrition, so the same
+-- helpers in lib/nutrition.ts read both (all values are strings, all keys
+-- optional; per-variant values are validated as non-negative numbers):
+--   {
+--     "energy_kj":    { "per_100g": "1455.1", "per_portion": "1446.0" },
+--     "energy_kcal":  { "per_100g": "348.1",  "per_portion": "345.9"  },
+--     "fat":          { ... }, "saturates":   { ... },
+--     "carbohydrate": { ... }, "sugars":      { ... },
+--     "protein":      { ... }, "salt":        { ... },
+--     "fibre":        { ... }
+--   }
+--
+-- Custom (admin-defined) nutrition rows stay per PRODUCT in
+-- products.nutrition_custom (29_nutrition_custom.sql) — they are shown
+-- under the table for every size and are deliberately not duplicated here.
+-- ============================================================
+
+alter table public.product_sizes
+  add column if not exists nutrition jsonb;
+
+-- Public read is already covered by the existing "Public read product sizes"
+-- policy from 26_product_variants.sql (the storefront reads this column with
+-- the anon client). All writes go through the service-role admin API, which
+-- bypasses RLS. No new table, policy or index is required.

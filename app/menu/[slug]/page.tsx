@@ -37,7 +37,9 @@ import { consumePurchaseIntent, peekPurchaseIntent } from "@/lib/purchase-intent
 import { PriceText } from "@/components/product-price";
 import {
   normalizeNutrition,
+  normalizeSizeNutrition,
   normalizeCustomNutrition,
+  resolveNutrition,
   hasNutrition,
   emptyNutrition,
   type NutritionData,
@@ -97,6 +99,9 @@ type SizeVariant = {
   label: string;
   serves: number | null;
   price: number;
+  /** This size's own nutrition table, loaded with the size itself so switching
+   *  size swaps the table with no extra request. Null = inherit the product's. */
+  nutrition: NutritionData | null;
 };
 
 function Stars({ value }: { value: number }) {
@@ -227,15 +232,24 @@ export default function ProductDetailPage() {
       }
 
       try {
-        const { data, error } = await db
-          .from("product_sizes")
-          .select("id,label,serves,price,sort_order")
-          .eq("product_id", productId)
-          .order("sort_order", { ascending: true });
+        // Each size's nutrition rides along with the size itself — one query,
+        // so switching size later is a pure re-render with no fetch. If the
+        // `nutrition` column isn't there yet (42_size_nutrition.sql not run)
+        // we retry without it and the product-level table is used as before.
+        const base = "id,label,serves,price,sort_order";
+        const read = (cols: string) =>
+          db
+            .from("product_sizes")
+            .select(cols)
+            .eq("product_id", productId)
+            .order("sort_order", { ascending: true });
+        let res = await read(`${base},nutrition`);
+        if (res.error) res = await read(base);
+        const { data, error } = res;
         if (!cancelled) {
           const list: SizeVariant[] =
             !error && Array.isArray(data)
-              ? data.map((r) => ({
+              ? (data as unknown as Record<string, unknown>[]).map((r) => ({
                   id: String(r.id),
                   label: String(r.label),
                   serves:
@@ -243,6 +257,7 @@ export default function ProductDetailPage() {
                       ? null
                       : Number(r.serves),
                   price: Number(r.price) || 0,
+                  nutrition: normalizeSizeNutrition(r.nutrition),
                 }))
               : [];
           setSizes(list);
@@ -470,11 +485,18 @@ export default function ProductDetailPage() {
     sizes.find((s) => s.id === selectedSizeId) ?? (sizes.length > 0 ? sizes[0] : null);
   const effectivePrice = selectedSize ? selectedSize.price : product.price;
 
-  // Nutrition to render: default rows (blanks filled) always shown first when
-  // the section is visible, then any custom rows. The section appears when the
-  // product has default values OR at least one custom row.
-  const nutritionRows = nutrition ?? emptyNutrition();
-  const showNutrition = hasNutrition(nutrition) || nutritionCustom.length > 0;
+  // Nutrition to render: the SELECTED SIZE's own table when it has one,
+  // otherwise the product-level table (so products that had nutrition before
+  // sizes gained their own keep showing exactly what they showed). Derived
+  // straight from `selectedSizeId`, so picking a size swaps the table on the
+  // next render — no refetch, no spinner. Blank cells render as "—".
+  //
+  // Default rows (blanks filled) are shown first when the section is visible,
+  // then any custom rows — those stay per-product and are the same for every
+  // size. The section appears when there are default values OR a custom row.
+  const activeNutrition = resolveNutrition(selectedSize?.nutrition, nutrition);
+  const nutritionRows = activeNutrition ?? emptyNutrition();
+  const showNutrition = hasNutrition(activeNutrition) || nutritionCustom.length > 0;
 
   // Ingredients display: selected icons (shown above the box), plus a rich-text
   // description when set (bold preserved) — otherwise the plain tag list. Fully
