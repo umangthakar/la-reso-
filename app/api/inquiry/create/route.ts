@@ -97,7 +97,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: failed[1], field: failed[0] }, { status: 400 });
   }
 
-  console.log("Saving inquiry...");
   const { data, error } = await admin
     .from("custom_inquiries")
     .insert(insert)
@@ -108,7 +107,6 @@ export async function POST(req: Request) {
     console.error("Inquiry save failed:", error.message);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
-  console.log("Inquiry saved.");
 
   const inquiryId = String((data as { id?: string }).id ?? "");
   const inquiryNumber = String((data as { inquiry_number?: string }).inquiry_number ?? "");
@@ -116,7 +114,6 @@ export async function POST(req: Request) {
   // Best-effort owner email — never blocks the response. Recipient is
   // OWNER_EMAIL (env); we fall back to the bakery contact email if unset.
   try {
-    console.log("Preparing email...");
     let recipient = ownerEmail();
     if (!recipient) {
       console.warn("OWNER_EMAIL missing — falling back to site_settings contact email.");
@@ -158,9 +155,10 @@ export async function POST(req: Request) {
           adminUrl: `${base}/admin`,
         },
       );
-      console.log("Sending owner email...", { to: recipient });
       const result = await sendEmail({ to: recipient, subject, html, replyTo: insert.email || undefined });
-      console.log("sendEmail result:", result);
+      if (!result.ok) {
+        console.error("Owner inquiry email failed (inquiry still saved):", result.error);
+      }
     }
   } catch (e) {
     // owner email is best-effort — log but never fail the inquiry save.

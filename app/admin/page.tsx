@@ -2,14 +2,15 @@
 
 // ============================================================
 // Le Rasa Bakery — Admin login
-// Simple shared-password gate. On success, stores the password in
-// sessionStorage (used to authorise admin API calls) and goes to the
-// dashboard. See lib/admin-auth.ts.
+// Simple shared-password gate. The password is submitted ONCE: on success
+// the server sets a signed httpOnly session cookie and we just navigate to
+// the dashboard. Nothing is stored in the browser — this page never holds
+// the credential after the request completes. See lib/admin-auth.ts.
 // ============================================================
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ADMIN_AUTH_KEY, isValidEmail } from "@/lib/admin-auth";
+import { isValidEmail } from "@/lib/admin-email";
 import { useSiteSettings } from "@/lib/use-site-settings";
 
 const BLUSH = "#F9EEEA";
@@ -43,13 +44,17 @@ export default function AdminLoginPage() {
       const res = await fetch("/api/admin/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "same-origin", // so the Set-Cookie response is stored
         body: JSON.stringify({ email, password }),
       });
       if (res.ok) {
-        // Session handling is unchanged: the password is what authorises admin
-        // API calls (x-admin-auth header), so it's what we persist.
-        window.sessionStorage.setItem(ADMIN_AUTH_KEY, password);
+        // The server has set the httpOnly session cookie. Drop our copy of the
+        // password from component state and go — nothing is persisted here.
+        setPassword("");
         router.push("/admin/dashboard");
+      } else if (res.status === 429) {
+        setError("Too many attempts. Please wait a few minutes and try again.");
+        setPassword("");
       } else if (res.status === 401) {
         setError("Incorrect email or password. Please try again.");
         setPassword("");
@@ -64,7 +69,9 @@ export default function AdminLoginPage() {
   }
 
   return (
-    <main
+    // A plain container, not <main> — the root layout already provides the
+    // document's single <main> landmark. Styling is unchanged.
+    <div
       style={{
         minHeight: "100vh",
         display: "flex",
@@ -178,6 +185,6 @@ export default function AdminLoginPage() {
           {submitting ? "Signing in…" : "Sign in"}
         </button>
       </form>
-    </main>
+    </div>
   );
 }

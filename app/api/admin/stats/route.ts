@@ -10,9 +10,10 @@
 //   - stats  : the headline numbers, computed from the SAME `orders`
 //              array above so they always match what the pages display:
 //                • totalOrders     — orders.length
-//                • pendingOrders   — status in (received, preparing)
+//                • pendingOrders   — lib/order-status#ACTIONABLE_STATUSES
 //                • ordersToday     — created since start-of-today
-//                • revenueThisWeek — SUM(total) since start-of-week
+//                • revenueThisWeek — SUM(total) since start-of-week,
+//                                    EXCLUDING cancelled / refunded
 //                • topProduct      — best-selling product this month
 //
 // The client passes the period boundaries (start-of-today/week/month, in
@@ -25,18 +26,14 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/server";
 import { isAuthedRequest } from "@/lib/admin-auth";
+import { isActionableStatus, sumRevenue } from "@/lib/order-status";
 
 export const dynamic = "force-dynamic";
 
-// Pending = an order that still needs action: awaiting acceptance (pending),
-// or in the kitchen (received / preparing / ready). Matched case-insensitively
-// (live DB stores lowercase; labels are capitalised). This is the ONE
-// definition of "needs action" shared by every page.
-const PENDING = new Set(["pending", "received", "preparing", "ready"]);
-
-function isPending(status: unknown): boolean {
-  return PENDING.has(String(status ?? "").toLowerCase());
-}
+// "Needs action" and "counts as revenue" now come from lib/order-status, which
+// /api/admin/dashboard and the Analytics page read too — this file used to hold
+// its own copy of the pending set, and the dashboard's copy disagreed with it.
+const isPending = isActionableStatus;
 
 /** Parse an epoch-ms query param; NaN when absent/invalid (skips that stat). */
 function msParam(url: URL, key: string): number {
@@ -72,7 +69,9 @@ async function collectStats(req: Request) {
   const full = await supabase
     .from("orders")
     .select(
-      "id,customer_name,email,phone,message,status,created_at,delivery_date,subtotal,delivery_charge,total,amount,zone_id",
+      // payment_status is needed so revenue can exclude refunds (a delivered
+      // order can still have been refunded afterwards).
+      "id,customer_name,email,phone,message,status,payment_status,created_at,delivery_date,subtotal,delivery_charge,total,amount,zone_id",
     )
     .order("created_at", { ascending: false });
 
@@ -104,7 +103,10 @@ async function collectStats(req: Request) {
   let items: Record<string, unknown>[] = [];
   const itemsRes = await supabase
     .from("order_items")
-    .select("product_name,quantity,line_total,order:orders!inner(created_at)");
+    // The parent order's status/payment_status ride along so the Top Products
+    // table can leave out cancelled and refunded orders, exactly like the
+    // revenue figures do.
+    .select("product_name,quantity,line_total,order:orders!inner(created_at,status,payment_status)");
   if (itemsRes.error) schemaReady = false;
   else items = itemsRes.data || [];
 
@@ -126,11 +128,10 @@ async function collectStats(req: Request) {
   const ordersToday = Number.isNaN(todayStart)
     ? 0
     : orders.filter((o) => orderTime(o) >= todayStart).length;
+  // Revenue excludes cancelled and refunded orders — see sumRevenue().
   const revenueThisWeek = Number.isNaN(weekStart)
     ? 0
-    : orders
-        .filter((o) => orderTime(o) >= weekStart)
-        .reduce((s, o) => s + money(o), 0);
+    : sumRevenue(orders.filter((o) => orderTime(o) >= weekStart));
 
   // Top product this month — units summed from this month's line items.
   let topProduct: { name: string; units: number } | null = null;

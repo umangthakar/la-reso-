@@ -41,7 +41,6 @@ export async function POST(req: Request) {
   // 1. Validate. A bad format still returns generic success (no info leak),
   //    but we skip the work.
   if (!isValidEmail(email)) {
-    console.log("[api/auth/forgot-password] invalid email format — generic response");
     return NextResponse.json(GENERIC_OK);
   }
 
@@ -64,7 +63,6 @@ export async function POST(req: Request) {
       return NextResponse.json(GENERIC_OK);
     }
     if (!userId) {
-      console.log("[api/auth/forgot-password] no account for email — generic response");
       return NextResponse.json(GENERIC_OK);
     }
 
@@ -92,7 +90,6 @@ export async function POST(req: Request) {
     if (!result.ok) {
       console.error("[api/auth/forgot-password] reset email failed", { error: result.error });
     } else {
-      console.log("[api/auth/forgot-password] reset email sent", { userId });
     }
   } catch (e) {
     console.error("[api/auth/forgot-password] unexpected exception", e);

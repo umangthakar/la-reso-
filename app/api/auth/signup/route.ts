@@ -1,10 +1,19 @@
 // ============================================================
-// POST /api/auth/signup   (BACKEND ONLY — NOT wired to the frontend)
+// POST /api/auth/signup   ← LIVE. This is the customer signup path.
 // ------------------------------------------------------------
+// DO NOT DELETE. The header here used to read "BACKEND ONLY — NOT wired to the
+// frontend … groundwork for the future migration", which is stale: that
+// migration happened. lib/use-auth.ts#signUpWithEmail POSTs to this route (see
+// the `fetch("/api/auth/signup")` call there), and /account/signup is the only
+// way a customer creates an account — which, because checkout is gated behind
+// sign-in, means this endpoint is on the critical path to placing an order.
+//
+// The stale comment mattered: an audit reading it concluded the route was dead
+// code and a candidate for removal. Deleting it would have broken signup, and
+// with it checkout for every new customer.
+//
 // Standalone signup endpoint that owns the verification email itself via
-// Resend, bypassing Supabase's built-in SMTP. The existing /account/signup
-// page and lib/use-auth.ts are UNCHANGED and still drive the live flow — this
-// route is groundwork for the future migration.
+// Resend, bypassing Supabase's built-in SMTP.
 //
 // Flow:
 //   1. Validate input
@@ -81,7 +90,6 @@ export async function POST(req: Request) {
       .eq("email", email)
       .maybeSingle();
     if (existingProfile) {
-      console.log("[api/auth/signup] duplicate (profiles pre-check)", { email });
       return fail(409, "An account with this email already exists. Try signing in instead.");
     }
   } catch {
@@ -89,7 +97,6 @@ export async function POST(req: Request) {
   }
 
   // ── 3. Create the Supabase Auth user (no email sent) ──────
-  console.log("[api/auth/signup] creating auth user", { email });
   const { data: created, error: createErr } = await admin.auth.admin.createUser({
     email,
     password,
@@ -160,7 +167,6 @@ export async function POST(req: Request) {
   }
 
   // ── 7. Return success ─────────────────────────────────────
-  console.log("[api/auth/signup] success", { userId, email });
   return NextResponse.json({
     success: true,
     message: "Account created. Check your inbox to verify your email.",

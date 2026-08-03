@@ -324,8 +324,6 @@ export function useAuth() {
           // and sends the verification email via Resend (NOT Supabase SMTP).
           // The EmailAuthResult contract is unchanged, so the page — its
           // loading, validation, errors, animations — is untouched.
-          console.log("[signup] before POST /api/auth/signup", { email: address });
-
           const res = await withTimeout(
             fetch("/api/auth/signup", {
               method: "POST",
@@ -341,13 +339,6 @@ export function useAuth() {
             message?: string;
             details?: string;
           };
-
-          // ── After signup request ──────────────────────────────────────
-          console.log("[signup] after POST /api/auth/signup", {
-            elapsedMs: Date.now() - startedAt,
-            status: res.status,
-            success: Boolean(json.success),
-          });
 
           if (!res.ok || !json.success) {
             console.error("[signup] signup endpoint error", {
@@ -365,11 +356,9 @@ export function useAuth() {
 
           // The endpoint never signs the user in — it always sends a Resend
           // verification email, so the "check your inbox" screen always shows.
-          console.log("[signup] before returning result", {
-            needsVerification: true,
+          trace("signup ok — verification email sent via Resend", {
             elapsedMs: Date.now() - startedAt,
           });
-          trace("signup ok — verification email sent via Resend");
           return { error: null, needsVerification: true };
         } catch (e) {
           // Network failure / timeout — never let a rejection surface as {}.

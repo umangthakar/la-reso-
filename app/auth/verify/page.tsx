@@ -64,7 +64,6 @@ async function verifyToken(token: string): Promise<Outcome> {
   }
   if (!data) {
     // Not found = never issued, or already consumed (we delete on use).
-    console.log("[auth/verify] token not found");
     return "invalid";
   }
 
@@ -72,7 +71,6 @@ async function verifyToken(token: string): Promise<Outcome> {
 
   // 3. Expiry check.
   if (new Date(row.expires_at).getTime() < Date.now()) {
-    console.log("[auth/verify] token expired", { email: row.email });
     // Tidy the dead token away.
     await admin.from("email_verification_tokens").delete().eq("id", row.id);
     return "expired";
@@ -93,7 +91,6 @@ async function verifyToken(token: string): Promise<Outcome> {
 
   // 5. Delete the one-time token so the link can't be replayed.
   await admin.from("email_verification_tokens").delete().eq("id", row.id);
-  console.log("[auth/verify] verified", { userId: row.user_id, email: row.email });
 
   // 6. Welcome email — best-effort, never changes the outcome.
   try {

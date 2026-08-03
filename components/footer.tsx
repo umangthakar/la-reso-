@@ -9,18 +9,34 @@ import { usePolicies } from "@/lib/use-policies";
 import { policyHref, PRIVACY_POLICY_HREF, PRIVACY_POLICY_SLUG } from "@/lib/policies";
 import { instagramUrl, instagramHandle } from "@/lib/site-settings";
 
-// The static image set shown when no Instagram Reels are configured — keeps
-// the "Follow the sweetness" carousel from ever looking empty (backward compat).
-const FALLBACK_GALLERY = [
-  { src: "https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=400&q=80", alt: "Chocolate cake" },
-  { src: "https://images.unsplash.com/photo-1519869325930-281384150729?w=400&q=80", alt: "Cupcakes" },
-  { src: "https://images.unsplash.com/photo-1558961363-fa8fdf82db35?w=400&q=80", alt: "Pink cupcakes" },
-  { src: "https://images.unsplash.com/photo-1565958011703-44f9829ba187?w=400&q=80", alt: "Raspberry cake" },
-  { src: "https://images.unsplash.com/photo-1499636136210-6f4ee915583e?w=400&q=80", alt: "Cookies" },
-  { src: "https://images.unsplash.com/photo-1548365328-8c6db3220e4d?w=400&q=80", alt: "Chocolate truffles" },
-  { src: "https://images.unsplash.com/photo-1571115177098-24ec42ed204d?w=400&q=80", alt: "Birthday cake" },
-  { src: "https://images.unsplash.com/photo-1587668178277-295251f900ce?w=400&q=80", alt: "Brownies" },
-];
+// There is deliberately NO fallback image set here any more.
+//
+// This section is headed "Follow the sweetness — @handle, fresh bakes daily on
+// Instagram", so whatever it shows is presented as the bakery's own Instagram
+// content. It used to fall back to eight Unsplash stock photos, which meant:
+//   • stock images were passed off as the bakery's bakes, and
+//   • one of those Unsplash URLs had rotted, so every page load fired a 404
+//     (the settings hook starts from defaults, so the fallback rendered in the
+//     server HTML of EVERY page before hydration swapped in the real reels).
+//
+// The section now renders only when the admin has configured at least one
+// active Reel. With none, it is omitted entirely — an absent section is
+// honest, a fake one is not.
+
+/**
+ * Alt text for a reel slide: the admin's caption when there is one, otherwise a
+ * neutral label so a screen reader still gets something meaningful.
+ *
+ * No cleverness here on purpose. An earlier version tried to detect "looks like
+ * keyboard mash" and suppress it, but nothing separates a test entry from a
+ * genuinely short caption reliably — and silently blanking the owner's real
+ * caption is worse than showing an odd one. Placeholder captions are the
+ * owner's to fix in the admin panel.
+ */
+function reelAlt(title: string | null | undefined, index: number): string {
+  const t = (title ?? "").trim();
+  return t !== "" ? t : `Instagram reel ${index + 1}`;
+}
 
 // Shown when the matching site_settings field is empty, so the footer never
 // looks blank. Phone is intentionally NOT defaulted — it comes solely from
@@ -50,19 +66,19 @@ export function Footer() {
   const igUrl = instagramUrl(settings.instagram_url);
   const igHandle = instagramHandle(settings.instagram_url);
 
-  // Reels gallery: when the admin has added active Reels, each carousel slide
-  // shows that reel's admin-uploaded cover image (or a bakery fallback if none)
-  // and links out to the reel. With none configured, we keep the existing
-  // static image carousel.
+  // Reels gallery: each slide is an active Reel's admin-uploaded cover image,
+  // linking out to that reel. No active reels → `galleryImages` is empty and the
+  // whole section is skipped (see the note by the removed fallback set above).
   const reels = (settings.instagram_reels ?? []).filter((r) => r.active && r.url);
-  const galleryImages =
-    reels.length > 0
-      ? reels.map((r, i) => ({
-          src: r.cover_image || "/reel-fallback.svg",
-          alt: r.title || `Instagram reel ${i + 1}`,
-          href: r.url,
-        }))
-      : FALLBACK_GALLERY;
+  const galleryImages = reels.map((r, i) => ({
+    src: r.cover_image || "/reel-fallback.svg",
+    // A reel whose title is blank (or is leftover keyboard-mash) must not
+    // become the alt text a screen reader reads out — fall back to a neutral,
+    // production-appropriate label.
+    alt: reelAlt(r.title, i),
+    href: r.url,
+  }));
+  const hasGallery = galleryImages.length > 0;
 
   // Policy bar links, in the admin's order. The privacy entry is redirected to
   // its own page, and appended when the policies table has no privacy row at
@@ -89,7 +105,10 @@ export function Footer() {
 
   return (
     <footer className="relative mt-10">
-      {/* Instagram carousel — Swiper coverflow */}
+      {/* Instagram carousel — Swiper coverflow. Rendered ONLY when the admin has
+          active Reels, so the site never presents stock imagery as its own
+          Instagram feed. Styling and layout are untouched. */}
+      {hasGallery && (
       <section className="bg-[#F9EEEA] py-12">
         <div className="mx-auto max-w-7xl px-4">
           {/* Header */}
@@ -113,17 +132,18 @@ export function Footer() {
             )}
           </div>
 
-          {/* Carousel — dynamic Instagram reel thumbnails when configured,
-              else the static fallback set. Same coverflow animation/layout. */}
+          {/* Carousel — the admin's Instagram reel thumbnails. Same coverflow
+              animation and layout as before. */}
           <CardCarousel
             images={galleryImages}
             autoplayDelay={2000}
             showPagination={true}
             showNavigation={false}
-            unoptimized={reels.length > 0}
+            unoptimized
           />
         </div>
       </section>
+      )}
 
       {/* Main footer */}
       <div className="bg-darkberry text-blush-100">
@@ -151,7 +171,7 @@ export function Footer() {
                     href={href}
                     target="_blank"
                     rel="noreferrer"
-                    className="grid h-10 w-10 place-items-center rounded-full bg-blush-100/10 text-blush-50 transition-colors hover:bg-wine"
+                    className="tap-target grid h-10 w-10 place-items-center rounded-full bg-blush-100/10 text-blush-50 transition-colors hover:bg-wine"
                   >
                     <Icon className="h-4 w-4" />
                   </a>

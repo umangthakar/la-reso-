@@ -35,13 +35,7 @@ import {
   validateName,
   validatePhone,
 } from "@/lib/input-validation";
-import {
-  fetchAccessoryCategories,
-  categoriesForProduct,
-  priceSelections,
-  type AccessoryCategory,
-  type Selections,
-} from "@/lib/customization";
+import { priceBasket, type IncomingItem } from "@/lib/basket-pricing";
 import {
   offerFromRow,
   resolveActiveOffers,
@@ -55,28 +49,7 @@ import {
 
 export const dynamic = "force-dynamic";
 
-/**
- * `id` is the cart LINE id; `productId` is the product it refers to. They
- * differ only for a customized cake (see lib/customization#cartLineId).
- * Baskets saved before customization existed send `id` alone — hence the
- * fallback, which keeps old tabs and old localStorage working.
- */
-type IncomingItem = {
-  id: string;
-  quantity: number;
-  productId?: string;
-  /** Selected size variant, when the product offers sizes. Re-priced here from
-   *  the DB (product_sizes) so the client can never dictate the size price. */
-  sizeId?: string;
-  customization?: { selections?: Selections };
-};
 type DeliveryZone = { postcode_prefix?: string; fee?: number };
-type CartLine = {
-  productId: string;
-  quantity: number;
-  sizeId: string | null;
-  selections: Selections;
-};
 
 export async function POST(req: Request) {
   let body: {
@@ -123,32 +96,6 @@ export async function POST(req: Request) {
     );
   }
 
-  // Normalise + validate quantities. Lines are kept SEPARATE (not collapsed
-  // into a per-product map) because two cakes of the same product can carry
-  // different accessories and must be priced independently.
-  const lines: CartLine[] = [];
-  for (const it of items) {
-    const qty = Math.max(0, Math.trunc(Number(it.quantity)) || 0);
-    const productId = String(it.productId ?? it.id ?? "");
-    if (!productId || qty <= 0) continue;
-    lines.push({
-      productId,
-      quantity: qty,
-      sizeId: it.sizeId ? String(it.sizeId) : null,
-      selections: it.customization?.selections ?? {},
-    });
-  }
-  if (lines.length === 0) {
-    return NextResponse.json({ error: "Your basket is empty." }, { status: 400 });
-  }
-
-  // Total quantity per product — what the offer engine works on, exactly as
-  // before (a customized line is still N of that cake).
-  const wanted = new Map<string, number>();
-  for (const line of lines) {
-    wanted.set(line.productId, (wanted.get(line.productId) ?? 0) + line.quantity);
-  }
-
   // Look up authoritative prices from the DB (service role — read only here).
   let supabase: SupabaseClient;
   try {
@@ -160,122 +107,17 @@ export async function POST(req: Request) {
     );
   }
 
-  const { data, error } = await supabase
-    .from("products")
-    .select("id,name,price,in_stock,category")
-    .in("id", Array.from(wanted.keys()));
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  // ---- AUTHORITATIVE BASKET PRICING --------------------------------------
+  // All of it — product prices, size-variant prices, accessory extras — now
+  // lives in lib/basket-pricing, because /api/orders/create has to run the
+  // IDENTICAL computation when it rebuilds the order's line items. The numbers
+  // and the error semantics here are unchanged; only their home has moved.
+  const priced = await priceBasket(supabase, items);
+  if (!priced.ok) {
+    return NextResponse.json({ error: priced.error }, { status: priced.status });
   }
-
-  const rows = (data ?? []) as {
-    id: string;
-    name: string;
-    price: number;
-    in_stock: boolean | null;
-    category: string | null;
-  }[];
-
-  for (const row of rows) {
-    if (row.in_stock === false) {
-      return NextResponse.json(
-        { error: `"${row.name}" is currently unavailable.` },
-        { status: 409 },
-      );
-    }
-  }
-
-  // ---- SIZE VARIANT PRICES (re-priced from the DB, migration-tolerant) -----
-  // A line that names a size is charged that size's ABSOLUTE price — never the
-  // client's number. Products/lines without a size keep the base product price
-  // exactly as before. If product_sizes isn't migrated (or a size was deleted
-  // after it was added to the basket) we simply fall back to the base price, so
-  // checkout never fails for a stale/absent size.
-  const basePrice = new Map(rows.map((r) => [r.id, Number(r.price) || 0]));
-  const sizePrice = new Map<string, { productId: string; price: number }>();
-  if (lines.some((l) => l.sizeId)) {
-    try {
-      const { data: sizeRows, error: sizeErr } = await supabase
-        .from("product_sizes")
-        .select("id,product_id,price")
-        .in("product_id", Array.from(wanted.keys()));
-      if (!sizeErr && Array.isArray(sizeRows)) {
-        for (const s of sizeRows) {
-          sizePrice.set(String(s.id), {
-            productId: String(s.product_id),
-            price: Number(s.price) || 0,
-          });
-        }
-      }
-    } catch {
-      /* table not migrated → base prices used (unchanged behavior) */
-    }
-  }
-
-  /** The absolute unit price for one line: its size's price when it names a
-   *  valid size for that product, otherwise the base product price. */
-  function unitPriceForLine(line: CartLine): number {
-    const base = basePrice.get(line.productId) ?? 0;
-    if (!line.sizeId) return base;
-    const s = sizePrice.get(line.sizeId);
-    return s && s.productId === line.productId ? s.price : base;
-  }
-
-  // Effective per-product subtotal (size-aware). Kept per-product so the offer
-  // engine sees exactly the product-level numbers it always has; the only
-  // change is that a chosen size's price now feeds in instead of the base.
-  const productEffective = new Map<string, number>();
-  for (const line of lines) {
-    productEffective.set(
-      line.productId,
-      round2((productEffective.get(line.productId) ?? 0) + unitPriceForLine(line) * line.quantity),
-    );
-  }
-  const productSubtotal = round2(
-    Array.from(productEffective.values()).reduce((s, v) => s + v, 0),
-  );
-
-  // ---- ACCESSORY EXTRAS (re-priced from the live wizard config) ----------
-  // Only what the config currently says is visible and available is charged;
-  // an unknown or stale selection simply prices at £0 rather than failing a
-  // customer's checkout because an admin edited an accessory mid-basket.
-  // If the customization tables aren't migrated, every line has no selections
-  // and this is a no-op — the existing behavior, unchanged.
-  let accessoriesTotal = 0;
-  const lineAddons = new Map<number, number>();
-  try {
-    const hasSelections = lines.some(
-      (l) => Object.keys(l.selections).length > 0,
-    );
-    if (hasSelections) {
-      const allCategories: AccessoryCategory[] =
-        await fetchAccessoryCategories(supabase);
-      const categoryOf = new Map(rows.map((r) => [r.id, r.category ?? null]));
-
-      lines.forEach((line, i) => {
-        if (Object.keys(line.selections).length === 0) return;
-        const categories = categoriesForProduct(
-          allCategories,
-          categoryOf.get(line.productId) ?? null,
-        );
-        const addons = priceSelections(categories, line.selections);
-        lineAddons.set(i, addons);
-        accessoriesTotal += addons * line.quantity;
-      });
-    }
-  } catch {
-    // Customization not migrated / unreadable → no extras, existing behavior.
-    accessoriesTotal = 0;
-    lineAddons.clear();
-  }
-  accessoriesTotal = round2(accessoriesTotal);
-
-  const subtotal = round2(productSubtotal + accessoriesTotal);
-
-  if (subtotal <= 0) {
-    return NextResponse.json({ error: "Could not price your basket." }, { status: 400 });
-  }
+  const { lines, productRows: rows, productEffective, wanted, productSubtotal, accessoriesTotal, subtotal } =
+    priced.basket;
 
   // Authoritative, zone-aware delivery fee from the admin-configured zones.
   const zonesRes = await supabase
@@ -472,7 +314,7 @@ export async function POST(req: Request) {
       // Per-line accessory extras, in the order the client sent its items, so
       // the order snapshot records what was actually charged rather than what
       // the client believed.
-      lineAddons: lines.map((_, i) => lineAddons.get(i) ?? 0),
+      lineAddons: lines.map((line) => line.addons),
     });
   } catch (e) {
     return NextResponse.json(

@@ -10,6 +10,7 @@
 // ============================================================
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import {
   DndContext,
   closestCenter,
@@ -789,22 +790,30 @@ export default function ProductsAdminPage() {
               </SortableContext>
             </DndContext>
           ) : (
-            <div style={{ background: "white", borderRadius: 16, overflow: "auto", marginTop: 16, boxShadow: "0 10px 30px rgba(135,56,83,0.08)" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 820 }}>
-                <thead>
-                  <tr style={{ background: "rgba(135,56,83,0.06)", textAlign: "left" }}>
-                    <th style={th}></th>
-                    <th style={th}>Image</th>
-                    <th style={th}>Name</th>
-                    <th style={th}>Category</th>
-                    <th style={th}>Price</th>
-                    <th style={th}>Badge</th>
-                    <th style={th}>Visible</th>
-                    <th style={th}>In Stock</th>
-                    <th style={{ ...th, textAlign: "right" }}>Actions</th>
-                  </tr>
-                </thead>
-                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            /* DndContext wraps the TABLE, not the table's children.
+               It renders its own accessibility live-region <div>, and a <div>
+               between <table> and <tbody> is invalid HTML: the browser hoists
+               it out during parsing, so the server and client trees differed
+               and React reported a hydration error on every visit to this page.
+               SortableContext renders no DOM of its own, so it can stay inside
+               and keep wrapping <tbody> — drag-and-drop behaviour, sensors and
+               handlers are all unchanged. */
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+              <div style={{ background: "white", borderRadius: 16, overflow: "auto", marginTop: 16, boxShadow: "0 10px 30px rgba(135,56,83,0.08)" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 820 }}>
+                  <thead>
+                    <tr style={{ background: "rgba(135,56,83,0.06)", textAlign: "left" }}>
+                      <th style={th}></th>
+                      <th style={th}>Image</th>
+                      <th style={th}>Name</th>
+                      <th style={th}>Category</th>
+                      <th style={th}>Price</th>
+                      <th style={th}>Badge</th>
+                      <th style={th}>Visible</th>
+                      <th style={th}>In Stock</th>
+                      <th style={{ ...th, textAlign: "right" }}>Actions</th>
+                    </tr>
+                  </thead>
                   <SortableContext items={filteredProducts.map((p) => p.id)} strategy={verticalListSortingStrategy}>
                     <tbody>
                       {filteredProducts.map((p) => (
@@ -818,9 +827,9 @@ export default function ProductsAdminPage() {
                       ))}
                     </tbody>
                   </SortableContext>
-                </DndContext>
-              </table>
-            </div>
+                </table>
+              </div>
+            </DndContext>
           )}
 
           {/* Pagination — hidden while searching, since the filter applies to
@@ -1347,6 +1356,27 @@ export default function ProductsAdminPage() {
 // ------------------------------------------------------------
 // Sortable table row
 // ------------------------------------------------------------
+
+/**
+ * The 48px product thumbnail, with the tinted placeholder shown when a product
+ * has no image yet. The desktop table row and the mobile card rendered this
+ * identically; they now share one definition so the two lists cannot drift.
+ */
+function ProductThumb({ product: p }: { product: Product }) {
+  const box = { width: 48, height: 48, borderRadius: 8 } as const;
+  return p.image_url ? (
+    <Image
+      src={p.image_url}
+      alt={p.name}
+      width={48}
+      height={48}
+      style={{ ...box, objectFit: "cover" }}
+    />
+  ) : (
+    <div style={{ ...box, background: "rgba(135,56,83,0.08)" }} />
+  );
+}
+
 function SortableRow({
   product: p,
   onEdit,
@@ -1374,12 +1404,7 @@ function SortableRow({
         ⠿
       </td>
       <td style={td}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        {p.image_url ? (
-          <img src={p.image_url} alt={p.name} style={{ width: 48, height: 48, objectFit: "cover", borderRadius: 8 }} />
-        ) : (
-          <div style={{ width: 48, height: 48, borderRadius: 8, background: "rgba(135,56,83,0.08)" }} />
-        )}
+        <ProductThumb product={p} />
       </td>
       <td style={{ ...td, fontWeight: 600 }}>{p.name}</td>
       <td style={td}>{p.category || "—"}</td>
@@ -1431,12 +1456,7 @@ function SortableCard({
         >
           ⠿
         </span>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        {p.image_url ? (
-          <img src={p.image_url} alt={p.name} style={{ width: 48, height: 48, objectFit: "cover", borderRadius: 8 }} />
-        ) : (
-          <div style={{ width: 48, height: 48, borderRadius: 8, background: "rgba(135,56,83,0.08)" }} />
-        )}
+        <ProductThumb product={p} />
         <span style={{ fontWeight: 700, color: BERRY, flex: 1 }}>{p.name}</span>
       </div>
 

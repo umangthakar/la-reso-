@@ -7,6 +7,8 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/server";
 import { isAuthedRequest } from "@/lib/admin-auth";
+import { revalidateTag } from "next/cache";
+import { TAGS } from "@/lib/cache-tags";
 
 export const dynamic = "force-dynamic";
 
@@ -32,5 +34,6 @@ export async function POST(req: Request) {
   if (failed?.error) {
     return NextResponse.json({ error: failed.error.message }, { status: 500 });
   }
+  revalidateTag(TAGS.products);
   return NextResponse.json({ ok: true });
 }

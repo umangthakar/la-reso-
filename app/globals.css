@@ -71,6 +71,39 @@
   .section-padding {
     @apply py-10 md:py-12;
   }
+
+  /*
+   * Touch-target helper.
+   *
+   * Several icon-only controls (footer social links, the navbar's account /
+   * cart / menu buttons) are 40x40. That reads fine with a mouse but sits under
+   * the 44px minimum recommended for touch, so they are easy to miss on a phone.
+   *
+   * This grows only the HIT AREA, using a centred pseudo-element. Nothing about
+   * the control's own size, padding, border-radius, colour or position changes,
+   * so the design is pixel-identical — the overlay is invisible and does not
+   * participate in layout.
+   *
+   * Applied on coarse pointers only, so it can never widen a hover target on
+   * desktop and cause an unexpected overlap.
+   */
+  .tap-target {
+    position: relative;
+  }
+
+  @media (pointer: coarse) {
+    .tap-target::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 44px;
+      height: 44px;
+      transform: translate(-50%, -50%);
+      /* Invisible, and above the icon so the tap always lands on the control. */
+      background: transparent;
+    }
+  }
 }
 
 /* Pretty pastel scrollbar */

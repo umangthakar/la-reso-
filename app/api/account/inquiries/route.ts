@@ -27,7 +27,9 @@ export async function GET() {
   } catch {
     return NextResponse.json({ error: "Not signed in." }, { status: 401 });
   }
-  if (!email) return NextResponse.json({ inquiries: [] });
+  // No verified session → 401, not a 200 with an empty list (which reads as
+  // "you have no inquiries" and hides the fact that nobody was signed in).
+  if (!email) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
 
   let admin: SupabaseClient;
   try {

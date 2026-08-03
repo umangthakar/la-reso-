@@ -78,18 +78,11 @@ async function publish(label: string, push: NtfyPush): Promise<void> {
   const url = (process.env.NTFY_URL ?? "").trim().replace(/\/+$/, "");
   const topic = (process.env.NTFY_TOPIC ?? "").trim();
 
-  // WHICH deployment is running this, and did it see the config? The commonest
-  // cause of "no notifications" is not the request failing but this function
-  // returning at the guard below, because NTFY_URL/NTFY_TOPIC exist in a local
-  // .env (gitignored, never deployed) and were never added to the hosting
-  // environment. `vercelEnv` tells you production/preview/local at a glance.
-  console.log(`[ntfy:${label}] publish requested`, {
-    urlConfigured: !!url,
-    topicConfigured: !!topic,
-    vercelEnv: process.env.VERCEL_ENV ?? "local",
-    nodeEnv: process.env.NODE_ENV,
-  });
-
+  // The commonest cause of "no notifications" is not the request failing but
+  // this function returning at the guard below, because NTFY_URL/NTFY_TOPIC
+  // exist in a local .env (gitignored, never deployed) and were never added to
+  // the hosting environment. That case is reported by the console.error in the
+  // guard — which names the runtime — so there is no per-publish log here.
   if (!url || !topic) {
     console.error(
       `[ntfy:${label}] SKIPPED — NTFY_URL / NTFY_TOPIC missing in this runtime ` +
@@ -128,13 +121,8 @@ async function publish(label: string, push: NtfyPush): Promise<void> {
       );
       return;
     }
-    // ntfy echoes the accepted message back as JSON (id, topic, priority),
-    // which confirms it reached the right topic — the last thing that can be
-    // wrong once the request itself succeeds is the phone's subscription.
-    console.log(
-      `[ntfy:${label}] push accepted — HTTP ${res.status} in ${Date.now() - startedAt}ms: ` +
-        detail.slice(0, 300),
-    );
+    // Success is silent. Once the request itself succeeds the only remaining
+    // failure is the phone's own subscription, which no server log can see.
   } catch (err) {
     // fetch itself threw (DNS, TLS, network, timeout, invalid header, etc.).
     // AbortError here means the 8s budget was hit, not that ntfy rejected it.

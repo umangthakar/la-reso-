@@ -14,6 +14,7 @@ import { useCart, unitPriceOf } from "@/components/cart/cart-context";
 import { lineText } from "@/lib/customization";
 import { usePurchaseGate } from "@/lib/use-purchase-gate";
 import { money } from "@/lib/pricing";
+import { formatSizeLabel } from "@/lib/size-label";
 
 export function CartDrawer() {
   const router = useRouter();
@@ -132,7 +133,7 @@ export function CartDrawer() {
                             <p className="text-xs text-berry">{item.category}</p>
                             {item.sizeLabel && (
                               <p className="text-xs font-semibold text-wine-dark">
-                                Size: {item.sizeLabel}
+                                Size: {formatSizeLabel(item.sizeLabel)}
                               </p>
                             )}
                             {/* Cake → accessories → prices, so the basket shows

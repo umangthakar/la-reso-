@@ -48,8 +48,12 @@ export async function GET() {
   } catch {
     return NextResponse.json({ error: "Not signed in." }, { status: 401 });
   }
+  // No verified session → 401. This used to answer 200 with an empty array,
+  // which is indistinguishable from "you have no orders": a caller could not
+  // tell a signed-out request from a signed-in one, and monitoring saw a
+  // healthy 200 for what is actually an unauthenticated request.
   if (!email) {
-    return NextResponse.json({ orders: [] });
+    return NextResponse.json({ error: "Not signed in." }, { status: 401 });
   }
 
   // 2) Read that customer's orders with the service role (bypasses RLS),

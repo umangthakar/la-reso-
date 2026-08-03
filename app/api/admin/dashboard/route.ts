@@ -19,14 +19,35 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/server";
 import { isAuthedRequest } from "@/lib/admin-auth";
+import { ACTIONABLE_STATUSES, sumRevenue } from "@/lib/order-status";
 
 export const dynamic = "force-dynamic";
 
-const PENDING = ["received", "preparing"];
-
-function isoParam(url: URL, key: string): string {
-  const ms = Number(url.searchParams.get(key));
-  return new Date(Number.isFinite(ms) ? ms : Date.now()).toISOString();
+/**
+ * Parse a required epoch-ms boundary param.
+ *
+ * The previous version did `Number.isFinite(ms) ? ms : Date.now()`, but
+ * `Number(null)` — what you get for an ABSENT param — is 0, which IS finite. So
+ * a missing `week` silently became 1970-01-01 and "revenue this week" quietly
+ * reported revenue since the epoch. Rather than substitute a plausible-looking
+ * default, an absent or unusable value is now a 400: a wrong number on the
+ * owner's dashboard is worse than an error that says what is wrong.
+ */
+function isoParam(url: URL, key: string): { ok: true; iso: string } | { ok: false; error: string } {
+  const raw = url.searchParams.get(key);
+  if (raw === null || raw.trim() === "") {
+    return { ok: false, error: `Missing required '${key}' timestamp.` };
+  }
+  const ms = Number(raw);
+  // Reject 0/negative (the epoch bug), NaN, and anything outside a sane range.
+  if (!Number.isFinite(ms) || ms <= 0) {
+    return { ok: false, error: `Invalid '${key}' timestamp.` };
+  }
+  const date = new Date(ms);
+  if (Number.isNaN(date.getTime())) {
+    return { ok: false, error: `Invalid '${key}' timestamp.` };
+  }
+  return { ok: true, iso: date.toISOString() };
 }
 
 export async function GET(req: Request) {
@@ -36,9 +57,17 @@ export async function GET(req: Request) {
 
   const supabase = createAdminClient() as unknown as SupabaseClient;
   const url = new URL(req.url);
-  const todayIso = isoParam(url, "today");
-  const weekIso = isoParam(url, "week");
-  const monthIso = isoParam(url, "month");
+
+  const today = isoParam(url, "today");
+  const week = isoParam(url, "week");
+  const month = isoParam(url, "month");
+  const badParam = [today, week, month].find((p) => !p.ok);
+  if (badParam && !badParam.ok) {
+    return NextResponse.json({ error: badParam.error }, { status: 400 });
+  }
+  const todayIso = (today as { ok: true; iso: string }).iso;
+  const weekIso = (week as { ok: true; iso: string }).iso;
+  const monthIso = (month as { ok: true; iso: string }).iso;
 
   let schemaReady = true;
 
@@ -50,36 +79,41 @@ export async function GET(req: Request) {
   const ordersToday = todayRes.count ?? 0;
 
   // --- Pending orders (COUNT, no rows fetched) ----------------
+  // ACTIONABLE_STATUSES is the shared definition (lib/order-status). This tile
+  // previously used a local ["received","preparing"] list that omitted
+  // 'pending' and 'ready', so it read 0 while brand-new orders sat waiting to
+  // be accepted — the exact orders /api/cron/auto-cancel refunds after 24h.
   const pendingRes = await supabase
     .from("orders")
     .select("id", { count: "exact", head: true })
-    .in("status", PENDING);
+    .in("status", ACTIONABLE_STATUSES as unknown as string[]);
   const pendingOrders = pendingRes.count ?? 0;
 
-  // --- Revenue this week (SUM aggregate) ----------------------
-  // Try a server-side SUM first; if aggregate functions or the `total`
-  // column aren't available, fall back to summing just this week's totals.
+  // --- Revenue this week -------------------------------------
+  // Cancelled and refunded orders must NOT count. That rules out the
+  // server-side SUM() this used to do (it cannot express the payment_status
+  // rule), so the week's rows are fetched and summed through the shared
+  // sumRevenue() helper instead. The window is one week, so this is a small
+  // read, and it is the same filter the Analytics page now applies.
   let revenueThisWeek = 0;
-  const sumRes = await supabase
+  const weekRows = await supabase
     .from("orders")
-    .select("total.sum()")
-    .gte("created_at", weekIso)
-    .maybeSingle();
-  if (sumRes.error) {
-    const totalsRes = await supabase
+    .select("total,amount,status,payment_status")
+    .gte("created_at", weekIso);
+  if (weekRows.error) {
+    // Older DB without payment_status → retry with the columns that do exist,
+    // rather than reporting no revenue at all.
+    const legacy = await supabase
       .from("orders")
-      .select("total")
+      .select("total,status")
       .gte("created_at", weekIso);
-    if (totalsRes.error) {
+    if (legacy.error) {
       schemaReady = false;
     } else {
-      revenueThisWeek = (totalsRes.data || []).reduce(
-        (s, r) => s + (Number((r as { total: unknown }).total) || 0),
-        0,
-      );
+      revenueThisWeek = sumRevenue(legacy.data ?? []);
     }
   } else {
-    revenueThisWeek = Number((sumRes.data as { sum: unknown } | null)?.sum) || 0;
+    revenueThisWeek = sumRevenue(weekRows.data ?? []);
   }
 
   // --- Top product this month (only this month's line items) --

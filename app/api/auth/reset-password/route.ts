@@ -66,7 +66,6 @@ export async function POST(req: Request) {
     return fail(500, "We couldn't reset your password just now. Please try again.");
   }
   if (!data) {
-    console.log("[api/auth/reset-password] token not found");
     return fail(400, "This reset link is invalid or has already been used.");
   }
 
@@ -74,7 +73,6 @@ export async function POST(req: Request) {
 
   // 3. Expiry / single-use check.
   if (row.used_at || new Date(row.expires_at).getTime() < Date.now()) {
-    console.log("[api/auth/reset-password] token expired or used", { email: row.email });
     await admin.from("password_reset_tokens").delete().eq("id", row.id);
     return fail(400, "This reset link has expired. Please request a new one.");
   }
@@ -93,7 +91,6 @@ export async function POST(req: Request) {
 
   // 5. Delete the token so the link can't be reused.
   await admin.from("password_reset_tokens").delete().eq("id", row.id);
-  console.log("[api/auth/reset-password] password reset", { userId: row.user_id, email: row.email });
 
   // 6. Confirmation email — best-effort, never fails the reset.
   try {

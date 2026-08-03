@@ -27,6 +27,7 @@ import {
 import { adminGet } from "@/lib/admin-api";
 import { useIsMobile } from "@/lib/use-is-mobile";
 import { useOrdersLive } from "@/lib/supabase/hooks/use-orders-live";
+import { countsAsRevenue, sumRevenue } from "@/lib/order-status";
 
 const WINE = "#873853";
 const BERRY = "#5C2A41";
@@ -38,6 +39,8 @@ type Order = {
   email: string | null;
   phone: string | null;
   status: string;
+  /** Payment side of the order — a delivered order can still be refunded. */
+  payment_status?: string | null;
   created_at: string;
   subtotal: number;
   delivery_charge: number;
@@ -48,7 +51,7 @@ type Item = {
   product_name: string;
   quantity: number;
   line_total: number;
-  order: { created_at: string } | null;
+  order: { created_at: string; status?: string | null; payment_status?: string | null } | null;
 };
 type Zone = { id: string; zone_name: string };
 type Payload = { orders: Order[]; items: Item[]; zones: Zone[]; schemaReady: boolean };
@@ -152,14 +155,20 @@ export default function AnalyticsPage() {
   }, [data]);
 
   // --- Summary ------------------------------------------------
+  // Revenue and AOV exclude cancelled / refunded orders (lib/order-status), so
+  // these read as money actually kept. `totalOrders` deliberately still counts
+  // EVERY order — it answers "how many orders came in", not "how much did we
+  // make" — so AOV is divided by the revenue-bearing count instead.
   const totalOrders = orders.length;
-  const totalRevenue = orders.reduce((s, o) => s + (Number(o.total) || 0), 0);
-  const aov = totalOrders ? totalRevenue / totalOrders : 0;
+  const totalRevenue = sumRevenue(orders);
+  const revenueOrderCount = orders.filter((o) => countsAsRevenue(o.status, o.payment_status)).length;
+  const aov = revenueOrderCount ? totalRevenue / revenueOrderCount : 0;
 
   // --- Revenue chart ------------------------------------------
   const revenueSeries = useMemo(() => {
     const buckets = new Map<string, number>();
     for (const o of orders) {
+      if (!countsAsRevenue(o.status, o.payment_status)) continue;
       const k = bucketKey(o.created_at, granularity);
       buckets.set(k, (buckets.get(k) || 0) + (Number(o.total) || 0));
     }
@@ -172,6 +181,9 @@ export default function AnalyticsPage() {
   const topProducts = useMemo(() => {
     const map = new Map<string, { units: number; revenue: number }>();
     for (const it of items) {
+      // Cancelled / refunded orders must not make a product look like a
+      // bestseller, for the same reason they don't count as revenue.
+      if (!countsAsRevenue(it.order?.status, it.order?.payment_status)) continue;
       const cur = map.get(it.product_name) || { units: 0, revenue: 0 };
       cur.units += Number(it.quantity) || 0;
       cur.revenue += Number(it.line_total) || 0;

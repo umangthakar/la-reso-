@@ -237,12 +237,23 @@ function stripePublic(raw: unknown): {
   stripe_publishable_key: string;
   payments_configured: boolean;
 } {
-  const cfg = (raw ?? {}) as { publishable_key?: unknown; secret_key_enc?: unknown };
+  const cfg = (raw ?? {}) as {
+    publishable_key?: unknown;
+    secret_key_enc?: unknown;
+    has_secret_key?: unknown;
+  };
   const key =
     str(cfg.publishable_key) ||
     (process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? "");
+  // `has_secret_key` is the boolean the public view (site_settings_public)
+  // reports in place of the ciphertext, so the checkout can still tell that a
+  // secret key is configured without the ciphertext ever leaving the database.
+  // `secret_key_enc` is still honoured for a read that came from the base table
+  // (i.e. before 43_critical_security_fixes.sql has been applied).
   const hasSecret =
-    Boolean(cfg.secret_key_enc) || Boolean(process.env.STRIPE_SECRET_KEY);
+    cfg.has_secret_key === true ||
+    Boolean(cfg.secret_key_enc) ||
+    Boolean(process.env.STRIPE_SECRET_KEY);
   return {
     stripe_publishable_key: key,
     payments_configured: Boolean(key) && hasSecret,
@@ -275,6 +286,21 @@ export const DEFAULT_SETTINGS: PublicSettings = {
 // legacy columns still read as a fallback until `contact` is populated.
 // `stripe_config` is fetched only so normaliseSettings can derive the two safe
 // values above — the raw column (incl. secret_key_enc) never leaves this layer.
+/**
+ * PostgREST resource the storefront reads settings from with the ANON key.
+ *
+ * A view, not the `site_settings` table: that table holds
+ * stripe_config.secret_key_enc and google_reviews_config.api_key_enc, so anon
+ * SELECT on it is revoked (audit finding C4). The view exposes every public
+ * column and reduces stripe_config to { publishable_key, mode }, which is all
+ * normaliseSettings() ever reads from it.
+ *
+ * Admin/server code keeps using the `site_settings` table via the service-role
+ * key, which is exempt from RLS and grants.
+ * See supabase/sql/43_critical_security_fixes.sql.
+ */
+export const PUBLIC_SETTINGS_VIEW = "site_settings_public";
+
 export const PUBLIC_SETTINGS_SELECT =
   "branding,contact,logo,phone,email,address,whatsapp,instagram_url,instagram_reels,facebook_url,tiktok_url,announcement,hero_banner,rotating_banners,whatsapp_bar,about_story,about_image_url,home_slider,delivery_zones,lead_time_days,blocked_dates,delivery_days,stripe_config";
 

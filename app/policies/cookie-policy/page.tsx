@@ -26,12 +26,14 @@ import {
   COOKIE_POLICY_HTML,
 } from "@/lib/cookie-policy-content";
 
-// Matches its siblings: branding is read no-store so an admin rename shows up
-// in this page's <title> on the next request.
-export const dynamic = "force-dynamic";
+// Like /privacy-policy: the content here is code-owned
+// (lib/cookie-policy-content.ts) and the admin panel cannot edit it, so the
+// page is cached and revalidated every 5 minutes rather than re-rendered per
+// request. The brand name in the <title> is the only dynamic value.
+export const revalidate = 300;
 
 export async function generateMetadata(): Promise<Metadata> {
-  const { branding } = await getPublicSettings();
+  const { branding } = await getPublicSettings({ revalidate: 300 });
 
   const title = `Cookie Policy — ${branding.name}`;
   const description =

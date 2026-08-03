@@ -29,6 +29,43 @@ interface CarouselProps {
   unoptimized?: boolean
 }
 
+/** Fixed slide box from the `.swiper-slide` rule below, plus `spaceBetween`. */
+const SLIDE_WIDTH = 300
+const SLIDE_GAP = 30
+
+/**
+ * How many slides loop mode needs before Swiper will accept it.
+ *
+ * `slidesPerView="auto"` means the visible count depends on the viewport, so a
+ * constant threshold can't work: 10 slides loop fine on a phone and are "not
+ * enough" on a desktop. Swiper wants roughly twice the visible count (it
+ * duplicates the run to fake the wrap), so we measure the container and derive
+ * it. Below the threshold loop is switched OFF — which is what Swiper did
+ * anyway, only silently and after logging a warning on every render.
+ */
+function useLoopEnabled(slideCount: number) {
+  const containerRef = React.useRef<HTMLDivElement>(null)
+  const [enabled, setEnabled] = React.useState(false)
+
+  React.useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+
+    const measure = () => {
+      const width = el.clientWidth || window.innerWidth
+      const perView = Math.max(1, Math.ceil(width / (SLIDE_WIDTH + SLIDE_GAP)))
+      setEnabled(slideCount >= perView * 2 + 1)
+    }
+
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [slideCount])
+
+  return { containerRef, loopEnabled: enabled }
+}
+
 export const CardCarousel: React.FC<CarouselProps> = ({
   images,
   autoplayDelay = 1500,
@@ -36,6 +73,7 @@ export const CardCarousel: React.FC<CarouselProps> = ({
   showNavigation = true,
   unoptimized = false,
 }) => {
+  const { containerRef, loopEnabled } = useLoopEnabled(images.length)
   const css = `
   .swiper {
     width: 100%;
@@ -45,7 +83,7 @@ export const CardCarousel: React.FC<CarouselProps> = ({
   .swiper-slide {
     background-position: center;
     background-size: cover;
-    width: 300px;
+    width: ${SLIDE_WIDTH}px;
   }
 
   .swiper-slide img {
@@ -75,9 +113,12 @@ export const CardCarousel: React.FC<CarouselProps> = ({
   return (
     <section className="w-full">
       <style>{css}</style>
-      <div className="w-full">
+      <div className="w-full" ref={containerRef}>
         <Swiper
-          spaceBetween={30}
+          // Re-init when loop flips, so Swiper rebuilds its duplicated slides
+          // instead of trying to toggle the mode in place.
+          key={loopEnabled ? "loop" : "no-loop"}
+          spaceBetween={SLIDE_GAP}
           autoplay={{
             delay: autoplayDelay,
             disableOnInteraction: false,
@@ -85,7 +126,7 @@ export const CardCarousel: React.FC<CarouselProps> = ({
           effect={"coverflow"}
           grabCursor={true}
           centeredSlides={true}
-          loop={true}
+          loop={loopEnabled}
           slidesPerView={"auto"}
           coverflowEffect={{
             rotate: 0,

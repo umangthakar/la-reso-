@@ -98,14 +98,12 @@ export async function POST(req: Request) {
       return NextResponse.json(GENERIC_OK);
     }
     if (!userId) {
-      console.log("[api/auth/resend-verification] unknown email — generic response");
       return NextResponse.json(GENERIC_OK);
     }
 
     // 3. Skip if the email is already confirmed — nothing to resend.
     const { data: userRes } = await admin.auth.admin.getUserById(userId as string);
     if (userRes?.user?.email_confirmed_at) {
-      console.log("[api/auth/resend-verification] already verified — generic response");
       return NextResponse.json(GENERIC_OK);
     }
 
@@ -122,7 +120,6 @@ export async function POST(req: Request) {
       const elapsed = Date.now() - new Date(last.created_at as string).getTime();
       if (elapsed < COOLDOWN_MS) {
         const retryAfter = Math.ceil((COOLDOWN_MS - elapsed) / 1000);
-        console.log("[api/auth/resend-verification] cooldown active", { email, retryAfter });
         return fail(429, `Please wait ${retryAfter} seconds before requesting another email.`, {
           retryAfterSeconds: retryAfter,
         });
@@ -154,7 +151,6 @@ export async function POST(req: Request) {
     if (!result.ok) {
       console.error("[api/auth/resend-verification] email failed", { error: result.error });
     } else {
-      console.log("[api/auth/resend-verification] verification email sent (rotated)", { userId });
     }
   } catch (e) {
     console.error("[api/auth/resend-verification] unexpected exception", e);

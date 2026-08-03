@@ -109,8 +109,15 @@ export function validateAuthEmailEnv(): AuthEmailEnvReport {
 
 type LogData = Record<string, unknown>;
 
-/** One structured, prefixed log line per auth-email event. */
+/**
+ * One structured, prefixed log line per auth-email event.
+ *
+ * Development only: these carry the recipient's email address and fire on
+ * every signup / reset / verification, which is noise (and PII) in a
+ * production log. Failures are unaffected — they go through `logError`.
+ */
 function log(event: string, data: LogData): void {
+  if (process.env.NODE_ENV === "production") return;
   // eslint-disable-next-line no-console
   console.log("[auth-email]", event, data);
 }

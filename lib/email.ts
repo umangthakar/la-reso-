@@ -55,15 +55,10 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
   const key = (process.env.RESEND_API_KEY ?? "").trim();
   const to = (input.to ?? "").trim();
 
-  // Diagnostic: surface exactly what the server has loaded at send time.
-  console.log("EMAIL CONFIG", {
-    resend: !!process.env.RESEND_API_KEY,
-    owner: process.env.OWNER_EMAIL,
-    from: process.env.EMAIL_FROM,
-  });
-  console.log("EMAIL from address", fromAddress());
-  console.log("EMAIL to (recipient)", to || "(empty)");
-
+  // No per-send diagnostics here: this ran on every email and printed the
+  // recipient's address (and the configured owner/from addresses) into the
+  // server log. Misconfiguration and failures are still reported below via
+  // console.error, which is where an operator actually needs to look.
   if (!key) {
     console.error("Resend Error: RESEND_API_KEY missing — no request will be sent to Resend.");
     return { ok: false, error: "email not configured: RESEND_API_KEY missing" };
@@ -74,7 +69,6 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
   }
 
   try {
-    console.log("EMAIL sending request to Resend...", { subject: input.subject });
     const res = await fetch(RESEND_ENDPOINT, {
       method: "POST",
       headers: {
@@ -102,8 +96,6 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
       return { ok: false, error: `Resend ${res.status}: ${detail.slice(0, 200)}` };
     }
 
-    console.log("Resend response:", detail || "(empty body)");
-    console.log("Email sent successfully.");
     return { ok: true };
   } catch (e) {
     console.error("Resend Error (network/exception)", e);

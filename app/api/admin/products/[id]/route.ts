@@ -7,6 +7,8 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/server";
 import { isAuthedRequest } from "@/lib/admin-auth";
+import { revalidateTag } from "next/cache";
+import { TAGS } from "@/lib/cache-tags";
 import { persistExtras } from "@/lib/product-variants";
 
 export const dynamic = "force-dynamic";
@@ -46,6 +48,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   // still saves the core product fields.
   await persistExtras(supabase, params.id, body);
 
+  revalidateTag(TAGS.products);
   return NextResponse.json({ product: data });
 }
 
@@ -74,6 +77,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  revalidateTag(TAGS.products);
   return NextResponse.json({ product: data });
 }
 
@@ -84,5 +88,6 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
   const supabase = adminDb();
   const { error } = await supabase.from("products").delete().eq("id", params.id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  revalidateTag(TAGS.products);
   return NextResponse.json({ ok: true });
 }

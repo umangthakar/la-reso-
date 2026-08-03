@@ -28,6 +28,7 @@ import { useSiteSettings } from "@/lib/use-site-settings";
 import { createClient } from "@/utils/supabase/client";
 import { getStripePromise } from "@/lib/stripe-client";
 import { money, round2, matchDeliveryZone } from "@/lib/pricing";
+import { formatSizeLabel } from "@/lib/size-label";
 import {
   NAME_MAX,
   normaliseLine,
@@ -588,7 +589,9 @@ export default function CheckoutPage() {
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-bold text-darkberry">{i.name}</p>
                         {i.sizeLabel && (
-                          <p className="text-xs text-berry/80">Size: {i.sizeLabel}</p>
+                          <p className="text-xs text-berry/80">
+                            Size: {formatSizeLabel(i.sizeLabel)}
+                          </p>
                         )}
                         <p className="text-xs text-berry">Qty {i.quantity}</p>
                         {/* Accessories + prices, so they can check it before paying */}
@@ -679,7 +682,9 @@ export default function CheckoutPage() {
                                 // The chosen size rides on the stored name so it
                                 // shows in order history, the baker's WhatsApp
                                 // and the customer's email.
-                                name: i.sizeLabel ? `${i.name} — ${i.sizeLabel}` : i.name,
+                                name: i.sizeLabel
+                                  ? `${i.name} — ${formatSizeLabel(i.sizeLabel)}`
+                                  : i.name,
                                 price: i.price,
                                 quantity: i.quantity,
                                 addons: i.addons ?? 0,
@@ -702,7 +707,9 @@ export default function CheckoutPage() {
                           orderId,
                           orderNumber: toOrderNumber(orderId),
                           items: items.map((i) => ({
-                            name: i.sizeLabel ? `${i.name} — ${i.sizeLabel}` : i.name,
+                            name: i.sizeLabel
+                              ? `${i.name} — ${formatSizeLabel(i.sizeLabel)}`
+                              : i.name,
                             quantity: i.quantity,
                             // Accessories included, so the confirmation's line
                             // totals add up to what was actually charged.
@@ -778,7 +785,7 @@ export default function CheckoutPage() {
                 <li key={i.id} className="flex justify-between gap-2 text-berry">
                   <span className="min-w-0 truncate">
                     {i.quantity} × {i.name}
-                    {i.sizeLabel ? ` (${i.sizeLabel})` : ""}
+                    {i.sizeLabel ? ` (${formatSizeLabel(i.sizeLabel)})` : ""}
                   </span>
                   <span className="shrink-0 font-semibold text-darkberry">
                     {money(unitPriceOf(i) * i.quantity)}

@@ -10,6 +10,8 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/server";
 import { isAuthedRequest } from "@/lib/admin-auth";
+import { revalidateTag } from "next/cache";
+import { TAGS } from "@/lib/cache-tags";
 import { persistExtras } from "@/lib/product-variants";
 import { PRODUCT_SORTS, parseProductSort } from "@/lib/product-sort";
 
@@ -112,6 +114,10 @@ export async function POST(req: Request) {
       await persistExtras(supabase, data.id, body);
     }
 
+    // Product catalogue changed: refresh the cached SEO reads (titles,
+    // descriptions, sitemap entries) immediately rather than waiting out the
+    // 1h window. See lib/cache-tags.
+    revalidateTag(TAGS.products);
     return NextResponse.json({ product: data });
   } catch (e) {
     return NextResponse.json(

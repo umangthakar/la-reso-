@@ -18,6 +18,7 @@
 
 import { NextResponse } from "next/server";
 import { sanitiseParents, type ParentMap } from "@/lib/category-hierarchy";
+import { PUBLIC_SETTINGS_VIEW } from "@/lib/site-settings";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -37,23 +38,94 @@ const DEFAULT_CATEGORIES = [
   "Gift Boxes",
 ];
 
-/** One settings read for a given select, or null if the request failed. */
+/**
+ * One settings read for a given select, or null if the request failed.
+ *
+ * Reads the PUBLIC PROJECTION first: site_settings is no longer anon-readable
+ * because it holds the encrypted Stripe secret key (audit finding C4). Both
+ * `categories` and `category_parents` are carried by the view.
+ *
+ * The base table is retried second only so this code is safe to deploy either
+ * side of supabase/sql/43_critical_security_fixes.sql — before it the view does
+ * not exist, after it the table read is refused. Either way the menu keeps its
+ * tabs instead of falling back to the hard-coded six.
+ */
 async function readSettings(
   select: string,
 ): Promise<{ categories?: unknown; category_parents?: unknown } | null> {
-  const res = await fetch(
-    `${SUPABASE_URL}/rest/v1/site_settings?select=${select}&limit=1`,
-    {
-      headers: {
-        apikey: SUPABASE_ANON_KEY as string,
-        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+  for (const resource of [PUBLIC_SETTINGS_VIEW, "site_settings"]) {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/${resource}?select=${select}&limit=1`,
+      {
+        headers: {
+          apikey: SUPABASE_ANON_KEY as string,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        },
+        cache: "no-store",
       },
-      cache: "no-store",
-    },
-  );
-  if (!res.ok) return null;
-  const rows = (await res.json()) as Record<string, unknown>[];
-  return rows?.[0] ?? {};
+    );
+    if (!res.ok) continue;
+    const rows = (await res.json()) as Record<string, unknown>[];
+    return rows?.[0] ?? {};
+  }
+  return null;
+}
+
+/**
+ * The set of category names that currently have at least one VISIBLE, in-stock
+ * product. Returns null when the lookup fails, which the caller treats as
+ * "don't filter" — a storefront with every tab is better than one with none.
+ *
+ * Reads with the anon key, so RLS ("Public read visible products") already
+ * limits this to what a shopper can actually see.
+ */
+async function fetchPopulatedCategories(): Promise<Set<string> | null> {
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/products?select=category&visible=eq.true`,
+      {
+        headers: {
+          apikey: SUPABASE_ANON_KEY as string,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        },
+        cache: "no-store",
+      },
+    );
+    if (!res.ok) return null;
+    const rows = (await res.json()) as { category: string | null }[];
+    if (!Array.isArray(rows)) return null;
+    const set = new Set<string>();
+    for (const r of rows) {
+      const c = (r?.category ?? "").trim();
+      if (c) set.add(c);
+    }
+    return set;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * True when `name` has products of its own, or any descendant does.
+ * Depth-guarded so a malformed parent map can't loop (sanitiseParents already
+ * rejects cycles; this is belt and braces).
+ */
+function hasStock(
+  name: string,
+  all: string[],
+  parents: ParentMap,
+  populated: Set<string>,
+): boolean {
+  if (populated.has(name)) return true;
+  const children = all.filter((c) => parents[c] === name);
+  let depth = 0;
+  let frontier = children;
+  while (frontier.length > 0 && depth < 5) {
+    if (frontier.some((c) => populated.has(c))) return true;
+    frontier = all.filter((c) => frontier.includes(parents[c] ?? ""));
+    depth += 1;
+  }
+  return false;
 }
 
 export async function GET() {
@@ -85,14 +157,40 @@ export async function GET() {
       : null;
 
     // Null/absent value → fall back; a legitimately empty array is honoured.
-    const categories = list ?? DEFAULT_CATEGORIES;
+    const curated = list ?? DEFAULT_CATEGORIES;
     // Sanitised with the shared rules, so a hand-edited map can never point at
     // a category that isn't in the list or describe a cycle.
     const parents = hasParents
-      ? sanitiseParents(categories, row.category_parents)
+      ? sanitiseParents(curated, row.category_parents)
       : ({} as ParentMap);
 
-    return NextResponse.json({ categories, parents }, { headers: noStore });
+    // ---- Drop categories with nothing to show -------------------------------
+    // "Cookies" and "Mini Treats" were live tabs leading to "No products in
+    // this category yet" — a dead end on the main shopping surface. They stay in
+    // site_settings.categories (the admin still manages them, and adding a
+    // product brings the tab straight back); they are simply not offered to
+    // shoppers while empty.
+    //
+    // A PARENT counts as non-empty when it, or any of its descendants, has a
+    // visible product — otherwise selecting "Cakes" could hide the 39 Custom
+    // Cakes nested under it.
+    const populated = await fetchPopulatedCategories();
+    const categories =
+      populated === null
+        ? curated // couldn't check → show everything, as before
+        : curated.filter((name) => hasStock(name, curated, parents, populated));
+
+    // Keep the parent map consistent with the filtered list.
+    const visible = new Set(categories);
+    const filteredParents: ParentMap = {};
+    for (const [child, parent] of Object.entries(parents)) {
+      if (visible.has(child) && parent && visible.has(parent)) filteredParents[child] = parent;
+    }
+
+    return NextResponse.json(
+      { categories, parents: filteredParents },
+      { headers: noStore },
+    );
   } catch {
     return NextResponse.json(fallback, { headers: noStore });
   }

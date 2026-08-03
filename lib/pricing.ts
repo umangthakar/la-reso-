@@ -79,17 +79,6 @@ export function matchDeliveryZone(
     }
   }
 
-  // [debug] TEMPORARY — remove once postcode matching is confirmed.
-  console.log("[delivery] postcode match", {
-    customerInput: postcode ?? "",
-    normalizedInput: normalized,
-    extractedPrefix: outward,
-    deliveryPrefixesLoaded: prefixesLoaded,
-    matchedPrefix: best?.prefix ?? null,
-    appliedFee: best ? round2(best.fee) : null,
-    reason: best ? "matched stored prefix" : "no stored prefix matched → invalid postcode",
-  });
-
   return best ? { prefix: best.prefix, fee: round2(best.fee) } : null;
 }
 

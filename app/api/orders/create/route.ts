@@ -11,6 +11,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/server";
 import { getStripe } from "@/lib/stripe";
 import { matchDeliveryZone, normalizePostcode, round2 } from "@/lib/pricing";
+import { priceBasket, type IncomingItem } from "@/lib/basket-pricing";
 import { notifyOrder } from "@/lib/notifications";
 import { sendOrderNotification } from "@/lib/ntfy";
 import {
@@ -51,27 +52,19 @@ function isCheckViolation(err: { code?: string; message?: string } | null): bool
   return /violates check constraint|check constraint/i.test(err.message ?? "");
 }
 
-type OrderItemCustomization = {
-  lines?: { key: string; label: string; value: string; price: number }[];
-  selections?: Record<string, unknown>;
-  total?: number;
-};
-
 type Body = {
   paymentIntentId?: string;
   customer?: { name?: string; email?: string; phone?: string };
   address?: { line?: string; city?: string; postcode?: string };
   deliveryDate?: string;
   specialInstructions?: string;
-  items?: {
-    id: string;
-    name: string;
-    price: number;
-    quantity: number;
-    /** Per-unit accessory extra from the cake customization wizard. */
-    addons?: number;
-    customization?: OrderItemCustomization | null;
-  }[];
+  /**
+   * The basket, as IDENTIFIERS ONLY. `name`, `price` and `addons` may still be
+   * present (older tabs send them) but are deliberately IGNORED — every money
+   * field and every label on the saved order is re-derived from the database by
+   * priceBasket() below. See the C3 note in that block.
+   */
+  items?: IncomingItem[];
 };
 
 export async function POST(req: Request) {
@@ -141,6 +134,47 @@ export async function POST(req: Request) {
     return NextResponse.json({ orderId: existing.data.id });
   }
 
+  // ---- C3: REBUILD THE BASKET SERVER-SIDE --------------------------------
+  // This route used to write order_items straight from the request body, so a
+  // crafted call could pay for one cupcake and record ten £109 cakes against
+  // the order. The client is now trusted ONLY for identifiers and quantity:
+  // priceBasket() re-reads every product, size price, accessory extra and
+  // label from the database — the same function /api/checkout/create-intent
+  // used to compute the amount Stripe actually charged.
+  //
+  // The recomputed subtotal is then compared with the subtotal recorded on the
+  // PaymentIntent by our own server. Any tampering with productId, sizeId,
+  // quantity or the wizard selections changes that number and fails the check.
+  const priceResult = await priceBasket(supabase, Array.isArray(body.items) ? body.items : []);
+  const priced = priceResult.ok
+    ? priceResult.basket
+    : { lines: [] as never[], subtotal: 0 };
+
+  // Tolerance of half a penny absorbs float representation only, not tampering.
+  const basketMatchesCharge =
+    priceResult.ok && Math.abs(priced.subtotal - metaSubtotal) < 0.005;
+
+  // A mismatch is NOT allowed to write the client's version of the basket.
+  // But the payment has already succeeded, so it must not lose a real
+  // customer's order either: we save the order (with the authoritative Stripe
+  // amounts) and simply omit the line items, flagging it loudly for the owner.
+  // An attacker therefore gains nothing — no inflated item ever reaches the
+  // baker — while a genuine order that fell foul of, say, an admin editing a
+  // price mid-checkout still arrives and can be reconciled by hand.
+  let pricingNote: string | null = null;
+  if (!basketMatchesCharge) {
+    pricingNote =
+      "⚠️ ITEMS COULD NOT BE VERIFIED — the basket did not re-price to the amount charged. " +
+      "Contact the customer to confirm what they ordered before baking.";
+    console.error("[orders/create] basket did not match the charged amount", {
+      paymentIntentId,
+      chargedSubtotal: metaSubtotal,
+      recomputedSubtotal: priceResult.ok ? priced.subtotal : null,
+      pricingError: priceResult.ok ? null : priceResult.error,
+      itemCount: Array.isArray(body.items) ? body.items.length : 0,
+    });
+  }
+
   const addr = body.address ?? {};
   // cleanString/cleanText return "" for any non-string, so a crafted payload
   // like {address:{line:{}}} cannot stringify an object into the database.
@@ -148,7 +182,10 @@ export async function POST(req: Request) {
   const addressCity = cleanString(addr.city, 100);
   const deliveryAddress = [addressLine, addressCity].filter(Boolean).join(", ");
   const postcode = cleanString(addr.postcode, 20);
-  const instructions = cleanText(body.specialInstructions, 2000) || null;
+  const customerInstructions = cleanText(body.specialInstructions, 2000) || null;
+  // The verification warning rides on the same field the baker already reads.
+  const instructions =
+    [customerInstructions, pricingNote].filter(Boolean).join("\n\n") || null;
 
   const customerName = normaliseName(cleanString(body.customer?.name, 200));
   const customerEmail = normaliseEmail(body.customer?.email);
@@ -287,26 +324,28 @@ export async function POST(req: Request) {
     );
   }
 
-  // 4) Insert line items (best-effort snapshot for analytics / invoices).
+  // 4) Insert line items (snapshot for analytics / invoices / the baker).
   //    A customized cake also carries its accessories: `addons_total` is the
   //    per-unit extra and `customization` is the resolved, human-readable
   //    choice list the baker works from. Both are snapshots — editing or
   //    deleting an accessory later must never rewrite a placed order.
-  const items = Array.isArray(body.items) ? body.items : [];
-  if (items.length > 0) {
-    const rows = items.map((i) => {
-      const qty = Math.max(1, Math.trunc(Number(i.quantity)) || 1);
-      const unit = round2(Number(i.price) || 0);
-      const addons = round2(Math.max(0, Number(i.addons) || 0));
+  //
+  //    These rows are built from `priced` (computed above from the DB), NOT
+  //    from the request body, so the names, prices and add-on totals recorded
+  //    against the order are the ones that were actually charged.
+  if (basketMatchesCharge && priced.lines.length > 0) {
+    const rows = priced.lines.map((line) => {
+      const unit = round2(line.unitPrice);
+      const addons = round2(Math.max(0, line.addons));
       return {
         order_id: order.id,
-        product_id: i.id,
-        product_name: i.name,
+        product_id: line.productId,
+        product_name: line.name,
         unit_price: unit,
-        quantity: qty,
-        line_total: round2((unit + addons) * qty),
+        quantity: line.quantity,
+        line_total: round2((unit + addons) * line.quantity),
         addons_total: addons,
-        customization: i.customization ?? null,
+        customization: line.customization,
       };
     });
 
@@ -362,12 +401,14 @@ export async function POST(req: Request) {
       address: [deliveryAddress, postcode].filter(Boolean).join(" "),
       deliveryDate: String(body.deliveryDate ?? ""),
       specialInstructions: instructions ?? "",
-      items: items.map((i) => ({
-        name: i.name,
-        quantity: Math.max(1, Math.trunc(Number(i.quantity)) || 1),
-        unitPrice: round2(Number(i.price) || 0),
-        addons: round2(Math.max(0, Number(i.addons) || 0)),
-        lines: i.customization?.lines ?? [],
+      // Same server-rebuilt lines that were written to order_items, so the
+      // customer's email and the baker's WhatsApp quote what was charged.
+      items: priced.lines.map((line) => ({
+        name: line.name,
+        quantity: line.quantity,
+        unitPrice: round2(line.unitPrice),
+        addons: round2(Math.max(0, line.addons)),
+        lines: line.customization?.lines ?? [],
       })),
       subtotal: metaSubtotal,
       discount: metaDiscount,

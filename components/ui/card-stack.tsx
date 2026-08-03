@@ -316,6 +316,14 @@ function DefaultFanCard({ item }: { item: CardStackItem; active: boolean }) {
     <div className="relative h-full w-full">
       <div className="absolute inset-0">
         {item.imageSrc ? (
+          // Deliberately a plain <img>, not next/image. CardStack is a generic
+          // component whose `imageSrc` can be any URL a caller passes (Google
+          // review avatars, for instance, are served from googleusercontent
+          // hosts that are not in next.config's remotePatterns) — next/image
+          // would throw on those rather than degrade. The only caller in this
+          // app (components/testimonials.tsx) supplies its own `renderCard`,
+          // so this fallback card does not render in production today.
+          // eslint-disable-next-line @next/next/no-img-element
           <img
             src={item.imageSrc}
             alt={item.title}

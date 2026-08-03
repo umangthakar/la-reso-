@@ -1,15 +1,18 @@
 // ============================================================
 // Le Rasa Bakery — client-side admin API helper
 // ------------------------------------------------------------
-// Thin fetch wrapper used by the admin dashboard pages. It attaches
-// the admin password header to every request and throws a readable
-// error if something goes wrong, so each page can just `await` and
-// show a message. Never import server-only modules here.
+// Thin fetch wrapper used by the admin dashboard pages. Authorisation now
+// rides on the signed, httpOnly `admin_session` cookie that
+// /api/admin/login sets, so this module holds NO credential at all — it
+// just makes sure the cookie is sent (`credentials: "same-origin"`) and
+// throws a readable error if something goes wrong, so each page can just
+// `await` and show a message.
+//
+// The cookie is httpOnly by design: this file cannot read it, and neither
+// can any injected script. Never import server-only modules here.
 // ============================================================
 
 "use client";
-
-import { ADMIN_AUTH_HEADER, ADMIN_AUTH_KEY } from "./admin-auth";
 
 /**
  * A failed admin API call. `message` is unchanged from what callers have
@@ -25,14 +28,6 @@ export class AdminApiError extends Error {
     this.status = status;
     this.fields = fields;
   }
-}
-
-function authHeader(): Record<string, string> {
-  const pw =
-    typeof window !== "undefined"
-      ? window.sessionStorage.getItem(ADMIN_AUTH_KEY)
-      : null;
-  return pw ? { [ADMIN_AUTH_HEADER]: pw } : {};
 }
 
 // ------------------------------------------------------------
@@ -60,7 +55,7 @@ export async function adminGet<T>(url: string, opts?: { force?: boolean }): Prom
   // Never let the browser/HTTP layer serve a stale copy — admin data must be
   // live. (The in-memory GET_CACHE above is the only intended cache; bypass it
   // with { force: true } when freshness matters, e.g. the dashboard.)
-  const res = await fetch(url, { headers: { ...authHeader() }, cache: "no-store" });
+  const res = await fetch(url, { cache: "no-store", credentials: "same-origin" });
   if (!res.ok) throw await fail(res, `Request failed (${res.status})`);
   const data = (await res.json()) as T;
   GET_CACHE.set(url, { ts: Date.now(), data });
@@ -75,7 +70,8 @@ export async function adminSend<T>(
 ): Promise<T> {
   const res = await fetch(url, {
     method,
-    headers: { "Content-Type": "application/json", ...authHeader() },
+    headers: { "Content-Type": "application/json" },
+    credentials: "same-origin",
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!res.ok) throw await fail(res, `Request failed (${res.status})`);
@@ -110,7 +106,8 @@ export async function adminUpload<T = { url: string }>(
   for (const [key, value] of Object.entries(fields ?? {})) form.append(key, value);
   const res = await fetch(endpoint, {
     method: "POST",
-    headers: { ...authHeader() }, // do NOT set Content-Type; browser sets multipart boundary
+    // Do NOT set Content-Type; the browser sets the multipart boundary.
+    credentials: "same-origin",
     body: form,
   });
   if (!res.ok) throw await fail(res, "Image upload failed");

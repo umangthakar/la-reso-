@@ -155,7 +155,6 @@ export default function ReviewsPage() {
   }
 
   async function refresh() {
-    console.log("[reviews] Refresh clicked — POSTing /api/admin/reviews/refresh");
     setRefreshing(true);
     setError("");
     setNotice("");
@@ -165,7 +164,6 @@ export default function ReviewsPage() {
         result: { status: Status; message: string };
         config: ReviewsConfig;
       }>("/api/admin/reviews/refresh", "POST");
-      console.log("[reviews] Refresh response:", result);
       applyConfig(config);
       if (result.status === "connected") setNotice(`Reviews refreshed ✓ — ${result.message}`);
       else setError(result.message || "Refresh failed");

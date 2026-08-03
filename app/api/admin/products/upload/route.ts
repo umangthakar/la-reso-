@@ -1,12 +1,19 @@
 // ============================================================
 // Admin API — image upload to the "product-images" storage bucket
-// Service-role, password-gated. Returns the public URL.
+// Service-role, session-gated. Returns the public URL.
+//
+// The bucket is PUBLIC, so what lands in it is served from the project's
+// supabase.co domain. Every upload is therefore validated by content, not by
+// what the client claims: see lib/upload-validation (size cap, MIME allowlist
+// and magic-byte sniffing). The stored extension and contentType come from the
+// sniffed type, so a renamed .html can neither be stored nor served as markup.
 // ============================================================
 
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/server";
 import { isAuthedRequest } from "@/lib/admin-auth";
 import { PRODUCT_IMAGE_BUCKET as BUCKET } from "@/lib/product-storage";
+import { safeObjectPath, validateImageUpload } from "@/lib/upload-validation";
 
 export const dynamic = "force-dynamic";
 
@@ -16,18 +23,18 @@ export async function POST(req: Request) {
   }
 
   const form = await req.formData();
-  const file = form.get("file");
-  if (!(file instanceof File)) {
-    return NextResponse.json({ error: "No file provided" }, { status: 400 });
+  const validated = await validateImageUpload(form.get("file"));
+  if (!validated.ok) {
+    return NextResponse.json({ error: validated.error }, { status: validated.status });
   }
+  const { bytes, contentType, ext } = validated.file;
 
   const supabase = createAdminClient();
-  const ext = file.name.includes(".") ? file.name.split(".").pop() : "jpg";
-  const path = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+  const path = safeObjectPath(ext);
 
   const { error } = await supabase.storage
     .from(BUCKET)
-    .upload(path, file, { cacheControl: "3600", upsert: false, contentType: file.type });
+    .upload(path, bytes, { cacheControl: "3600", upsert: false, contentType });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 

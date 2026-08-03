@@ -30,12 +30,15 @@ import {
   PRIVACY_POLICY_SECTIONS,
 } from "@/lib/privacy-policy";
 
-// Branding is read no-store, so an admin edit to the brand name shows up in
-// this page's <title> on the next request.
-export const dynamic = "force-dynamic";
+// This page's CONTENT is code-owned (lib/privacy-policy.ts) — the admin panel
+// cannot change a word of it. The only dynamic value is the brand name in the
+// <title>. So instead of re-rendering ~43 kB of static legal copy on every
+// request, it is cached and revalidated every 5 minutes; a brand rename shows
+// up within that window, or immediately via revalidateTag("site-settings").
+export const revalidate = 300;
 
 export async function generateMetadata(): Promise<Metadata> {
-  const { branding } = await getPublicSettings();
+  const { branding } = await getPublicSettings({ revalidate: 300 });
 
   const title = `Privacy Policy — ${branding.name}`;
   const description =

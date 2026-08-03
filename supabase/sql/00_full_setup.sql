@@ -369,11 +369,21 @@ create policy "Public read active delivery zones"
   on public.delivery_zones for select
   using (active = true);
 
--- ORDERS — anyone can create an order (checkout / enquiry form).
+-- ORDERS — NO public insert policy, deliberately.
+--
+-- This used to be `create policy "Anyone can create an order" ... with check
+-- (true)`, from a time when the checkout inserted the order from the browser.
+-- It no longer does: /api/orders/create writes the order with the SERVICE ROLE
+-- key, which is exempt from RLS, only after verifying the PaymentIntent with
+-- Stripe. An unconditional public insert policy is therefore pure attack
+-- surface — it would let anyone POST straight to PostgREST and fabricate orders
+-- with any total and payment status they liked, bypassing Stripe, the
+-- server-side pricing, the postcode gate and all contact validation.
+--
+-- Removed here so provisioning a fresh project cannot reintroduce it.
+-- 43_critical_security_fixes.sql drops it from any database that already has it.
 drop policy if exists "Anyone can create an order" on public.orders;
-create policy "Anyone can create an order"
-  on public.orders for insert
-  with check (true);
+revoke insert on public.orders from anon, authenticated;
 
 -- ORDERS — a customer may read their OWN order via its tracking token,
 -- sent as the x-tracking-token request header (used by the tracking page).
@@ -384,11 +394,12 @@ create policy "Read own order by tracking token"
     tracking_token = current_setting('request.headers', true)::json->>'x-tracking-token'
   );
 
--- ORDER ITEMS — anyone can insert (checkout writes line items with the order).
+-- ORDER ITEMS — NO public insert policy, for the same reason as orders above.
+-- Line items are written by /api/orders/create with the service-role key, and
+-- are rebuilt there from the database rather than from the request body, so a
+-- caller can neither insert them directly nor dictate their contents.
 drop policy if exists "Anyone can create order items" on public.order_items;
-create policy "Anyone can create order items"
-  on public.order_items for insert
-  with check (true);
+revoke insert on public.order_items from anon, authenticated;
 
 -- ORDER ITEMS — readable only for an order the caller owns (tracking token).
 drop policy if exists "Read own order items by tracking token" on public.order_items;

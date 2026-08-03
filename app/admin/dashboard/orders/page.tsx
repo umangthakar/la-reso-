@@ -17,6 +17,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { adminGet, adminSend } from "@/lib/admin-api";
 import { useIsMobile } from "@/lib/use-is-mobile";
 import { useOrdersLive } from "@/lib/supabase/hooks/use-orders-live";
+import { FULFILMENT_ORDER, ORDER_STATUSES } from "@/lib/order-status";
 
 // NOTE: Client Component — must NOT export route segment config
 // (`dynamic`/`revalidate`); that 500s the route. Live data is guaranteed by
@@ -71,21 +72,11 @@ function fmtMoney(o: Order): string {
   return v == null ? "—" : `£${Number(v).toFixed(2)}`;
 }
 
-// Full status set (drives the filter dropdown). 'pending' = awaiting the
-// owner's acceptance; 'ready' = baked and ready to go out.
-const STATUS_ORDER = [
-  "pending",
-  "received",
-  "preparing",
-  "ready",
-  "out_for_delivery",
-  "delivered",
-  "cancelled",
-];
-
-// The fulfilment stages an accepted order advances through (excludes
-// 'pending', which is pre-acceptance, and 'cancelled').
-const FULFILMENT_ORDER = ["received", "preparing", "ready", "out_for_delivery", "delivered"];
+// Full status set (drives the filter dropdown) and the fulfilment stages an
+// accepted order advances through. Both come from lib/order-status so this page,
+// the Dashboard tile and the Analytics page can never drift apart again. Labels
+// and colours stay here in STATUS_META — that's presentation, not vocabulary.
+const STATUS_ORDER = ORDER_STATUSES;
 
 const STATUS_META: Record<string, { label: string; bg: string; fg: string }> = {
   pending: { label: "Pending", bg: "#fef3c7", fg: "#92400e" },

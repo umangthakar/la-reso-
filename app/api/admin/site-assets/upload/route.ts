@@ -8,6 +8,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/server";
 import { isAuthedRequest } from "@/lib/admin-auth";
+import { safeObjectPath, validateImageUpload } from "@/lib/upload-validation";
 
 export const dynamic = "force-dynamic";
 
@@ -19,10 +20,14 @@ export async function POST(req: Request) {
   }
 
   const form = await req.formData();
-  const file = form.get("file");
-  if (!(file instanceof File)) {
-    return NextResponse.json({ error: "No file provided" }, { status: 400 });
+  // Validated by content, not by the client's Content-Type — this bucket is
+  // public, so an unvalidated upload is arbitrary hosting. See
+  // lib/upload-validation.
+  const validated = await validateImageUpload(form.get("file"));
+  if (!validated.ok) {
+    return NextResponse.json({ error: validated.error }, { status: validated.status });
   }
+  const { bytes, contentType, ext } = validated.file;
 
   const supabase = createAdminClient();
 
@@ -33,12 +38,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: created.error.message }, { status: 500 });
   }
 
-  const ext = file.name.includes(".") ? file.name.split(".").pop() : "jpg";
-  const path = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+  const path = safeObjectPath(ext);
 
   const { error } = await supabase.storage
     .from(BUCKET)
-    .upload(path, file, { cacheControl: "3600", upsert: false, contentType: file.type });
+    .upload(path, bytes, { cacheControl: "3600", upsert: false, contentType });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 

@@ -10,10 +10,12 @@ import "server-only";
 import {
   DEFAULT_SETTINGS,
   PUBLIC_SETTINGS_SELECT,
+  PUBLIC_SETTINGS_VIEW,
   normaliseSettings,
   type PublicSettings,
 } from "@/lib/site-settings";
 import { offerFromRow, resolveActiveOffers, type Offer } from "@/lib/offers";
+import { TAGS } from "@/lib/cache-tags";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 // The anon key is now the "publishable" key; fall back to the legacy name.
@@ -21,21 +23,30 @@ const SUPABASE_ANON_KEY =
   process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-// Fetch the singleton row for a given PostgREST `select`. Returns the row on
-// success, `null` when there's no row, or `undefined` when the request itself
-// failed (e.g. a selected column doesn't exist → PostgREST 400). Always
-// no-store so admin edits reflect on the very next request.
+// Fetch the singleton row for a given PostgREST `select`, from a given
+// resource. Returns the row on success, `null` when there's no row, or
+// `undefined` when the request itself failed (e.g. a selected column doesn't
+// exist → PostgREST 400).
+//
+// DEFAULTS TO no-store, and that default is load-bearing: the navbar, footer,
+// announcement bar, hero and checkout all read through here, and an admin edit
+// must show up on the very next request. `revalidate` is an OPT-IN for the few
+// callers where a minute of staleness is harmless (see getPublicSettings).
 async function fetchSettingsRow(
   select: string,
+  resource: string,
+  revalidate?: number,
 ): Promise<Record<string, unknown> | null | undefined> {
   const res = await fetch(
-    `${SUPABASE_URL}/rest/v1/site_settings?select=${select}&limit=1`,
+    `${SUPABASE_URL}/rest/v1/${resource}?select=${select}&limit=1`,
     {
       headers: {
         apikey: SUPABASE_ANON_KEY as string,
         Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
       },
-      cache: "no-store",
+      ...(typeof revalidate === "number"
+        ? { next: { revalidate, tags: [TAGS.siteSettings] } }
+        : { cache: "no-store" as const }),
     },
   );
   if (!res.ok) return undefined;
@@ -44,8 +55,47 @@ async function fetchSettingsRow(
 }
 
 /**
- * Read the public site settings, always fresh (never cached). Returns
- * DEFAULT_SETTINGS on any failure so callers never have to handle nulls.
+ * The resources to try, in order, for a public settings read.
+ *
+ * PUBLIC_SETTINGS_VIEW first: site_settings itself is no longer anon-readable,
+ * because it holds stripe_config.secret_key_enc and
+ * google_reviews_config.api_key_enc (audit finding C4).
+ *
+ * The base table stays as a second attempt purely so this code is safe to
+ * deploy in either order relative to supabase/sql/43_critical_security_fixes.sql
+ * — before the migration the view doesn't exist, after it the table read is
+ * refused. Whichever half lands first, the storefront keeps rendering real
+ * settings instead of collapsing to defaults. Once 43 is applied the fallback
+ * is permanently inert and can be dropped.
+ */
+const SETTINGS_RESOURCES = [PUBLIC_SETTINGS_VIEW, "site_settings"] as const;
+
+/** Try each resource/select combination until one returns a usable row. */
+async function readSettingsRow(
+  revalidate?: number,
+): Promise<Record<string, unknown> | null | undefined> {
+  for (const resource of SETTINGS_RESOURCES) {
+    // Explicit public-column select first; then `*`, which covers a live DB
+    // that is missing a newer column (e.g. hero_banner / home_slider) — see
+    // the note on getPublicSettings below.
+    for (const select of [PUBLIC_SETTINGS_SELECT, "*"]) {
+      const row = await fetchSettingsRow(select, resource, revalidate);
+      if (row !== undefined) return row;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Read the public site settings. Fresh on every call BY DEFAULT — the navbar,
+ * footer, announcement bar, hero and checkout depend on that, so an admin edit
+ * appears on the very next request. Returns DEFAULT_SETTINGS on any failure so
+ * callers never have to handle nulls.
+ *
+ * `opts.revalidate` opts a caller into caching for that many seconds, tagged
+ * `site-settings`. Use it ONLY where staleness is harmless — currently the two
+ * code-owned legal pages, which read this for the brand name in their
+ * <title> and nothing else. Do not add it to storefront chrome.
  *
  * Resilient to schema drift: if the explicit public-column select fails
  * because the live DB is missing a newer column (e.g. hero_banner or
@@ -54,13 +104,12 @@ async function fetchSettingsRow(
  * setting silently collapsing to defaults. normaliseSettings only ever
  * returns public fields, so secret columns never leave this function.
  */
-export async function getPublicSettings(): Promise<PublicSettings> {
+export async function getPublicSettings(
+  opts: { revalidate?: number } = {},
+): Promise<PublicSettings> {
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return DEFAULT_SETTINGS;
   try {
-    let row = await fetchSettingsRow(PUBLIC_SETTINGS_SELECT);
-    if (row === undefined) {
-      row = await fetchSettingsRow("*");
-    }
+    const row = await readSettingsRow(opts.revalidate);
     return normaliseSettings(row ?? null);
   } catch {
     return DEFAULT_SETTINGS;

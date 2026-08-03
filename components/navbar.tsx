@@ -159,7 +159,7 @@ export function Navbar() {
             <Link
               href={ready && user ? "/account" : "/account/login"}
               aria-label={ready && user ? "My account" : "Sign in"}
-              className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-blush-50 text-darkberry shadow-clay-sm transition-shadow hover:shadow-clay"
+              className="tap-target grid h-10 w-10 shrink-0 place-items-center rounded-full bg-blush-50 text-darkberry shadow-clay-sm transition-shadow hover:shadow-clay"
             >
               {ready && user ? (
                 <span className="font-display text-sm font-semibold text-wine-dark">
@@ -172,7 +172,7 @@ export function Navbar() {
             <Button
               asChild
               size="sm"
-              className="h-10 w-10 shrink-0 p-0 sm:h-9 sm:w-auto sm:px-5 sm:text-sm"
+              className="tap-target h-10 w-10 shrink-0 p-0 sm:h-9 sm:w-auto sm:px-5 sm:text-sm"
             >
               <Link href="/contact#inquiry" aria-label="Contact for custom order">
                 <ShoppingBag className="h-5 w-5 sm:h-4 sm:w-4" />
@@ -181,7 +181,7 @@ export function Navbar() {
             </Button>
             <button
               onClick={() => setOpen((v) => !v)}
-              className="grid h-10 w-10 place-items-center rounded-full bg-blush-50 text-darkberry shadow-clay-sm md:hidden"
+              className="tap-target grid h-10 w-10 place-items-center rounded-full bg-blush-50 text-darkberry shadow-clay-sm md:hidden"
               aria-label="Toggle menu"
             >
               {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}

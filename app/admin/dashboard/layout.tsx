@@ -14,7 +14,6 @@
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
-import { ADMIN_AUTH_KEY } from "@/lib/admin-auth";
 import { useIsMobile } from "@/lib/use-is-mobile";
 
 const BLUSH = "#F9EEEA";
@@ -55,27 +54,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }, [pathname, isMobile]);
 
   useEffect(() => {
-    const stored = window.sessionStorage.getItem(ADMIN_AUTH_KEY);
-    if (!stored) {
-      router.replace("/admin");
-      return;
-    }
-    // Re-validate the stored password against the server, since the
-    // correct value no longer lives on the client.
+    // The session lives in an httpOnly cookie, so the client cannot inspect it
+    // — it asks the server instead. The cookie rides along automatically.
     let active = true;
-    fetch("/api/admin/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ password: stored }),
-    })
+    fetch("/api/admin/session", { cache: "no-store", credentials: "same-origin" })
       .then((res) => {
         if (!active) return;
-        if (res.ok) {
-          setReady(true);
-        } else {
-          window.sessionStorage.removeItem(ADMIN_AUTH_KEY);
-          router.replace("/admin");
-        }
+        if (res.ok) setReady(true);
+        else router.replace("/admin");
       })
       .catch(() => {
         if (active) router.replace("/admin");
@@ -86,8 +72,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }, [router]);
 
   function logout() {
-    window.sessionStorage.removeItem(ADMIN_AUTH_KEY);
-    router.replace("/admin");
+    // Only the server can clear an httpOnly cookie. Navigate regardless of the
+    // outcome so a failed request can never trap the admin in the dashboard.
+    void fetch("/api/admin/logout", { method: "POST", credentials: "same-origin" })
+      .catch(() => {})
+      .finally(() => router.replace("/admin"));
   }
 
   if (!ready) {
@@ -241,9 +230,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </aside>
 
       {/* Content */}
-      <main style={{ flex: 1, padding: isMobile ? "1.25rem 1rem" : "2rem", overflowX: "auto", width: isMobile ? "100%" : "auto", boxSizing: "border-box" }}>
+      {/* A plain container, not <main>: the root layout already provides the
+          document's single <main> landmark, and nesting a second one inside it
+          is invalid HTML. Styling is identical. */}
+      <div style={{ flex: 1, padding: isMobile ? "1.25rem 1rem" : "2rem", overflowX: "auto", width: isMobile ? "100%" : "auto", boxSizing: "border-box" }}>
         {children}
-      </main>
+      </div>
     </div>
   );
 }

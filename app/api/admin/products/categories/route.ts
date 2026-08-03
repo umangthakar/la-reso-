@@ -34,6 +34,8 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/server";
 import { isAuthedRequest } from "@/lib/admin-auth";
+import { revalidateTag } from "next/cache";
+import { TAGS } from "@/lib/cache-tags";
 import {
   canonical,
   createsCycle,
@@ -237,6 +239,8 @@ export async function POST(req: Request) {
     if (hasParents) {
       await saveParents(supabase, id, renameInParents(parents, oldName, next));
     }
+    // Categories affect product pages and the sitemap.
+    revalidateTag(TAGS.products);
     return NextResponse.json({ ok: true });
   } catch (e) {
     return NextResponse.json(
@@ -292,6 +296,8 @@ export async function PUT(req: Request) {
     if (resolvedParent) {
       await saveParents(supabase, id, { ...parents, [clean]: resolvedParent });
     }
+    // Categories affect product pages and the sitemap.
+    revalidateTag(TAGS.products);
     return NextResponse.json({ ok: true });
   } catch (e) {
     return NextResponse.json(
@@ -333,6 +339,7 @@ export async function PATCH(req: Request) {
       const next = { ...parents };
       delete next[child];
       await saveParents(supabase, id, next);
+      revalidateTag(TAGS.products);
       return NextResponse.json({ ok: true, name: child, parent: null });
     }
 
@@ -361,6 +368,7 @@ export async function PATCH(req: Request) {
     }
 
     await saveParents(supabase, id, { ...parents, [child]: parentName });
+    revalidateTag(TAGS.products);
     return NextResponse.json({ ok: true, name: child, parent: parentName });
   } catch (e) {
     return NextResponse.json(
@@ -447,6 +455,10 @@ export async function DELETE(req: Request) {
     // reported, never thrown — the delete DID happen, and telling the admin it
     // failed would be a lie that costs them a second attempt.
     const files = await removeProductImages(supabase, imageUrls);
+
+    // A category delete removes its products and re-parents its children, so
+    // the cached SEO reads (titles, sitemap) must not keep serving them.
+    revalidateTag(TAGS.products);
 
     return NextResponse.json({
       ok: true,
