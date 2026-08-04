@@ -675,20 +675,35 @@ export default function CheckoutPage() {
                               },
                               deliveryDate: form.deliveryDate,
                               specialInstructions: normaliseText(form.instructions),
+                              // IDENTIFIERS ONLY — this must carry exactly what
+                              // create-intent above sends, because both calls
+                              // feed the SAME server-side priceBasket(). The
+                              // server re-reads every price, name and size label
+                              // from the database and compares the result with
+                              // the amount Stripe actually charged; an item that
+                              // omits an identifier re-prices to something else,
+                              // fails that comparison and is refused a line on
+                              // the order. `sizeId` in particular is what makes a
+                              // sized cake re-price to the size the customer
+                              // picked rather than the base product price.
                               items: items.map((i) => ({
                                 // The PRODUCT id — order_items.product_id is a
                                 // real FK, so a cart-line id would not resolve.
                                 id: productIdOf(i),
-                                // The chosen size rides on the stored name so it
-                                // shows in order history, the baker's WhatsApp
-                                // and the customer's email.
-                                name: i.sizeLabel
-                                  ? `${i.name} — ${formatSizeLabel(i.sizeLabel)}`
-                                  : i.name,
-                                price: i.price,
+                                productId: productIdOf(i),
+                                // The chosen size. The server derives the price
+                                // AND the stored name (product + size label)
+                                // from this, so order history, the baker's
+                                // WhatsApp and the customer's email all quote
+                                // the size that was charged for.
+                                sizeId: i.sizeId,
                                 quantity: i.quantity,
-                                addons: i.addons ?? 0,
-                                customization: i.customization ?? null,
+                                // Same shape create-intent sends: priceBasket
+                                // reads `customization.selections` and re-prices
+                                // the accessories from the live wizard config.
+                                customization: i.customization
+                                  ? { selections: i.customization.selections }
+                                  : undefined,
                               })),
                             }),
                           });
