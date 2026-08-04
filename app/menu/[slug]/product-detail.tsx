@@ -409,18 +409,22 @@ export default function ProductDetailPage() {
     const quantity = Math.min(99, Math.max(1, pending!.quantity ?? 1));
     setQty(quantity);
 
-    // Same fork as a fresh Buy Now: only cakes get customized first. Cupcakes
-    // and every other product skip the accessories page (category-gated, so a
-    // stray is_customizable flag can't drag a cupcake into the wizard).
-    if (isCustomizable(product.id) && isCakeCategory(product.category)) {
-      router.push(`/customize/${slugify(product.name)}?qty=${quantity}`);
-      return;
-    }
     // Restore the chosen size (stashed as `variant`) if it still exists; its
     // absolute price becomes the line price, mirroring a fresh Buy Now.
     const resumeSize =
       sizes.find((s) => s.id === pending!.variant) ??
       (sizes.length > 0 ? sizes[0] : null);
+
+    // Same fork as a fresh Buy Now: only cakes get customized first. Cupcakes
+    // and every other product skip the accessories page (category-gated, so a
+    // stray is_customizable flag can't drag a cupcake into the wizard).
+    if (isCustomizable(product.id) && isCakeCategory(product.category)) {
+      router.push(
+        `/customize/${slugify(product.name)}?qty=${quantity}` +
+          (resumeSize ? `&size=${encodeURIComponent(resumeSize.id)}` : ""),
+      );
+      return;
+    }
     addItem(
       {
         id: resumeSize ? `${product.id}::size:${resumeSize.id}` : product.id,
@@ -527,7 +531,23 @@ export default function ProductDetailPage() {
       : {}),
   };
 
+  // The accessories page for this product, carrying the quantity AND the size
+  // the customer picked here (the wizard re-prices from it, so a Large cake
+  // never falls back to the base price).
+  const customizeHref =
+    `/customize/${productSlug}?qty=${qty}` +
+    (selectedSize ? `&size=${encodeURIComponent(selectedSize.id)}` : "");
+
+  // Only a cake is customized before it reaches the basket; cupcakes and every
+  // other product keep the existing straight-to-cart flow (category-gated, so a
+  // stray is_customizable flag can't open the accessories page).
+  const goesToWizard = isCustomizable(product.id) && isCakeCategory(product.category);
+
   const addToCart = () => {
+    if (goesToWizard) {
+      router.push(customizeHref);
+      return;
+    }
     addItem(cartLine, qty);
     openCart();
   };
@@ -549,8 +569,8 @@ export default function ProductDetailPage() {
     if (!allowed) return;
     // Only cakes go through the accessories page; everything else keeps the
     // existing straight-to-checkout flow.
-    if (isCustomizable(product.id) && isCakeCategory(product.category)) {
-      router.push(`/customize/${cartLine.slug}?qty=${qty}`);
+    if (goesToWizard) {
+      router.push(customizeHref);
       return;
     }
     addItem(cartLine, qty);

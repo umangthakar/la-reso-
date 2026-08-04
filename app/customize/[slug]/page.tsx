@@ -52,6 +52,9 @@ type WizardProduct = {
   is_customizable: boolean;
 };
 
+/** A size variant carried over from the product page. */
+type ChosenSize = { id: string; label: string; price: number };
+
 const FALLBACK_IMAGE =
   "https://images.unsplash.com/photo-1486427944299-d1955d23e34d?auto=format&fit=crop&w=900&q=80";
 
@@ -106,6 +109,11 @@ export default function CustomizePage() {
   const [product, setProduct] = useState<WizardProduct | null>(null);
   const [loading, setLoading] = useState(true);
   const [qty, setQty] = useState(1);
+  // The size chosen on the product page (?size=<id>), resolved against
+  // product_sizes. Its price is ABSOLUTE and replaces the base product price,
+  // exactly as on /menu/[slug].
+  const [sizeParam, setSizeParam] = useState<string | null>(null);
+  const [size, setSize] = useState<ChosenSize | null>(null);
   const [selections, setSelections] = useState<Selections>({});
   const [seeded, setSeeded] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -119,10 +127,12 @@ export default function CustomizePage() {
   // from the URL rather than via useSearchParams, which would force a Suspense
   // boundary at build time (same reason as the login page).
   useEffect(() => {
-    const raw = Number(new URLSearchParams(window.location.search).get("qty"));
+    const params = new URLSearchParams(window.location.search);
+    const raw = Number(params.get("qty"));
     if (Number.isFinite(raw) && raw > 0) {
       setQty(Math.min(99, Math.max(1, Math.trunc(raw))));
     }
+    setSizeParam(params.get("size"));
   }, []);
 
   // Purchasing requires a signed-in customer — including when someone lands on
@@ -171,6 +181,39 @@ export default function CustomizePage() {
     };
   }, [slug]);
 
+  // Resolve ?size=<id> against this product's variants. Own try/catch so a
+  // database without `product_sizes` simply leaves the base price in place.
+  useEffect(() => {
+    if (!product || !sizeParam) {
+      setSize(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const db = createClient() as unknown as SupabaseClient;
+        const { data, error } = await db
+          .from("product_sizes")
+          .select("id,label,price")
+          .eq("product_id", product.id)
+          .eq("id", sizeParam)
+          .maybeSingle();
+        if (cancelled) return;
+        const row = error ? null : (data as { id: string; label: string; price: number } | null);
+        setSize(
+          row
+            ? { id: String(row.id), label: String(row.label), price: Number(row.price) || 0 }
+            : null,
+        );
+      } catch {
+        if (!cancelled) setSize(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [product, sizeParam]);
+
   // Accessories, the cake message and the whole wizard belong to CAKES only —
   // decided by the product's category, never its name (see isCakeCategory).
   // Cupcakes and everything else fall through to the minimal add-to-basket view.
@@ -202,6 +245,10 @@ export default function CustomizePage() {
   // cake whose accessories were all disabled) renders the minimal add-to-basket
   // view below instead of the wizard — no redirect, no empty accessories page.
   const showFull = isCake && categories.length > 0;
+
+  // A size variant's price is absolute — it replaces the base product price
+  // everywhere on this page, so the total matches what the product page showed.
+  const basePrice = size ? size.price : product?.price ?? 0;
 
   const shown = useMemo(
     () => visibleCategories(categories, selections),
@@ -315,19 +362,25 @@ export default function CustomizePage() {
   function handleContinue() {
     if (!product) return;
 
+    // The chosen size (when the product page sent one) keeps each size its own
+    // cart line and carries the identity the server re-prices from.
+    const sizeLine = size ? { sizeId: size.id, sizeLabel: size.label } : {};
+    const sizedId = size ? `${product.id}::size:${size.id}` : product.id;
+
     // Non-cake (or a cake with nothing to customize): add the plain product and
     // go — no accessories, no message, no validation. Identical line shape to
     // the menu page's straight-to-checkout path, so pricing is unchanged.
     if (!showFull) {
       addItem(
         {
-          id: product.id,
+          id: sizedId,
           productId: product.id,
           name: product.name,
-          price: product.price,
+          price: basePrice,
           image: product.image,
           category: product.category,
           slug,
+          ...sizeLine,
         },
         qty,
       );
@@ -354,14 +407,16 @@ export default function CustomizePage() {
     addItem(
       {
         // A distinct line per distinct customization: two cakes with different
-        // candles must not collapse into one line of quantity 2.
-        id: cartLineId(product.id, customization.selections),
+        // candles must not collapse into one line of quantity 2. The size is
+        // part of that identity too, so Small and Large stay separate lines.
+        id: cartLineId(sizedId, customization.selections),
         productId: product.id,
         name: product.name,
-        price: product.price,
+        price: basePrice,
         image: product.image,
         category: product.category,
         slug,
+        ...sizeLine,
         addons: customization.total,
         customization,
       },
@@ -394,7 +449,7 @@ export default function CustomizePage() {
     );
   }
 
-  const lineTotal = (product.price + addons) * qty;
+  const lineTotal = (basePrice + addons) * qty;
 
   // ---- Minimal view: non-cake products (cupcakes, brownies, …) ----
   // Only the product image, a quantity selector, the price and Add to Basket —
@@ -428,7 +483,10 @@ export default function CustomizePage() {
             <h1 className="mt-4 font-display text-2xl font-bold text-darkberry">
               {product.name}
             </h1>
-            <p className="mt-1 text-berry">{money(product.price)} each</p>
+            <p className="mt-1 text-berry">
+              {size ? `${size.label} · ` : ""}
+              {money(basePrice)} each
+            </p>
 
             {/* Quantity */}
             <div className="mt-5 flex items-center justify-between">
@@ -828,7 +886,10 @@ export default function CustomizePage() {
                 <p className="truncate font-display text-sm font-bold text-darkberry">
                   {product.name}
                 </p>
-                <p className="text-xs text-berry">{money(product.price)} each</p>
+                <p className="text-xs text-berry">
+                  {size ? `${size.label} · ` : ""}
+                  {money(basePrice)} each
+                </p>
               </div>
             </div>
 
@@ -860,7 +921,7 @@ export default function CustomizePage() {
               <div className="flex justify-between text-berry">
                 <dt>Cake</dt>
                 <dd className="font-semibold text-darkberry">
-                  {money(product.price * qty)}
+                  {money(basePrice * qty)}
                 </dd>
               </div>
               {summary.lines.map((line, i) => (
