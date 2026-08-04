@@ -1,8 +1,7 @@
 "use client";
 
 // ============================================================
-// Le Rasa Bakery — product trust badges ("Suitable for Vegetarian" +
-// "100% Eggless").
+// Le Rasa Bakery — product trust badges ("Vegetarian" + "100% Eggless").
 // ------------------------------------------------------------
 // A small, reusable row of pills shown under the product title on the detail
 // page. Presentation only — it holds no product state and reads nothing from
@@ -54,7 +53,7 @@ export default function ProductTrustBadges({ className = "" }: Props) {
     >
       <span className={`${BADGE_BASE} ${BADGE_VEGETARIAN}`}>
         <Leaf className="h-4 w-4 shrink-0" strokeWidth={1.75} aria-hidden="true" />
-        Suitable for Vegetarian
+        Vegetarian
       </span>
 
       <span className={`${BADGE_BASE} ${BADGE_EGGLESS}`}>
