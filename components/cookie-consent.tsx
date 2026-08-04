@@ -1,13 +1,18 @@
 "use client";
 
 // ============================================================
-// Le Rasa — cookie consent banner, preferences modal and reopen button.
+// Le Rasa — cookie consent banner and preferences modal.
 //
 // Rendered once from the root layout, so it appears on every page. The root
 // layout reads the consent cookie on the SERVER and passes it in as
 // `initialConsent`, which is what makes this hydration-safe: the server and the
 // first client render agree about whether the banner is open, so there is no
 // mismatch and no flash of a banner for a visitor who already decided.
+//
+// A saved decision is FINAL as far as the UI goes: the banner does not come back
+// and nothing else is rendered in its place, so the visitor sees no cookie
+// affordance at all once they have chosen. The preferences modal is therefore
+// reachable only from the banner, i.e. only before a decision exists.
 //
 // Styling is entirely the existing design system — the site's <Button>, the
 // `rounded-clay` radius and `shadow-clay` used by every card, the darkberry /
@@ -23,7 +28,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { Cookie, X } from "lucide-react";
+import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   acceptAllChoices,
@@ -204,26 +209,10 @@ export function CookieConsent({
         onSave={save}
       />
 
-      {/* Once a choice exists, a small button stays bottom-left so the visitor
-          can change their mind. It opens the preferences dialog directly. */}
-      <AnimatePresence>
-        {!bannerOpen && !modalOpen && decided !== null && (
-          <motion.button
-            key="cookie-reopen"
-            type="button"
-            onClick={() => setModalOpen(true)}
-            initial={{ opacity: 0, scale: 0.85 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.85 }}
-            transition={transition}
-            aria-label="Cookie preferences"
-            title="Cookie preferences"
-            className="fixed bottom-4 left-4 z-[55] grid h-11 w-11 place-items-center rounded-full bg-white text-wine shadow-clay-sm ring-1 ring-darkberry/5 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-clay focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-wine focus-visible:ring-offset-2 sm:bottom-6 sm:left-6"
-          >
-            <Cookie className="h-5 w-5" aria-hidden="true" />
-          </motion.button>
-        )}
-      </AnimatePresence>
+      {/* No floating reopen button: once a decision is saved, the banner and the
+          button both stay gone for good. The consent itself is unchanged — the
+          visitor's saved record is still honoured on every later visit — this is
+          purely about not putting the cookie affordance back on screen. */}
     </>
   );
 }
