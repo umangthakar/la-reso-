@@ -6,7 +6,7 @@
 // client. The only client island is the sticky table of contents, which needs a
 // scroll observer to highlight the section being read.
 //
-// The text itself is the Termly export for LE RASA LIMITED and lives in
+// The text itself is the Termly export for LE RASA and lives in
 // lib/privacy-policy.ts — edit it there, not here. Anchors and the table of
 // contents are derived from that array, so adding or reordering a section needs
 // no change in this file. Section headings carry Termly's own numbering, so

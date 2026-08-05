@@ -47,7 +47,7 @@ const FALLBACK = {
 };
 
 // The Privacy Policy is the one policy that is NOT admin-managed: it's a legal
-// document for Le Rasa Limited, hand-written at /privacy-policy (see
+// document for Le Rasa, hand-written at /privacy-policy (see
 // lib/privacy-policy.ts). policyHref() encodes that exception once, and every
 // policy link on the site goes through it.
 

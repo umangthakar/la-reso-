@@ -1,7 +1,7 @@
 // ============================================================
 // Le Rasa — Privacy Policy content (/privacy-policy)
 //
-// The verbatim Termly export for LE RASA LIMITED, transcribed to Markdown.
+// The verbatim Termly export for LE RASA (29 July 2026), transcribed to Markdown.
 // It lives in code rather than in the `policies` table on purpose: this is a
 // legal document, so it is version-controlled and reviewed like code instead of
 // being editable from the admin panel. The admin-managed policy system at
@@ -25,7 +25,8 @@
 //      and 11) were filled at the owner's instruction. The link TEXT is the
 //      public URL but the href is the internal route /policies/cookie-policy,
 //      so the jump stays in-tab and survives a domain change. Fill the field in
-//      Termly too, so the next export doesn't reintroduce the blanks.
+//      Termly too — the 29 July 2026 export still ships the blanks, so this
+//      transformation has to be re-applied by hand on every re-transcription.
 //
 // `heading` values include Termly's own numbering, so the page renders them
 // as-is and adds no numbering of its own. Keep `id`s stable — they are the
@@ -35,17 +36,19 @@
 import { md, type LegalSection } from "@/lib/legal-policy";
 
 /**
- * The company as named in the document. Termly writes it in caps
- * ('LE RASA LIMITED'); this title-case form is used only for this page's own
- * chrome (hero, meta description), never inside the legal text.
+ * The company as named in the document. Termly writes it in caps ('LE RASA');
+ * this title-case form is used only for this page's own chrome (hero, meta
+ * description), never inside the legal text. The 29 July 2026 export renamed
+ * the party from 'LE RASA LIMITED' to 'LE RASA' — keep this in step with the
+ * intro and the section 15 postal address.
  */
-export const PRIVACY_POLICY_ENTITY: string = "Le Rasa Limited";
+export const PRIVACY_POLICY_ENTITY: string = "Le Rasa";
 
 /** The "Last updated" line from the top of the Termly document. */
 export const PRIVACY_POLICY_LAST_UPDATED: string = "July 29, 2026";
 
 /** The introduction that precedes "SUMMARY OF KEY POINTS". */
-export const PRIVACY_POLICY_INTRO: string = `This Privacy Notice for LE RASA LIMITED ('**we**', '**us**', or '**our**'), describes how and why we might access, collect, store, use, and/or share ('**process**') your personal information when you use our services ('**Services**'), including when you:
+export const PRIVACY_POLICY_INTRO: string = `This Privacy Notice for LE RASA ('**we**', '**us**', or '**our**'), describes how and why we might access, collect, store, use, and/or share ('**process**') your personal information when you use our services ('**Services**'), including when you:
 
 - Visit our website at [https://www.lerasa.co.uk](https://www.lerasa.co.uk) or any website of ours that links to this Privacy Notice
 - Use Le Rasa – Eggless Bakery. Le Rasa is a premium eggless bakery offering handcrafted cakes, pastries, desserts, cupcakes, brownies, and celebration treats. Customers can browse our online menu, place orders, make secure online payments, and choose delivery or collection. We focus on high-quality ingredients, fresh preparation, and exceptional customer service.
@@ -496,10 +499,9 @@ We may update this Privacy Notice from time to time. The updated version will be
     blocks: [
       md(`If you have questions or comments about this notice, you may email us at [Info.lerasa@gmail.com](mailto:Info.lerasa@gmail.com) or contact us by post at:
 
-LE RASA LIMITED\\
+LE RASA\\
 Flat 7 Harrison court , Harrison court\\
-harrow\\
-HA2 0WR\\
+harrow HA2 0WR\\
 United Kingdom`),
     ],
   },
