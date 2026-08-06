@@ -23,13 +23,16 @@
 // fetch broadcasts a freshly-parsed object to all subscribers. A product grid
 // mounts dozens of those, so depending on the object identity here restarted
 // the timer on every broadcast — the popup would surface late, or never.
+//
+// The card itself — artwork treatment, copy, buttons — lives in
+// offer-popup-card.tsx, because the admin Offer Preview renders the same one.
+// This file owns only when the popup appears and how it behaves as a modal.
 // ============================================================
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
-import { X } from "lucide-react";
 import { useActiveOffer } from "@/lib/use-active-offer";
+import { OFFER_POPUP_CARD_CLASS, OfferPopupCard } from "./offer-popup-card";
 
 /** Marked as soon as the popup is shown, so it appears once per session. */
 const SESSION_KEY = "lerasa:offer-popup-seen";
@@ -115,70 +118,21 @@ export function OfferPopup() {
             role="dialog"
             aria-modal="true"
             aria-labelledby="offer-popup-title"
-            className="relative w-full max-w-md overflow-hidden rounded-clay bg-blush-50 shadow-glow"
+            className={OFFER_POPUP_CARD_CLASS}
             initial={{ opacity: 0, scale: 0.9, y: 16 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 8 }}
             transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
           >
-            <button
-              type="button"
-              onClick={dismiss}
-              aria-label="Close offer"
-              className="absolute right-3 top-3 z-10 grid h-9 w-9 place-items-center rounded-full bg-blush-50/85 text-wine-dark backdrop-blur transition-colors hover:bg-wine hover:text-blush-50"
-            >
-              <X className="h-4 w-4" />
-            </button>
-
-            {/* Rendered as a CSS background (not next/image) for the same reason
-                the rotating banner does: banner_image_url is a free-text admin
-                field and may point at a host outside the next/image allow-list. */}
-            {image && (
-              <div
-                className="relative aspect-[16/9] w-full bg-cover bg-center"
-                style={{ backgroundImage: `url(${image})` }}
-                aria-hidden
-              >
-                <div className="absolute inset-0 bg-gradient-to-t from-blush-50 via-blush-50/10 to-transparent" />
-              </div>
-            )}
-
-            <div className="px-6 pb-7 pt-5 text-center sm:px-8">
-              {highlight && (
-                <span className="mb-3 inline-block rounded-full bg-wine px-3.5 py-1 text-xs font-bold uppercase tracking-wider text-blush-50">
-                  {highlight}
-                </span>
-              )}
-
-              <h2
-                id="offer-popup-title"
-                className="font-display text-2xl font-bold leading-snug text-darkberry sm:text-3xl"
-              >
-                <span aria-hidden>🎉 </span>
-                {title}
-              </h2>
-
-              <p className="mt-2.5 text-sm leading-relaxed text-darkberry-light sm:text-base">
-                {message}
-              </p>
-
-              <div className="mt-6 flex flex-col-reverse items-center gap-2.5 sm:flex-row sm:justify-center">
-                <button
-                  type="button"
-                  onClick={dismiss}
-                  className="w-full rounded-full px-5 py-2.5 text-sm font-semibold text-wine-dark transition-colors hover:bg-wine/10 sm:w-auto"
-                >
-                  Maybe later
-                </button>
-                <Link
-                  href={ctaLink}
-                  onClick={dismiss}
-                  className="w-full rounded-full bg-wine px-6 py-3 text-center text-sm font-semibold text-blush-50 shadow-clay-sm transition-all hover:-translate-y-0.5 hover:bg-wine-dark sm:w-auto"
-                >
-                  {ctaText}
-                </Link>
-              </div>
-            </div>
+            <OfferPopupCard
+              title={title}
+              message={message}
+              highlight={highlight}
+              ctaText={ctaText}
+              ctaLink={ctaLink}
+              image={image}
+              onDismiss={dismiss}
+            />
           </motion.div>
         </motion.div>
       )}

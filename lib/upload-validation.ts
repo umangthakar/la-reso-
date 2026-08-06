@@ -97,16 +97,30 @@ export type UploadValidationResult =
   | { ok: true; file: ValidatedUpload }
   | { ok: false; error: string; status: number };
 
+/** Human-readable list of types, for an error message. */
+function describeTypes(types: string[]): string {
+  const names = types.map((t) => t.replace("image/", "").toUpperCase());
+  if (names.length === 1) return `${names[0]} images`;
+  return `${names.slice(0, -1).join(", ")} or ${names[names.length - 1]} images`;
+}
+
 /**
  * Validate an uploaded image. Reads the whole file (bounded by `maxBytes`, and
  * these are small images) so the content can be sniffed, and returns the bytes
  * for the caller to store.
+ *
+ * `allowedTypes` narrows the accepted set for one endpoint (the offer popup
+ * background takes JPEG/PNG/WebP only). It can only ever be a subset of
+ * {@link ALLOWED_IMAGE_TYPES} — anything outside that is ignored, so this can
+ * never widen what the sniffer accepts.
  */
 export async function validateImageUpload(
   value: unknown,
-  opts: { maxBytes?: number } = {},
+  opts: { maxBytes?: number; allowedTypes?: string[] } = {},
 ): Promise<UploadValidationResult> {
-  const maxBytes = opts.maxBytes ?? DEFAULT_MAX_BYTES;
+  const maxBytes = Math.min(opts.maxBytes ?? DEFAULT_MAX_BYTES, DEFAULT_MAX_BYTES);
+  const narrowed = (opts.allowedTypes ?? []).filter((t) => t in TYPE_TO_EXT);
+  const allowed = narrowed.length > 0 ? narrowed : ALLOWED_IMAGE_TYPES;
 
   if (!(value instanceof File)) {
     return { ok: false, error: "No file provided.", status: 400 };
@@ -122,10 +136,10 @@ export async function validateImageUpload(
   // The client's own claim. Checked first so an obviously-wrong upload gets a
   // clear message, but it is NOT what we store.
   const declared = (value.type || "").toLowerCase();
-  if (declared && !TYPE_TO_EXT[declared]) {
+  if (declared && !allowed.includes(declared)) {
     return {
       ok: false,
-      error: "Only JPEG, PNG, WebP, GIF, HEIC or AVIF images are allowed.",
+      error: `Only ${describeTypes(allowed)} are allowed.`,
       status: 415,
     };
   }
@@ -143,6 +157,15 @@ export async function validateImageUpload(
     return {
       ok: false,
       error: "That file is not a valid image.",
+      status: 415,
+    };
+  }
+  // The content is an image, but not one this endpoint accepts. Checked against
+  // the SNIFFED type, so renaming a .gif to .png does not get past it.
+  if (!allowed.includes(sniffed)) {
+    return {
+      ok: false,
+      error: `Only ${describeTypes(allowed)} are allowed.`,
       status: 415,
     };
   }

@@ -15,6 +15,8 @@ import { useParams, useRouter } from "next/navigation";
 import { adminGet, adminSend, adminUpload } from "@/lib/admin-api";
 import { useIsMobile } from "@/lib/use-is-mobile";
 import { offerFromRow, offerHeroText } from "@/lib/offers";
+import { ImageDropzone } from "@/components/admin/image-dropzone";
+import { OFFER_POPUP_CARD_CLASS, OfferPopupCard } from "@/components/home/offer-popup-card";
 
 const WINE = "#873853";
 const BERRY = "#5C2A41";
@@ -80,8 +82,9 @@ type FormState = {
   popup_cta_link: string;
 };
 
-/** The three image fields, so one upload handler serves all of them. */
-type ImageField = "banner_image_url" | "hero_image_url" | "popup_image_url";
+/** The banner image fields, so one upload handler serves both. (The popup
+ *  background has its own dedicated section — see ImageDropzone.) */
+type ImageField = "banner_image_url" | "hero_image_url";
 
 const EMPTY_FORM: FormState = {
   name: "",
@@ -783,14 +786,22 @@ export default function OfferFormPage() {
               <input style={inputStyle} value={form.popup_cta_link} onChange={(e) => set("popup_cta_link", e.target.value)} placeholder={form.cta_link.trim() || "/menu"} />
             </div>
           </div>
-          <Field label="Popup image (optional)">
-            {form.popup_image_url && (
-              /* eslint-disable-next-line @next/next/no-img-element */
-              <img src={form.popup_image_url} alt="popup preview" style={{ width: "100%", maxWidth: 320, borderRadius: 10, display: "block", marginBottom: 8 }} />
-            )}
-            <input type="file" accept="image/*" onChange={handleImage("popup_image_url")} disabled={uploading} />
-            {uploading && <span style={{ color: BERRY, opacity: 0.7, marginLeft: 8 }}>Uploading…</span>}
-          </Field>
+        </Section>
+
+        {/* POPUP BACKGROUND IMAGE -------------------------------------- */}
+        <Section title="Popup background image">
+          <p style={hintStyle}>
+            The artwork behind the popup’s text. Everything else is automatic — the popup applies its own
+            cinematic blur, dark readability overlay, warm glow and vignette on top of whatever you upload, so
+            the wording stays legible on any image. Remove it and the popup falls back to the offer’s banner
+            image, then to the built-in Le Rasa dessert artwork.
+          </p>
+          <ImageDropzone
+            value={form.popup_image_url}
+            onChange={(url) => set("popup_image_url", url)}
+            onBusyChange={setUploading}
+            disabled={saving || duplicating}
+          />
         </Section>
 
         {/* PREVIEW ------------------------------------------------------ */}
@@ -963,34 +974,33 @@ function OfferPreview({ form, isMobile }: { form: FormState; isMobile: boolean }
         )}
       </div>
 
-      {/* Home page popup ---------------------------------------------- */}
+      {/* Home page popup ------------------------------------------------
+          The REAL popup card (components/home/offer-popup-card.tsx), not a
+          mock — so the blur, overlay, glow and vignette shown here are the
+          ones customers get, and this can never drift from the storefront.
+          Only the modal chrome around it is simulated. */}
       <div>
         <PreviewLabel>Home page popup</PreviewLabel>
-        <div style={{ maxWidth: 320, borderRadius: 12, overflow: "hidden", border: "1px solid rgba(135,56,83,0.15)", background: "#FDF6F3" }}>
-          {popupImage && (
-            <div style={{ height: 110, backgroundImage: `url(${popupImage})`, backgroundSize: "cover", backgroundPosition: "center" }} aria-hidden />
-          )}
-          <div style={{ padding: "16px 18px 20px", textAlign: "center" }}>
-            {highlight && (
-              <span style={{ display: "inline-block", marginBottom: 10, background: WINE, color: "#FDF6F3", borderRadius: 999, padding: "4px 12px", fontSize: "0.68rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                {highlight}
-              </span>
-            )}
-            {popupTitle ? (
-              <h3 style={{ color: "#4A1F30", fontSize: "1.15rem", fontWeight: 800, margin: 0, lineHeight: 1.3 }}>🎉 {popupTitle}</h3>
-            ) : (
-              <h3 style={{ color: muted, fontSize: "1.15rem", fontWeight: 800, margin: 0, fontStyle: "italic" }}>Offer name</h3>
-            )}
-            {popupDescription ? (
-              <p style={{ color: "#6E4152", fontSize: "0.85rem", marginTop: 8, marginBottom: 0 }}>{popupDescription}</p>
-            ) : (
-              <p style={{ color: muted, fontSize: "0.85rem", marginTop: 8, marginBottom: 0, fontStyle: "italic" }}>
-                Check out our latest offers on the Menu page.
-              </p>
-            )}
-            <span style={{ display: "inline-block", marginTop: 16, background: WINE, color: "#FDF6F3", borderRadius: 999, padding: "9px 20px", fontSize: "0.82rem", fontWeight: 600 }}>
-              {popupCtaText}
-            </span>
+        <div
+          style={{
+            maxWidth: 380,
+            padding: 16,
+            borderRadius: 16,
+            background: "rgba(97,36,55,0.5)",
+            border: "1px solid rgba(135,56,83,0.15)",
+          }}
+        >
+          <div className={OFFER_POPUP_CARD_CLASS}>
+            <OfferPopupCard
+              title={popupTitle || "Offer name"}
+              message={popupDescription || "Check out our latest offers on the Menu page."}
+              highlight={highlight}
+              ctaText={popupCtaText}
+              ctaLink="#"
+              image={popupImage}
+              onDismiss={() => {}}
+              preview
+            />
           </div>
         </div>
       </div>
