@@ -27,7 +27,8 @@ import { getStripe } from "@/lib/stripe";
 import { matchDeliveryZone, normalizePostcode, round2 } from "@/lib/pricing";
 import { priceBasket, type IncomingItem } from "@/lib/basket-pricing";
 import { deleteCheckoutDraft } from "@/lib/checkout-draft";
-import { notifyOrder } from "@/lib/notifications";
+import { notifyOwnerNewOrder } from "@/lib/notifications";
+import { sendOrderPlacedEmail } from "@/lib/order-email";
 import { sendOrderNotification } from "@/lib/ntfy";
 import {
   cleanString,
@@ -478,14 +479,24 @@ export async function createOrderFromPayment(
   //    total. Same best-effort posture as everything above — the payment has
   //    already succeeded and the order is saved, so an unconfigured provider or
   //    a failed send is a log line, never an error the customer sees.
-  //    (notifyOrder resolves with a report and never rejects.)
+  //    (Both calls resolve with a report and never reject.)
+  //
+  //    THIS IS THE ONLY PLACE THE CONFIRMATION EMAIL IS TRIGGERED, and it sits
+  //    here deliberately: after Stripe confirmed the payment (step 1) AND after
+  //    the order row exists (step 3), never before either. Both callers — the
+  //    browser and the Stripe webhook — reach it through this one function, and
+  //    the ledger inside sendOrderPlacedEmail means the customer is emailed once
+  //    even when both of them write the same order.
+  //
   // Derived from the ORDER id exactly as the confirmation page derives it
   // (app/checkout#toOrderNumber), so the customer, the owner, the screen and
   // every notification all quote the same number.
   const orderNumber = String(order.id).replace(/-/g, "").slice(0, 8).toUpperCase();
 
+  await sendOrderPlacedEmail(supabase, String(order.id));
+
   try {
-    const report = await notifyOrder(supabase, {
+    const report = await notifyOwnerNewOrder(supabase, {
       orderNumber,
       customerName: coreOrder.customer_name,
       email: coreOrder.email,

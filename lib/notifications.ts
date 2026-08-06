@@ -1,14 +1,20 @@
 // ============================================================
 // Le Rasa Bakery — order notifications (credentials + sending)
 // ------------------------------------------------------------
-// Two messages go out the moment an order is saved:
+// This file owns the CREDENTIALS and the NETWORK for the two providers the
+// bakery notifies through: Resend (email) and the Meta WhatsApp Cloud API.
 //
-//   * the CUSTOMER gets an email (Resend)
-//   * the OWNER gets a WhatsApp message (Meta WhatsApp Cloud API)
-//
-// Both carry the cake, its accessories, every message and note, the
-// quantities and the total. The WORDS live in lib/notification-content.ts;
-// this file owns the credentials and the network.
+// WHO SENDS WHAT.
+//   * the OWNER's messages — a new order, an inquiry, a lifecycle change —
+//     are built and sent here (WhatsApp), with the words in
+//     lib/notification-content.ts.
+//   * the CUSTOMER's order emails are NOT built here. All four of them
+//     (placed / accepted / cancelled / refunded) belong to lib/order-email.ts,
+//     which owns their templates AND the duplicate protection that guarantees
+//     each one reaches the customer exactly once. It sends through
+//     sendConfiguredEmail() below, so there is still only ONE Resend
+//     integration and one From address — the split is who composes the
+//     message, not who talks to the provider.
 //
 // Both are called over plain HTTPS — no SDK, no new dependency. Credentials
 // live on the single site_settings row under `notification_config`, set from
@@ -24,9 +30,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { decryptSecret } from "@/lib/crypto";
 import {
-  buildEmailHtml,
   buildWhatsAppText,
-  buildEventEmail,
   buildEventWhatsApp,
   type NotifyOrder,
   type LifecycleEvent,
@@ -54,6 +58,9 @@ export type NotifyResult = {
   errors: string[];
 };
 
+/** The result of one send attempt through either provider. */
+export type SendStatus = { status: "sent" | "skipped" | "failed"; error?: string };
+
 export async function loadNotificationConfig(
   supabase: SupabaseClient,
 ): Promise<NotificationConfig> {
@@ -78,8 +85,6 @@ function secret(enc: string | undefined): string {
     return "";
   }
 }
-
-type SendStatus = { status: "sent" | "skipped" | "failed"; error?: string };
 
 // ------------------------------------------------------------
 // Low-level transport primitives. Each swallows its own failures and
@@ -160,25 +165,47 @@ async function postOwnerWhatsApp(
   }
 }
 
-function sendCustomerEmail(config: NotificationConfig, order: NotifyOrder): Promise<SendStatus> {
-  return postEmail(
-    config,
-    order.email,
-    `Your Le Rasa order ${order.orderNumber}`,
-    buildEmailHtml(order),
-  );
-}
-
-function sendOwnerWhatsApp(config: NotificationConfig, order: NotifyOrder): Promise<SendStatus> {
-  return postOwnerWhatsApp(config, buildWhatsAppText(order));
+/**
+ * Send one email through the ADMIN-CONFIGURED Resend credentials.
+ *
+ * Exported so lib/order-email can reuse this exact transport — the same key,
+ * the same From address, the same failure handling the owner's notifications
+ * already use — instead of standing up a second Resend client. It only ever
+ * reports a value: 'skipped' when the admin hasn't configured Resend (the
+ * caller then falls back to the env-var client in lib/email), 'failed' with
+ * the provider's own message when the request was made and rejected.
+ */
+export async function sendConfiguredEmail(
+  supabase: SupabaseClient,
+  to: string,
+  subject: string,
+  html: string,
+): Promise<SendStatus> {
+  let config: NotificationConfig;
+  try {
+    config = await loadNotificationConfig(supabase);
+  } catch (e) {
+    return {
+      status: "failed",
+      error: e instanceof Error ? e.message : "could not read notification config",
+    };
+  }
+  return postEmail(config, to, subject, html);
 }
 
 /**
- * Fire both notifications. NEVER throws and never rejects — the caller has
- * already taken the customer's money and saved the order; a message that
- * couldn't be delivered is a log line, not an error the customer should see.
+ * Tell the OWNER a new order came in (WhatsApp).
+ *
+ * The customer's confirmation email is sent separately by
+ * lib/order-email.sendOrderPlacedEmail, which owns its template and its
+ * duplicate protection — this function deliberately does NOT email anyone, so
+ * a customer can never receive two confirmations for one order.
+ *
+ * NEVER throws and never rejects: the caller has already taken the customer's
+ * money and saved the order, so an undelivered message is a log line, not an
+ * error the customer should see.
  */
-export async function notifyOrder(
+export async function notifyOwnerNewOrder(
   supabase: SupabaseClient,
   order: NotifyOrder,
 ): Promise<NotifyResult> {
@@ -192,14 +219,8 @@ export async function notifyOrder(
     return result;
   }
 
-  const [email, whatsapp] = await Promise.all([
-    sendCustomerEmail(config, order),
-    sendOwnerWhatsApp(config, order),
-  ]);
-
-  result.email = email.status;
+  const whatsapp = await postOwnerWhatsApp(config, buildWhatsAppText(order));
   result.whatsapp = whatsapp.status;
-  if (email.error) result.errors.push(email.error);
   if (whatsapp.error) result.errors.push(whatsapp.error);
   return result;
 }
@@ -315,19 +336,22 @@ export async function notifyInquiry(
 }
 
 /**
- * Notify both parties about a lifecycle change (order accepted, cancelled,
- * or refund completed). Same best-effort posture as notifyOrder — NEVER
- * throws; a failed send is a log line, not an error the caller sees. The
- * customer gets an email; the owner gets a WhatsApp for the events that
- * warrant one (cancellations + completed refunds — an "accepted" event is
- * the owner's own action, so no owner ping for that).
+ * Tell the OWNER about a lifecycle change (cancelled, auto-cancelled, or a
+ * refund that completed on retry). An "accepted" event is the owner's own
+ * action, so it produces no owner ping.
+ *
+ * As with notifyOwnerNewOrder, the CUSTOMER's side of each of these events is
+ * sent by lib/order-email (sendOrderAcceptedEmail / sendOrderCancelledEmail /
+ * sendOrderRefundedEmail), which is the only place a customer order email is
+ * ever composed. NEVER throws — a failed send is a log line.
  */
-export async function notifyLifecycle(
+export async function notifyOwnerLifecycle(
   supabase: SupabaseClient,
   event: LifecycleEvent,
   order: LifecycleOrder,
 ): Promise<NotifyResult> {
   const result: NotifyResult = { email: "skipped", whatsapp: "skipped", errors: [] };
+  if (event === "accepted") return result;
 
   let config: NotificationConfig;
   try {
@@ -337,19 +361,8 @@ export async function notifyLifecycle(
     return result;
   }
 
-  const { subject, html } = buildEventEmail(event, order);
-  const notifyOwner = event !== "accepted"; // owner acted on "accepted" themselves
-
-  const [email, whatsapp] = await Promise.all([
-    postEmail(config, order.email, subject, html),
-    notifyOwner
-      ? postOwnerWhatsApp(config, buildEventWhatsApp(event, order))
-      : Promise.resolve<SendStatus>({ status: "skipped" }),
-  ]);
-
-  result.email = email.status;
+  const whatsapp = await postOwnerWhatsApp(config, buildEventWhatsApp(event, order));
   result.whatsapp = whatsapp.status;
-  if (email.error) result.errors.push(email.error);
   if (whatsapp.error) result.errors.push(whatsapp.error);
   return result;
 }

@@ -15,8 +15,8 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/server";
 import { isAuthedRequest } from "@/lib/admin-auth";
-import { cancelAndRefund, orderNumberOf } from "@/lib/order-lifecycle";
-import { notifyLifecycle } from "@/lib/notifications";
+import { cancelAndRefund } from "@/lib/order-lifecycle";
+import { sendOrderAcceptedEmail } from "@/lib/order-email";
 
 export const dynamic = "force-dynamic";
 
@@ -127,19 +127,16 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   }
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // On acceptance, email the customer that their order is confirmed
+  // On acceptance, email the customer that their order is accepted
   // (best-effort — never blocks the status change).
+  //
+  // `isAccept` is the pending → received transition and NOTHING else, so
+  // advancing an already-accepted order through preparing/ready/delivered
+  // never re-sends it. A double-clicked Accept passes this check twice (both
+  // requests read the same 'pending' row), which is exactly what the ledger
+  // inside sendOrderAcceptedEmail is for: the second send is a no-op.
   if (isAccept) {
-    try {
-      await notifyLifecycle(supabase, "accepted", {
-        orderNumber: orderNumberOf(params.id),
-        customerName: String(order.customer_name ?? ""),
-        email: String(order.email ?? ""),
-        total: Number(order.total ?? order.amount ?? 0),
-      });
-    } catch (e) {
-      console.error("[admin/orders] accept notify failed:", e);
-    }
+    await sendOrderAcceptedEmail(supabase, params.id);
   }
 
   return NextResponse.json({ order: { id: params.id } });

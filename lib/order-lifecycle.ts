@@ -20,7 +20,8 @@ import "server-only";
 import Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getStripe } from "@/lib/stripe";
-import { notifyLifecycle } from "@/lib/notifications";
+import { notifyOwnerLifecycle } from "@/lib/notifications";
+import { sendOrderCancelledEmail, sendOrderRefundedEmail } from "@/lib/order-email";
 import { sendRefundNotification } from "@/lib/ntfy";
 
 /** The order fields these actions need. Read defensively — money can live
@@ -332,15 +333,32 @@ export async function cancelAndRefund(
   await persistCancellation(supabase, order, by, refund, paymentStatus, nowIso);
 
   // 3) Notify (best-effort — never throws, never blocks the result).
-  //    The customer gets the refund email + the owner a WhatsApp via
-  //    notifyLifecycle; the owner also gets an instant ntfy push. Sent
-  //    together so every cancellation path — customer, sweep, admin — tells
-  //    both parties the same thing.
+  //    Sent together so every cancellation path — customer, sweep, admin —
+  //    tells both parties the same thing:
+  //
+  //      • the CUSTOMER gets the cancellation email, carrying the refund state
+  //        this very call produced, so it never promises money that Stripe
+  //        refused. When Stripe DID confirm the refund, the dedicated refund
+  //        email follows — that one is triggered by the refund succeeding, not
+  //        by the cancellation, which is why it is a separate send.
+  //      • the OWNER gets a WhatsApp and an instant ntfy push.
+  //
+  //    Both emails are idempotent per order (lib/order-email), so a retried
+  //    admin request or two overlapping sweeps cannot email the customer twice.
   const orderNumber = orderNumberOf(order.id);
   const total = Number(order.total ?? order.amount ?? 0);
   try {
+    await sendOrderCancelledEmail(supabase, String(order.id), {
+      by,
+      refundState: paymentStatus,
+      refundAmount: total,
+    });
+    if (ok) {
+      await sendOrderRefundedEmail(supabase, String(order.id), { refundAmount: total });
+    }
+
     await Promise.all([
-      notifyLifecycle(supabase, by === "auto" ? "auto_cancelled" : "cancelled", {
+      notifyOwnerLifecycle(supabase, by === "auto" ? "auto_cancelled" : "cancelled", {
         orderNumber,
         customerName: order.customer_name ?? "",
         email: order.email ?? "",

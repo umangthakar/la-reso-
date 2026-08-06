@@ -13,6 +13,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/server";
 import { isAuthedRequest } from "@/lib/admin-auth";
 import { getStripe } from "@/lib/stripe";
+import { sendOrderRefundedEmail } from "@/lib/order-email";
 
 export const dynamic = "force-dynamic";
 
@@ -86,6 +87,13 @@ export async function POST(req: Request) {
       { status: 500 },
     );
   }
+
+  // Tell the customer their refund is processed. Reached only after Stripe
+  // confirmed the refund AND the order was marked refunded, so it can never
+  // announce money that isn't actually on its way. Best-effort and idempotent
+  // per order (lib/order-email): an order refunded through the cancel flow and
+  // then touched here does not get a second refund email.
+  await sendOrderRefundedEmail(supabase, orderId);
 
   return NextResponse.json({ order: updated, refund_id: refundId });
 }

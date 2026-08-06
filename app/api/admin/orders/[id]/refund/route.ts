@@ -18,7 +18,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/server";
 import { isAuthedRequest } from "@/lib/admin-auth";
 import { refundOrder, orderNumberOf } from "@/lib/order-lifecycle";
-import { notifyLifecycle } from "@/lib/notifications";
+import { notifyOwnerLifecycle } from "@/lib/notifications";
+import { sendOrderRefundedEmail } from "@/lib/order-email";
 
 export const dynamic = "force-dynamic";
 
@@ -69,12 +70,20 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   }
 
   // Let the customer know the refund is now complete (best-effort).
+  //
+  // Reached only once Stripe has CONFIRMED the refund and the outcome is
+  // persisted — never on the failure branch above. If the original cancellation
+  // already sent this email (i.e. that refund succeeded first time), the ledger
+  // makes this a no-op rather than a second "your refund is processed".
+  const total = Number(order.total ?? order.amount ?? 0);
+  await sendOrderRefundedEmail(supabase, params.id, { refundAmount: total });
+
   try {
-    await notifyLifecycle(supabase, "refund_completed", {
+    await notifyOwnerLifecycle(supabase, "refund_completed", {
       orderNumber: orderNumberOf(params.id),
       customerName: String(order.customer_name ?? ""),
       email: String(order.email ?? ""),
-      total: Number(order.total ?? order.amount ?? 0),
+      total,
       refundState: "refunded",
     });
   } catch (e) {
