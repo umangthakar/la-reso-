@@ -29,6 +29,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { decryptSecret } from "@/lib/crypto";
+import { normaliseEmailFrom } from "@/lib/email-brand";
 import {
   buildWhatsAppText,
   buildEventWhatsApp,
@@ -112,7 +113,13 @@ async function postEmail(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: config.from_name ? `${config.from_name} <${from}>` : from,
+        // `from_name` is admin-entered, so it is normalised through the shared
+        // brand rule rather than trusted verbatim — otherwise a settings row
+        // still holding "Le Rasa Bakery" would put the retired name on the
+        // sender line of every notification. The address is left untouched.
+        from: config.from_name
+          ? normaliseEmailFrom(`${config.from_name} <${from}>`)
+          : from,
         to: [to],
         subject,
         html,

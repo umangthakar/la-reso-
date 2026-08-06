@@ -17,7 +17,7 @@
 // ============================================================
 
 import "server-only";
-import { emailFrom } from "@/lib/email-brand";
+import { emailFrom, normaliseEmailFrom } from "@/lib/email-brand";
 
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
 
@@ -40,9 +40,16 @@ export function ownerWhatsApp(): string {
  * The verified "From" address. EMAIL_FROM overrides the default; the default
  * carries the shared brand name, because the sender line is the first piece of
  * branding a customer reads.
+ *
+ * Run through normaliseEmailFrom() so a deployment whose EMAIL_FROM still says
+ * "Le Rasa Bakery" sends as "Le Rasa" anyway — the sender line is read before
+ * the email is even opened, so it must obey the same brand rule as the body.
+ * The address inside the angle brackets is never altered.
  */
 function fromAddress(): string {
-  return (process.env.EMAIL_FROM ?? "").trim() || emailFrom("onboarding@resend.dev");
+  return (
+    normaliseEmailFrom(process.env.EMAIL_FROM) || emailFrom("onboarding@resend.dev")
+  );
 }
 
 export type SendEmailInput = {

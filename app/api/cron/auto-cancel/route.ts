@@ -2,7 +2,7 @@
 // Cron — auto-cancel Pending orders past the deadline (GET/POST)
 // ------------------------------------------------------------
 // The deadline is PENDING_AUTO_CANCEL_HOURS (lib/order-timeout) — the single
-// source of truth, currently 2 hours for testing (normally 24).
+// source of truth.
 //
 // A Pending order is one the owner hasn't accepted yet. If it sits
 // unaccepted that long, the customer shouldn't be left waiting: this sweep

@@ -91,10 +91,33 @@ export async function POST(_req: Request, { params }: { params: { id: string } }
     );
   }
 
-  // 4) Cancel AND refund (shared with the 24h auto-cancel sweep). Reuses the
+  // 4) Cancel AND refund (shared with the auto-cancel sweep). Reuses the
   //    existing Stripe integration; never throws. A Stripe failure leaves the
   //    order Cancelled with payment_status 'refund_pending' for admin retry.
-  const result = await cancelAndRefund(admin, order, "customer");
+  //
+  //    `onlyIfStatus` makes the pending → cancelled flip the ATOMIC CLAIM, and
+  //    it is what closes the gap between the status check above and this call.
+  //    Without it, an owner accepting the order in that window would find it
+  //    cancelled and refunded underneath them: the check read 'pending', the
+  //    accept landed, and the unguarded cancel overwrote it regardless.
+  //    Postgres serialises the conditional UPDATE, so exactly one of the two
+  //    wins and the loser is told so rather than acting on a stale read.
+  const result = await cancelAndRefund(admin, order, "customer", {
+    onlyIfStatus: "pending",
+  });
+
+  // Lost the claim — the order left 'pending' between the read and now, which
+  // in practice means the owner accepted it. Same answer the pre-check gives
+  // for an already-accepted order, so the customer sees one consistent message.
+  if (!result) {
+    return NextResponse.json(
+      {
+        error:
+          "This order has already been accepted and can no longer be cancelled.",
+      },
+      { status: 409 },
+    );
+  }
 
   return NextResponse.json({
     status: result.status,

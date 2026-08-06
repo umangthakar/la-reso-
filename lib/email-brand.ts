@@ -79,6 +79,37 @@ export function emailFrom(address: string): string {
   return `${EMAIL_BRAND.name} <${address}>`;
 }
 
+/**
+ * Normalise a fully-formed "From" header so the retired wording cannot ride in
+ * on the SENDER LINE.
+ *
+ * emailBrandText() already guards every brand string rendered INSIDE an email,
+ * but the From header is assembled from configuration — the EMAIL_FROM /
+ * AUTH_EMAIL_FROM environment variables and the admin panel's `from_name` —
+ * and was passed to Resend verbatim. A value like
+ * `Le Rasa Bakery <noreply@lerasa.co.uk>` therefore put the old name in the
+ * one line a customer reads before they open anything, which is precisely what
+ * this module exists to make impossible.
+ *
+ * ONLY the display name is touched, and only the retired wording within it:
+ * the address in angle brackets is the deliverability-critical part (it must
+ * stay exactly as verified with Resend) and is never rewritten. A bare address
+ * with no display name is returned unchanged, and an admin who renames the
+ * bakery still wins — same rule as emailBrandText().
+ */
+export function normaliseEmailFrom(raw: unknown): string {
+  const value = String(raw ?? "").trim();
+  if (!value) return "";
+
+  // `Display Name <address>` — rewrite the label, keep the address verbatim.
+  const match = /^(.*?)\s*<([^>]+)>\s*$/.exec(value);
+  if (!match) return value; // a bare address: nothing to rebrand
+
+  const label = emailBrandText(match[1].replace(/^"|"$/g, ""));
+  const address = match[2].trim();
+  return label ? `${label} <${address}>` : address;
+}
+
 /** What the admin settings row can contribute to the email brand. */
 export type EmailBrandInput = {
   /** site_settings.branding.name — the long form. */

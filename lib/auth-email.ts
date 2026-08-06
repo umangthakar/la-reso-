@@ -32,6 +32,7 @@ import {
   emailSiteUrl,
   emailUrl,
   isEmailHref,
+  normaliseEmailFrom,
 } from "@/lib/email-brand";
 import {
   buildVerificationEmail,
@@ -72,7 +73,13 @@ function env(name: string): string {
  *   brand      ← NEXT_PUBLIC_BRAND_NAME → EMAIL_BRAND (the shared source)
  */
 export function getAuthEmailConfig(): AuthEmailConfig {
-  const from = env("AUTH_EMAIL_FROM") || env("EMAIL_FROM") || DEFAULT_FROM;
+  // Normalised for the same reason the in-body brand is: the sender line is
+  // read before the email is opened, so an env value still carrying the retired
+  // "Le Rasa Bakery" wording must not survive to the inbox. Address untouched.
+  const from =
+    normaliseEmailFrom(env("AUTH_EMAIL_FROM")) ||
+    normaliseEmailFrom(env("EMAIL_FROM")) ||
+    DEFAULT_FROM;
   const replyTo = env("AUTH_EMAIL_REPLY_TO") || undefined;
   // Customer-facing: AUTH_SUPPORT_EMAIL is the deliberate override, then the
   // Reply-To we already ask customers to write to, then the shared brand
