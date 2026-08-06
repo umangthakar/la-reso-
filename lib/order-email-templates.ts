@@ -397,6 +397,13 @@ function footer(brand: OrderEmailBrand): string {
     footerLink(brand.instagramUrl, "Instagram"),
   ].filter(Boolean);
 
+  // The spaces around the bullet are load-bearing: adjacent inline elements
+  // with no whitespace between them give the line no break opportunity, so the
+  // whole "site • email • phone • Instagram" run becomes one unbreakable token
+  // and a long support address makes the email scroll sideways on a 320px
+  // phone. Keep the whitespace when editing the separator.
+  const contactRow = links.join(` <span style="color:${RULE};padding:0 8px">•</span> `);
+
   const support = brand.supportEmail
     ? `<div style="margin-top:10px;font-family:${FONT};font-size:12px;color:${MUTED};line-height:1.6">Need a hand with this order? Email <a href="mailto:${esc(brand.supportEmail)}" style="color:${WINE};text-decoration:none;font-weight:600">${esc(brand.supportEmail)}</a> and we'll help.</div>`
     : "";
@@ -413,7 +420,7 @@ function footer(brand: OrderEmailBrand): string {
   <tr>
     <td align="center" style="padding:0 24px 28px">
       <div style="font-family:${FONT};font-size:13px;color:${MUTED};line-height:2">
-        ${links.join(`<span style="color:${RULE};padding:0 8px">•</span>`)}
+        ${contactRow}
       </div>
       ${support}
       ${address}

@@ -40,7 +40,11 @@ export type EmailBrandConfig = {
   tagline: string;
   /** Absolute public site URL, no trailing slash. */
   website: string;
-  /** Where customers reply for help. */
+  /**
+   * Where CUSTOMERS reply for help — the address printed in every customer
+   * email footer. Never the owner/admin notification inbox (OWNER_EMAIL): that
+   * one is internal and must not be shown to a customer.
+   */
   supportEmail: string;
   /**
    * Support phone. Empty by default: the real number lives in the admin
@@ -54,7 +58,7 @@ export const EMAIL_BRAND: EmailBrandConfig = {
   name: "Le Rasa",
   tagline: "House of Eggless Desserts",
   website: "https://www.lerasa.co.uk",
-  supportEmail: "info@lerasa.co.uk",
+  supportEmail: "Info.lerasa@gmail.com",
   phone: "",
 };
 

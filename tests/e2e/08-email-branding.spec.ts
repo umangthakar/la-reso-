@@ -331,7 +331,7 @@ test("branding survives a settings row that still holds the old name", () => {
   expect(brand.name).toBe("Le Rasa");
   expect(brand.tagline).toBe("House of Eggless Desserts");
   expect(brand.copyright).toBe("Le Rasa. All rights reserved.");
-  expect(brand.supportEmail).toBe("info@lerasa.co.uk");
+  expect(brand.supportEmail).toBe("Info.lerasa@gmail.com");
   expect(emailBrandText("Order from Le Rasa Bakery today")).toBe("Order from Le Rasa today");
 
   // An admin who renames the bakery still wins.

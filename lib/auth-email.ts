@@ -74,8 +74,12 @@ function env(name: string): string {
 export function getAuthEmailConfig(): AuthEmailConfig {
   const from = env("AUTH_EMAIL_FROM") || env("EMAIL_FROM") || DEFAULT_FROM;
   const replyTo = env("AUTH_EMAIL_REPLY_TO") || undefined;
+  // Customer-facing: AUTH_SUPPORT_EMAIL is the deliberate override, then the
+  // Reply-To we already ask customers to write to, then the shared brand
+  // address. OWNER_EMAIL is deliberately NOT in this chain — it is the owner's
+  // internal notification inbox, and it must never be printed to a customer.
   const supportEmail =
-    env("AUTH_SUPPORT_EMAIL") || env("OWNER_EMAIL") || replyTo || EMAIL_BRAND.supportEmail;
+    env("AUTH_SUPPORT_EMAIL") || replyTo || EMAIL_BRAND.supportEmail;
   const brandName = emailBrandText(env("NEXT_PUBLIC_BRAND_NAME")) || EMAIL_BRAND.name;
   return {
     from,
@@ -117,9 +121,9 @@ export function validateAuthEmailEnv(): AuthEmailEnvReport {
       `NEXT_PUBLIC_SITE_URL/SITE_URL unset — email links fall back to ${EMAIL_BRAND.website}`,
     );
   }
-  if (!env("AUTH_SUPPORT_EMAIL") && !env("OWNER_EMAIL")) {
+  if (!env("AUTH_SUPPORT_EMAIL")) {
     warnings.push(
-      `AUTH_SUPPORT_EMAIL/OWNER_EMAIL unset — emails show ${EMAIL_BRAND.supportEmail}`,
+      `AUTH_SUPPORT_EMAIL unset — emails show ${EMAIL_BRAND.supportEmail}`,
     );
   }
 
