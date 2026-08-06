@@ -6,7 +6,7 @@
 // everywhere:
 //
 //   • the customer cancelling their own Pending order
-//   • the 24h auto-cancel sweep (cron)
+//   • the auto-cancel sweep (cron; window in lib/order-timeout)
 //   • the admin retrying a refund that previously failed
 //
 // It reuses the existing Stripe integration (lib/stripe.getStripe) and
@@ -64,7 +64,7 @@ function isMissingFunction(err: { code?: string; message?: string } | null): boo
  * The Stripe idempotency key for refunding an order.
  *
  * Deterministic from the order id, and deliberately NOT scoped to the caller:
- * the customer-cancel path, the 24h sweep and the admin retry tool all derive
+ * the customer-cancel path, the auto-cancel sweep and the admin retry tool all derive
  * the same key, so if two of them race to refund the same order Stripe issues
  * ONE refund and returns it to both, instead of paying the customer twice.
  *
@@ -130,7 +130,7 @@ export type CancelResult = {
 
 /**
  * Cancel an order AND refund the customer, then notify both parties.
- * `by` records who triggered it: 'customer' or 'auto' (the 24h sweep).
+ * `by` records who triggered it: 'customer' or 'auto' (the auto-cancel sweep).
  *
  * Order of operations chosen so the order is NEVER left in a bad state:
  *   1. issue the Stripe refund (best-effort)

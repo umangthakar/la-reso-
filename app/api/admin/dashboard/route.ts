@@ -82,7 +82,8 @@ export async function GET(req: Request) {
   // ACTIONABLE_STATUSES is the shared definition (lib/order-status). This tile
   // previously used a local ["received","preparing"] list that omitted
   // 'pending' and 'ready', so it read 0 while brand-new orders sat waiting to
-  // be accepted — the exact orders /api/cron/auto-cancel refunds after 24h.
+  // be accepted — the exact orders /api/cron/auto-cancel refunds once they pass
+  // the deadline (lib/order-timeout).
   const pendingRes = await supabase
     .from("orders")
     .select("id", { count: "exact", head: true })

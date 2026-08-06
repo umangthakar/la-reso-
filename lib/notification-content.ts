@@ -12,6 +12,7 @@
 
 import { money } from "@/lib/pricing";
 import { lineText, type CustomizationLine } from "@/lib/customization";
+import { PENDING_AUTO_CANCEL_LABEL } from "@/lib/order-timeout";
 
 export type NotifyItem = {
   name: string;
@@ -97,7 +98,7 @@ export function buildWhatsAppText(order: NotifyOrder): string {
 export type LifecycleEvent =
   | "accepted"          // owner accepted → order is now Received
   | "cancelled"         // customer cancelled while Pending (refund issued)
-  | "auto_cancelled"    // owner didn't accept within 24h (refund issued)
+  | "auto_cancelled"    // owner didn't accept before the deadline (refund issued)
   | "refund_completed"; // a previously-pending refund succeeded on retry
 
 /** The minimal order facts an event message needs. */
@@ -173,7 +174,7 @@ export function buildEventWhatsApp(event: LifecycleEvent, order: LifecycleOrder)
     case "cancelled":
       return `*Order ${order.orderNumber} cancelled by ${order.customerName}.*\n${refund}`;
     case "auto_cancelled":
-      return `*Order ${order.orderNumber} auto-cancelled* (not accepted within 24h).\n${refund}`;
+      return `*Order ${order.orderNumber} auto-cancelled* (not accepted within ${PENDING_AUTO_CANCEL_LABEL}).\n${refund}`;
     case "refund_completed":
       return `*Refund completed* for order ${order.orderNumber} — ${money(order.total)}.`;
     case "accepted":

@@ -9,7 +9,8 @@
 //     /api/admin/dashboard → received, preparing                   (WRONG)
 //
 //   so the Dashboard's "Pending orders" tile read 0 while brand-new orders sat
-//   unaccepted — and /api/cron/auto-cancel cancels and refunds those after 24h.
+//   unaccepted — and /api/cron/auto-cancel cancels and refunds those once they
+//   pass the deadline (lib/order-timeout).
 //
 //   "what counts as revenue?"
 //     every widget summed orders.total with NO status filter, so cancelled and
@@ -47,7 +48,7 @@ export const FULFILMENT_ORDER = [
 
 /**
  * Orders that still need someone to do something:
- *   pending   — awaiting the owner's acceptance (and auto-cancelled after 24h)
+ *   pending   — awaiting the owner's acceptance (auto-cancelled past the deadline)
  *   received  — accepted, not started
  *   preparing — in the kitchen
  *   ready     — baked, awaiting dispatch

@@ -13,6 +13,8 @@
 // (Title/Priority/Tags/Click) and the message as a UTF-8 text/plain body.
 // ============================================================
 
+import { PENDING_AUTO_CANCEL_LABEL } from "@/lib/order-timeout";
+
 const CLICK_URL = "https://www.lerasa.co.uk/admin/dashboard/orders";
 
 export type OrderNotification = {
@@ -176,7 +178,7 @@ export type RefundNotification = {
   customerName: string;
   /** Numeric order total in GBP — the amount refunded. */
   orderTotal: number;
-  /** Who triggered the cancellation. 'auto' = the 24h sweep. */
+  /** Who triggered the cancellation. 'auto' = the auto-cancel sweep. */
   by: "customer" | "auto" | "admin";
   /**
    * 'refunded'      — Stripe confirmed the refund, nothing to do.
@@ -190,7 +192,7 @@ export type RefundNotification = {
 };
 
 const CANCELLED_BY_LABEL: Record<RefundNotification["by"], string> = {
-  auto: "Auto-cancelled (not accepted within 24h)",
+  auto: `Auto-cancelled (not accepted within ${PENDING_AUTO_CANCEL_LABEL})`,
   customer: "Cancelled by customer",
   admin: "Cancelled by admin",
 };

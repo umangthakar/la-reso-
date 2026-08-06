@@ -1,8 +1,11 @@
 // ============================================================
-// Cron — auto-cancel Pending orders older than 24 hours (GET/POST)
+// Cron — auto-cancel Pending orders past the deadline (GET/POST)
 // ------------------------------------------------------------
+// The deadline is PENDING_AUTO_CANCEL_HOURS (lib/order-timeout) — the single
+// source of truth, currently 2 hours for testing (normally 24).
+//
 // A Pending order is one the owner hasn't accepted yet. If it sits
-// unaccepted for 24h, the customer shouldn't be left waiting: this sweep
+// unaccepted that long, the customer shouldn't be left waiting: this sweep
 // cancels it AND refunds the customer (shared cancelAndRefund), then
 // notifies both parties — exactly like a customer cancellation.
 //
@@ -11,7 +14,7 @@
 //   payment_status = 'paid'    the customer's money is actually held, so
 //                              there is something to refund
 //   refund_id is null          never refunded before
-//   created_at < now() - 24h   past the deadline
+//   created_at < cutoff        past the deadline (now - the window above)
 // The filter lives in SQL (auto_cancel_claim_orders), so an ineligible
 // order is never even loaded, let alone sent to Stripe.
 //
@@ -32,7 +35,7 @@
 // this instead, at whatever cadence you want, on any hosting plan.
 //
 // The sweep is cadence-agnostic: nothing here assumes a particular gap between
-// runs. It only ever touches orders that are past the 24h deadline, and it is
+// runs. It only ever touches orders that are past the deadline, and it is
 // safe to run concurrently with itself (see the three guards above), so a
 // scheduler that fires every minute is as correct as one that fires daily —
 // just noisier. Hourly is a sensible default.
@@ -68,6 +71,7 @@ import {
   claimAutoCancellableOrders,
   type LifecycleOrderRow,
 } from "@/lib/order-lifecycle";
+import { PENDING_AUTO_CANCEL_LABEL, PENDING_AUTO_CANCEL_MS } from "@/lib/order-timeout";
 
 export const dynamic = "force-dynamic";
 // node:crypto + the ws-based Supabase admin client both need the Node runtime.
@@ -78,7 +82,6 @@ export const runtime = "nodejs";
 // timeout at or above this so it doesn't record a false failure on a long run.
 export const maxDuration = 60;
 
-const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
 /** Orders claimed per transaction. Small enough that a killed invocation
  *  strands at most this many mid-flight, large enough for a normal backlog. */
 const BATCH_SIZE = 25;
@@ -277,9 +280,9 @@ async function runSweep(req: Request) {
   const supabase = createAdminClient() as unknown as SupabaseClient;
   // Cutoff in UTC. Date.now() is epoch-based (no local-time component) and
   // toISOString() emits a Z-suffixed instant, which Postgres compares against
-  // created_at (timestamptz) in UTC — so the 24h window is the same regardless
+  // created_at (timestamptz) in UTC — so the window is the same regardless
   // of the server's, the database's or the customer's timezone.
-  const cutoff = new Date(startedAt - TWENTY_FOUR_HOURS_MS).toISOString();
+  const cutoff = new Date(startedAt - PENDING_AUTO_CANCEL_MS).toISOString();
 
   const results: SweptOrder[] = [];
   let skipped = 0;
@@ -380,6 +383,9 @@ async function runSweep(req: Request) {
     batches,
     truncated,
     mode,
+    // The window this run applied, alongside the instant it resolved to —
+    // so a log line proves which deadline was in force.
+    window: PENDING_AUTO_CANCEL_LABEL,
     cutoff,
     durationMs: Date.now() - startedAt,
   };
