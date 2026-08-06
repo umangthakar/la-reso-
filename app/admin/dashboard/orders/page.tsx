@@ -38,7 +38,29 @@ type Order = {
   delivery_date?: string | null;
   total?: number | null;
   amount?: number | null;
+  /**
+   * Where the order is going. Written on every order by lib/order-create —
+   * `delivery_address` is the street line and town joined ("12 Baker Street,
+   * Harrow"), `postcode` is kept separate because delivery zones match on it.
+   * Optional because a database predating those columns returns neither (see
+   * the tiered select in /api/admin/orders).
+   */
+  delivery_address?: string | null;
+  postcode?: string | null;
+  special_instructions?: string | null;
 };
+
+/**
+ * What the customer typed in the checkout's "Delivery instructions" box, plus
+ * any warning lib/order-create attached to the order.
+ *
+ * Both columns are written with the same value; `message` is the one that
+ * exists on every version of the table and the one the legacy insert path folds
+ * the address into, so it stays the fallback.
+ */
+function instructionsOf(o: Order): string {
+  return (o.special_instructions || o.message || "").trim();
+}
 
 /** A line on the order, with the accessories chosen for it at checkout. */
 type OrderItem = {
@@ -351,13 +373,23 @@ export default function OrdersAdminPage() {
     line("Customer:", o.customer_name);
     line("Email:", o.email);
     line("Phone:", o.phone);
+    // The delivery address belongs on the printed copy for the same reason it
+    // belongs in the drawer: this is the sheet that travels with the order.
+    // Wrapped, because a full street line does not fit the value column.
+    doc.setFont("helvetica", "bold");
+    doc.text("Delivery address:", 40, y);
+    doc.setFont("helvetica", "normal");
+    const addressLines = doc.splitTextToSize(o.delivery_address || "—", pageW - 240);
+    doc.text(addressLines, 200, y);
+    y += 26 * Math.max(1, addressLines.length);
+    line("Postcode:", o.postcode || "—");
 
     // Message / special instructions (wrapped)
     doc.setFont("helvetica", "bold");
     doc.text("Special instructions:", 40, y);
     y += 22;
     doc.setFont("helvetica", "normal");
-    const wrapped = doc.splitTextToSize(o.message || "—", pageW - 80);
+    const wrapped = doc.splitTextToSize(instructionsOf(o) || "—", pageW - 80);
     doc.text(wrapped, 40, y);
 
     // Footer
@@ -533,7 +565,12 @@ export default function OrdersAdminPage() {
             <DetailRow label="Customer" value={selected.customer_name} />
             <DetailRow label="Email" value={selected.email} />
             <DetailRow label="Phone" value={selected.phone} />
-            <DetailRow label="Special instructions" value={selected.message || "—"} multiline />
+            {/* Where to deliver. Same two fields, same order and same wording
+                the customer sees in their own order history, so the baker and
+                the customer are reading one address. */}
+            <DetailRow label="Delivery address" value={selected.delivery_address || "—"} multiline />
+            <DetailRow label="Postcode" value={selected.postcode || "—"} />
+            <DetailRow label="Special instructions" value={instructionsOf(selected) || "—"} multiline />
 
             {/* What to bake: cake → accessories → messages → notes → quantities.
                 Read from the order's own snapshot, so it still reads correctly
