@@ -1,8 +1,8 @@
 // ============================================================
-// Le Rasa Bakery — Auth email HTML templates (SCAFFOLD / NOT INTEGRATED)
+// Le Rasa — Auth email HTML templates
 // ------------------------------------------------------------
 // Reusable, side-effect-free HTML builders for the four transactional auth
-// emails we will own once we migrate off Supabase's built-in SMTP:
+// emails, sent by lib/auth-email.ts:
 //
 //   • Verification      — confirm a new email address
 //   • Forgot password   — reset link
@@ -11,41 +11,59 @@
 //
 // These are PURE builders (no Resend, no env, no I/O), matching the proven
 // pattern in lib/inquiry-email.ts: inline styles only, so they render
-// consistently across email clients. They are intentionally NOT wired into
-// the live signup / login / reset flows yet — see lib/auth-email.ts.
+// consistently across email clients.
 //
-// NOTE: kept as framework-free HTML string builders (not @react-email) to
-// avoid adding a runtime dependency to production for not-yet-integrated code
-// and to stay consistent with the existing inquiry email. The structure is a
+// The BRAND (wordmark + tagline) and every CTA BUTTON come from
+// lib/email-brand.ts — the single source shared with the order and inquiry
+// emails. Nothing brand-shaped is written twice, and no button is hand-rolled.
+//
+// NOTE: kept as framework-free HTML string builders (not @react-email) to stay
+// consistent with the existing order + inquiry emails. The structure is a
 // single shared layout() so a future swap to React Email is mechanical.
 // ============================================================
 
-// Brand palette — mirrors lib/inquiry-email.ts.
-const WINE = "#873853";
-const BERRY = "#5C2A41";
-const BLUSH = "#F9EEEA";
+import {
+  EMAIL_BRAND,
+  EMAIL_COLORS,
+  emailBrandLockup,
+  emailBrandSignature,
+  emailBrandText,
+  emailButton,
+  escapeEmailText,
+} from "@/lib/email-brand";
+
+// Brand palette — the shared values, aliased for readability below.
+const WINE = EMAIL_COLORS.wine;
+const BERRY = EMAIL_COLORS.berry;
+const BLUSH = EMAIL_COLORS.blush;
 
 /** HTML-escape untrusted values before interpolation. */
-function esc(s: string): string {
-  return String(s ?? "").replace(/[&<>"]/g, (c) =>
-    c === "&" ? "&amp;" : c === "<" ? "&lt;" : c === ">" ? "&gt;" : "&quot;",
-  );
-}
+const esc = escapeEmailText;
 
-/** A filled call-to-action button. */
-function button(href: string, label: string): string {
-  return `<a href="${esc(href)}" style="display:inline-block;padding:13px 26px;border-radius:999px;font-weight:700;text-decoration:none;font-size:15px;background:${WINE};color:#ffffff;border:1px solid ${WINE}">${esc(label)}</a>`;
+/** A filled call-to-action button — the shared, cross-client helper. */
+function button(href: string, label: string, align: "left" | "center" = "left"): string {
+  return emailButton(href, label, { align });
 }
 
 export type AuthTemplateResult = { subject: string; html: string };
 
 /** Shared brand fields every template needs. */
 export type AuthTemplateBrand = {
-  /** Brand name shown in the header + footer. Defaults to "Le Rasa Bakery". */
+  /** Brand name shown in the header + footer. Defaults to EMAIL_BRAND.name. */
   brandName?: string;
+  /** The line under the wordmark. Defaults to EMAIL_BRAND.tagline. */
+  tagline?: string;
   /** Optional support email rendered in the footer / body where relevant. */
   supportEmail?: string;
 };
+
+/** Resolve the brand for one template: caller → shared default. */
+function brandOf(data: AuthTemplateBrand): { brandName: string; tagline: string } {
+  return {
+    brandName: emailBrandText(data.brandName) || EMAIL_BRAND.name,
+    tagline: emailBrandText(data.tagline) || EMAIL_BRAND.tagline,
+  };
+}
 
 /**
  * Shared responsive email shell. `heading` is the big title, `bodyHtml` is the
@@ -54,24 +72,31 @@ export type AuthTemplateBrand = {
  */
 function layout(opts: {
   brandName: string;
+  tagline: string;
   heading: string;
   bodyHtml: string;
   supportEmail?: string;
 }): string {
-  const { brandName, heading, bodyHtml, supportEmail } = opts;
+  const { brandName, tagline, heading, bodyHtml, supportEmail } = opts;
   const support = supportEmail
     ? `<br/>Need help? Contact <a href="mailto:${esc(supportEmail)}" style="color:${WINE};text-decoration:none">${esc(supportEmail)}</a>`
     : "";
   return `<!doctype html>
-<html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<meta name="x-apple-disable-message-reformatting" />
+<title>${esc(heading)}</title>
+</head>
 <body style="margin:0;padding:0;background:${BLUSH};font-family:Segoe UI,system-ui,-apple-system,sans-serif">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${BLUSH};padding:24px 0">
     <tr><td align="center">
       <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 8px 30px rgba(135,56,83,0.10)">
         <tr>
           <td style="background:${WINE};padding:22px 28px">
-            <div style="color:#ffffff;font-size:12px;letter-spacing:2px;text-transform:uppercase;opacity:0.85">${esc(brandName)}</div>
-            <div style="color:#ffffff;font-size:22px;font-weight:800;margin-top:4px">${esc(heading)}</div>
+            ${emailBrandLockup({ name: brandName, tagline, size: "sm", align: "left" })}
+            <div style="color:#ffffff;font-size:22px;font-weight:800;margin-top:12px">${esc(heading)}</div>
           </td>
         </tr>
         <tr>
@@ -80,7 +105,7 @@ function layout(opts: {
           </td>
         </tr>
       </table>
-      <div style="color:#9C616D;font-size:12px;margin-top:14px">${esc(brandName)} — 100% Eggless${support}</div>
+      <div style="color:#9C616D;font-size:12px;margin-top:14px">${esc(emailBrandSignature(brandName, tagline))}${support}</div>
     </td></tr>
   </table>
 </body>
@@ -105,15 +130,21 @@ export type VerificationEmailData = AuthTemplateBrand & {
 };
 
 export function buildVerificationEmail(data: VerificationEmailData): AuthTemplateResult {
-  const brandName = data.brandName || "Le Rasa Bakery";
+  const { brandName, tagline } = brandOf(data);
   const body = `${greeting(data.name)}
     <p style="margin:0 0 20px">Welcome! Please confirm your email address to activate your ${esc(brandName)} account.</p>
-    <p style="margin:0 0 6px">${button(data.verifyUrl, "Verify my email")}</p>
+    <p style="margin:0 0 6px">${button(data.verifyUrl, "Verify Email")}</p>
     <p style="margin:18px 0 0;font-size:13px;color:#9C616D">This link expires soon and can only be used once. If you didn't create an account, you can safely ignore this email.</p>
     ${fallbackLink(data.verifyUrl)}`;
   return {
     subject: `Confirm your ${brandName} account`,
-    html: layout({ brandName, heading: "Confirm your email", bodyHtml: body, supportEmail: data.supportEmail }),
+    html: layout({
+      brandName,
+      tagline,
+      heading: "Confirm your email",
+      bodyHtml: body,
+      supportEmail: data.supportEmail,
+    }),
   };
 }
 
@@ -124,15 +155,21 @@ export type ForgotPasswordEmailData = AuthTemplateBrand & {
 };
 
 export function buildForgotPasswordEmail(data: ForgotPasswordEmailData): AuthTemplateResult {
-  const brandName = data.brandName || "Le Rasa Bakery";
+  const { brandName, tagline } = brandOf(data);
   const body = `${greeting(data.name)}
     <p style="margin:0 0 20px">We received a request to reset your password. Click below to choose a new one.</p>
-    <p style="margin:0 0 6px">${button(data.resetUrl, "Reset my password")}</p>
+    <p style="margin:0 0 6px">${button(data.resetUrl, "Reset Password")}</p>
     <p style="margin:18px 0 0;font-size:13px;color:#9C616D">This link expires soon. If you didn't request a reset, ignore this email — your password won't change.</p>
     ${fallbackLink(data.resetUrl)}`;
   return {
     subject: `Reset your ${brandName} password`,
-    html: layout({ brandName, heading: "Reset your password", bodyHtml: body, supportEmail: data.supportEmail }),
+    html: layout({
+      brandName,
+      tagline,
+      heading: "Reset your password",
+      bodyHtml: body,
+      supportEmail: data.supportEmail,
+    }),
   };
 }
 
@@ -155,23 +192,37 @@ function perk(icon: string, title: string, copy: string): string {
 }
 
 export function buildWelcomeEmail(data: WelcomeEmailData): AuthTemplateResult {
-  const brandName = data.brandName || "Le Rasa Bakery";
+  const { brandName, tagline } = brandOf(data);
   const perks = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:6px 0 24px;border-collapse:collapse">
       ${perk("🍰", "Order in a tap", "Browse our 100% eggless cakes and bakes and check out in seconds.")}
       ${perk("📦", "Track every order", "Follow your order from kitchen to doorstep, all in one place.")}
       ${perk("↺", "Reorder favourites", "Your details are saved, so repeat orders take moments.")}
     </table>`;
 
+  // The CTA is rendered by the shared helper with an ABSOLUTE fallback: this
+  // is the button that used to reach inboxes as "[/account]Start ordering"
+  // because a relative path was handed to an email client.
+  const cta = emailButton(data.actionUrl, "Start Ordering", {
+    align: "center",
+    fallbackHref: EMAIL_BRAND.website,
+  });
+
   const body = `${greeting(data.name)}
     <p style="margin:0 0 6px;font-size:16px;color:${BERRY}">Your account is verified and ready to go. 🎉</p>
     <p style="margin:0 0 18px">We're so glad to have you. Here's what you can do now:</p>
     ${perks}
-    <p style="margin:0 0 6px" align="center">${button(data.actionUrl, "Start ordering")}</p>
+    <div style="margin:0 0 6px">${cta}</div>
     <p style="margin:20px 0 0;font-size:13px;color:#9C616D;text-align:center">Thanks for choosing our 100% eggless bakery — we can't wait to bake for you.</p>`;
 
   return {
     subject: `Welcome to ${brandName} 🎂`,
-    html: layout({ brandName, heading: `Welcome to ${brandName}`, bodyHtml: body, supportEmail: data.supportEmail }),
+    html: layout({
+      brandName,
+      tagline,
+      heading: `Welcome to ${brandName}`,
+      bodyHtml: body,
+      supportEmail: data.supportEmail,
+    }),
   };
 }
 
@@ -180,19 +231,31 @@ export type PasswordChangedEmailData = AuthTemplateBrand & {
   name?: string;
   /** Optional timestamp string shown for context (e.g. "21 Jul 2026, 14:03"). */
   when?: string;
+  /** Absolute URL of the password-reset page, for the "didn't do this?" CTA. */
+  resetUrl?: string;
 };
 
 export function buildPasswordChangedEmail(data: PasswordChangedEmailData): AuthTemplateResult {
-  const brandName = data.brandName || "Le Rasa Bakery";
+  const { brandName, tagline } = brandOf(data);
   const whenLine = data.when
     ? `<p style="margin:0 0 20px">This change was made on <strong>${esc(data.when)}</strong>.</p>`
     : "";
+  // "Reset your password immediately" was instruction without a way to act on
+  // it; the shared helper drops the button entirely if the URL isn't usable.
+  const cta = data.resetUrl ? emailButton(data.resetUrl, "Reset Password", { align: "left" }) : "";
   const body = `${greeting(data.name)}
     <p style="margin:0 0 14px">Your ${esc(brandName)} account password was just changed.</p>
     ${whenLine}
-    <p style="margin:0 0 0;font-size:14px;color:${BERRY}"><strong>Didn't do this?</strong> Reset your password immediately${data.supportEmail ? ` and contact <a href="mailto:${esc(data.supportEmail)}" style="color:${WINE};text-decoration:none">${esc(data.supportEmail)}</a>` : ""}.</p>`;
+    <p style="margin:0 0 ${cta ? "16px" : "0"};font-size:14px;color:${BERRY}"><strong>Didn't do this?</strong> Reset your password immediately${data.supportEmail ? ` and contact <a href="mailto:${esc(data.supportEmail)}" style="color:${WINE};text-decoration:none">${esc(data.supportEmail)}</a>` : ""}.</p>
+    ${cta}`;
   return {
     subject: `Your ${brandName} password was changed`,
-    html: layout({ brandName, heading: "Password changed", bodyHtml: body, supportEmail: data.supportEmail }),
+    html: layout({
+      brandName,
+      tagline,
+      heading: "Password changed",
+      bodyHtml: body,
+      supportEmail: data.supportEmail,
+    }),
   };
 }

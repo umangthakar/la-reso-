@@ -1,17 +1,13 @@
 // ============================================================
-// Le Rasa Bakery — Auth Email module (SCAFFOLD / NOT INTEGRATED)
+// Le Rasa — Auth Email module
 // ------------------------------------------------------------
-// Reusable service for the four transactional AUTH emails we will own after
-// migrating off Supabase's built-in SMTP:
+// Reusable service for the four transactional AUTH emails, sent by the
+// /api/auth/* routes and the verify page:
 //
 //   sendVerificationEmail()      — confirm a new email address
 //   sendForgotPasswordEmail()    — password reset link
 //   sendWelcomeEmail()           — post-verification greeting
 //   sendPasswordChangedEmail()   — security confirmation
-//
-// IMPORTANT: this file is intentionally NOT imported by any auth flow yet.
-// signup / login / forgot-password still run entirely through Supabase Auth
-// (lib/use-auth.ts) exactly as before. This is groundwork only.
 //
 // It reuses the existing, proven Resend wrapper (lib/email.ts) so there is a
 // single Resend integration point, plus:
@@ -19,11 +15,24 @@
 //   • environment validation          (validateAuthEmailEnv)
 //   • structured logging              ([auth-email] prefixed)
 //
+// BRAND + LINKS come from lib/email-brand — the same source the order and
+// inquiry emails use. Every URL handed to a template is ABSOLUTE; a bare path
+// is unusable in an inbox.
+//
 // Server-only: never import from a "use client" module.
 // ============================================================
 
 import "server-only";
 import { sendEmail, type SendEmailResult } from "@/lib/email";
+import {
+  EMAIL_BRAND,
+  emailAccountUrl,
+  emailBrandText,
+  emailFrom,
+  emailSiteUrl,
+  emailUrl,
+  isEmailHref,
+} from "@/lib/email-brand";
 import {
   buildVerificationEmail,
   buildForgotPasswordEmail,
@@ -40,14 +49,15 @@ export type AuthEmailConfig = {
   replyTo?: string;
   /** Brand name shown in templates. */
   brandName: string;
+  /** The line under the wordmark. */
+  tagline: string;
   /** Support address surfaced in templates (falls back to Reply-To). */
   supportEmail?: string;
   /** Absolute site origin (no trailing slash) for building links. */
   siteUrl: string;
 };
 
-const DEFAULT_FROM = "Le Rasa Bakery <onboarding@resend.dev>";
-const DEFAULT_BRAND = "Le Rasa Bakery";
+const DEFAULT_FROM = emailFrom("onboarding@resend.dev");
 
 function env(name: string): string {
   return (process.env[name] ?? "").trim();
@@ -57,15 +67,24 @@ function env(name: string): string {
  * Resolve the auth-email configuration from the environment. Pure read — never
  * throws, so importing this module can't break a build. Precedence:
  *   from       ← AUTH_EMAIL_FROM → EMAIL_FROM → hardcoded resend.dev default
- *   siteUrl    ← NEXT_PUBLIC_SITE_URL → SITE_URL → "" (caller must supply)
+ *   siteUrl    ← lib/email-brand.emailSiteUrl() — always absolute, never a
+ *                loopback host, so no link in an inbox can be unreachable
+ *   brand      ← NEXT_PUBLIC_BRAND_NAME → EMAIL_BRAND (the shared source)
  */
 export function getAuthEmailConfig(): AuthEmailConfig {
   const from = env("AUTH_EMAIL_FROM") || env("EMAIL_FROM") || DEFAULT_FROM;
   const replyTo = env("AUTH_EMAIL_REPLY_TO") || undefined;
-  const supportEmail = env("AUTH_SUPPORT_EMAIL") || env("OWNER_EMAIL") || replyTo || undefined;
-  const siteUrl = (env("NEXT_PUBLIC_SITE_URL") || env("SITE_URL")).replace(/\/$/, "");
-  const brandName = env("NEXT_PUBLIC_BRAND_NAME") || DEFAULT_BRAND;
-  return { from, replyTo, brandName, supportEmail, siteUrl };
+  const supportEmail =
+    env("AUTH_SUPPORT_EMAIL") || env("OWNER_EMAIL") || replyTo || EMAIL_BRAND.supportEmail;
+  const brandName = emailBrandText(env("NEXT_PUBLIC_BRAND_NAME")) || EMAIL_BRAND.name;
+  return {
+    from,
+    replyTo,
+    brandName,
+    tagline: EMAIL_BRAND.tagline,
+    supportEmail,
+    siteUrl: emailSiteUrl(),
+  };
 }
 
 // ── Environment validation ───────────────────────────────────
@@ -94,10 +113,14 @@ export function validateAuthEmailEnv(): AuthEmailEnvReport {
     warnings.push("AUTH_EMAIL_FROM/EMAIL_FROM unset — falling back to onboarding@resend.dev (test sender)");
   }
   if (!env("NEXT_PUBLIC_SITE_URL") && !env("SITE_URL")) {
-    warnings.push("NEXT_PUBLIC_SITE_URL/SITE_URL unset — callers must pass absolute link URLs");
+    warnings.push(
+      `NEXT_PUBLIC_SITE_URL/SITE_URL unset — email links fall back to ${EMAIL_BRAND.website}`,
+    );
   }
   if (!env("AUTH_SUPPORT_EMAIL") && !env("OWNER_EMAIL")) {
-    warnings.push("AUTH_SUPPORT_EMAIL/OWNER_EMAIL unset — support line omitted from emails");
+    warnings.push(
+      `AUTH_SUPPORT_EMAIL/OWNER_EMAIL unset — emails show ${EMAIL_BRAND.supportEmail}`,
+    );
   }
 
   const ok = missing.length === 0;
@@ -192,6 +215,7 @@ export async function sendVerificationEmail(input: SendVerificationInput): Promi
     name: input.name,
     verifyUrl: input.verifyUrl,
     brandName: cfg.brandName,
+    tagline: cfg.tagline,
     supportEmail: cfg.supportEmail,
   });
   return dispatch("verification", input.to, subject, html);
@@ -204,19 +228,30 @@ export async function sendForgotPasswordEmail(input: SendForgotPasswordInput): P
     name: input.name,
     resetUrl: input.resetUrl,
     brandName: cfg.brandName,
+    tagline: cfg.tagline,
     supportEmail: cfg.supportEmail,
   });
   return dispatch("forgot-password", input.to, subject, html);
 }
 
-/** Send the post-verification welcome message. */
+/**
+ * Send the post-verification welcome message.
+ *
+ * The "Start Ordering" URL must be ABSOLUTE. It used to be
+ * `${cfg.siteUrl}/account`, which collapsed to the bare path "/account" when
+ * no site URL was configured — an email client cannot resolve that, so the
+ * customer read "[/account]Start Ordering" instead of getting a button. The
+ * account page is used when we can build it, the public website otherwise;
+ * a caller-supplied URL is honoured only when it is absolute.
+ */
 export async function sendWelcomeEmail(input: SendWelcomeInput): Promise<SendEmailResult> {
   const cfg = getAuthEmailConfig();
-  const actionUrl = input.actionUrl || `${cfg.siteUrl}/account` || "/account";
+  const actionUrl = isEmailHref(input.actionUrl) ? String(input.actionUrl) : emailAccountUrl();
   const { subject, html } = buildWelcomeEmail({
     name: input.name,
     actionUrl,
     brandName: cfg.brandName,
+    tagline: cfg.tagline,
     supportEmail: cfg.supportEmail,
   });
   return dispatch("welcome", input.to, subject, html);
@@ -228,7 +263,9 @@ export async function sendPasswordChangedEmail(input: SendPasswordChangedInput):
   const { subject, html } = buildPasswordChangedEmail({
     name: input.name,
     when: input.when,
+    resetUrl: emailUrl("/account/forgot-password"),
     brandName: cfg.brandName,
+    tagline: cfg.tagline,
     supportEmail: cfg.supportEmail,
   });
   return dispatch("password-changed", input.to, subject, html);

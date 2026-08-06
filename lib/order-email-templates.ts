@@ -1,5 +1,5 @@
 // ============================================================
-// Le Rasa Bakery — ORDER EMAIL TEMPLATES (pure, side-effect-free)
+// Le Rasa — ORDER EMAIL TEMPLATES (pure, side-effect-free)
 // ------------------------------------------------------------
 // The four customer-facing order emails, as ONE design system:
 //
@@ -29,43 +29,42 @@
 // ============================================================
 
 import { money } from "@/lib/pricing";
+import {
+  EMAIL_COLORS,
+  EMAIL_FONT,
+  emailBrandLockup,
+  emailButton,
+  emailHref,
+  escapeEmailText,
+} from "@/lib/email-brand";
 
 // ------------------------------------------------------------
-// Brand palette — the same wine/blush values as the storefront and the
-// existing auth + inquiry emails, so nothing looks bolted on.
+// Brand palette — the shared wine/blush values (lib/email-brand), the same
+// ones the storefront and the auth + inquiry emails use, aliased for
+// readability in the markup below.
 // ------------------------------------------------------------
-const WINE = "#873853";
-const BERRY = "#5C2A41";
-const DEEP = "#612437";
-const ACCENT = "#743249";
-const MUTED = "#9C616D";
-const BLUSH = "#F9EEEA";
-const CANVAS = "#FDF8F6";
-const RULE = "#F2DCD6";
-const WHITE = "#ffffff";
+const WINE = EMAIL_COLORS.wine;
+const BERRY = EMAIL_COLORS.berry;
+const DEEP = EMAIL_COLORS.deep;
+const ACCENT = EMAIL_COLORS.accent;
+const MUTED = EMAIL_COLORS.muted;
+const BLUSH = EMAIL_COLORS.blush;
+const CANVAS = EMAIL_COLORS.canvas;
+const RULE = EMAIL_COLORS.rule;
+const WHITE = EMAIL_COLORS.white;
 
-const FONT = "'Segoe UI',system-ui,-apple-system,'Helvetica Neue',Arial,sans-serif";
+const FONT = EMAIL_FONT;
 
 /** HTML-escape anything that came from a customer, an admin or the database. */
-function esc(raw: unknown): string {
-  return String(raw ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
+const esc = escapeEmailText;
 
 /**
- * Escape a URL for an href/src, refusing anything that isn't http(s) or
- * mailto/tel. Logo and social links come from the admin settings row, so a
- * `javascript:` value would otherwise ride into the customer's inbox.
+ * Escape a URL for an href/src, refusing anything that isn't absolute http(s)
+ * or mailto/tel. Logo and social links come from the admin settings row, so a
+ * `javascript:` value — or a relative path an email client cannot resolve —
+ * would otherwise ride into the customer's inbox.
  */
-function safeUrl(raw: unknown): string {
-  const v = String(raw ?? "").trim();
-  if (!v) return "";
-  if (!/^(https?:|mailto:|tel:)/i.test(v)) return "";
-  return esc(v);
-}
+const safeUrl = emailHref;
 
 // ------------------------------------------------------------
 // Shared brand + order shapes. Everything the templates render arrives
@@ -74,11 +73,11 @@ function safeUrl(raw: unknown): string {
 // ------------------------------------------------------------
 
 export type OrderEmailBrand = {
-  /** Full bakery name, e.g. "Le Rasa Bakery". */
+  /** The name we address the customer as, e.g. "Le Rasa". */
   brandName: string;
-  /** Compact wordmark, e.g. "Le Rasa". */
+  /** The wordmark shown in the header, e.g. "Le Rasa". */
   shortName: string;
-  /** The line under the wordmark. */
+  /** The line under the wordmark, e.g. "House of Eggless Desserts". */
   tagline: string;
   /** Absolute logo URL, or "" to fall back to the wordmark. */
   logoUrl: string;
@@ -188,30 +187,14 @@ function statusPill(label: string, value: string, tone: Tone): string {
   </table>`;
 }
 
-/** A filled call-to-action button (bulletproof enough for Outlook). */
+/** A filled call-to-action button — the shared, cross-client helper. */
 function primaryButton(href: string, label: string): string {
-  const url = safeUrl(href);
-  if (!url) return "";
-  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto">
-    <tr>
-      <td align="center" style="background:${WINE};border-radius:999px">
-        <a href="${url}" style="display:inline-block;padding:14px 34px;font-family:${FONT};font-size:15px;font-weight:700;color:${WHITE};text-decoration:none;border-radius:999px">${esc(label)}</a>
-      </td>
-    </tr>
-  </table>`;
+  return emailButton(href, label, { variant: "primary", align: "center" });
 }
 
-/** An outlined secondary button. */
+/** An outlined secondary button — the same helper, outlined variant. */
 function ghostButton(href: string, label: string): string {
-  const url = safeUrl(href);
-  if (!url) return "";
-  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto">
-    <tr>
-      <td align="center" style="background:${WHITE};border:1px solid ${RULE};border-radius:999px">
-        <a href="${url}" style="display:inline-block;padding:13px 30px;font-family:${FONT};font-size:14px;font-weight:600;color:${WINE};text-decoration:none;border-radius:999px">${esc(label)}</a>
-      </td>
-    </tr>
-  </table>`;
+  return emailButton(href, label, { variant: "ghost", align: "center" });
 }
 
 /**
@@ -386,15 +369,15 @@ function notesBlock(order: OrderEmailData): string {
 // ------------------------------------------------------------
 
 function header(brand: OrderEmailBrand): string {
-  const logo = safeUrl(brand.logoUrl);
-  const mark = logo
-    ? `<img src="${logo}" alt="${esc(brand.brandName)}" height="46" style="display:block;margin:0 auto;max-height:46px;width:auto;border:0" />`
-    : `<div style="font-family:${FONT};font-size:26px;font-weight:800;color:${WHITE};letter-spacing:0.4px">${esc(brand.shortName)}</div>`;
-
   return `<tr>
     <td align="center" style="background:${WINE};padding:26px 24px 22px">
-      ${mark}
-      <div style="font-family:${FONT};font-size:11px;letter-spacing:2.4px;text-transform:uppercase;color:${WHITE};opacity:0.82;margin-top:${logo ? "12px" : "6px"}">${esc(brand.tagline)}</div>
+      ${emailBrandLockup({
+        name: brand.shortName || brand.brandName,
+        tagline: brand.tagline,
+        logoUrl: brand.logoUrl,
+        size: "lg",
+        align: "center",
+      })}
     </td>
   </tr>`;
 }

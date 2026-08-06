@@ -1,14 +1,25 @@
 // ============================================================
-// Le Rasa Bakery — owner "New Custom Cake Inquiry" email template.
+// Le Rasa — owner "New Custom Cake Inquiry" email template.
 // ------------------------------------------------------------
 // Pure HTML builder (no side effects), used by /api/inquiry/create together
 // with the reusable email service (lib/email). Inline styles only, so it
 // renders consistently across email clients.
+//
+// Brand (wordmark + tagline) and buttons come from lib/email-brand, the same
+// shared source the auth and order emails use.
 // ============================================================
 
-const WINE = "#873853";
-const BERRY = "#5C2A41";
-const BLUSH = "#F9EEEA";
+import {
+  EMAIL_COLORS,
+  emailBrandLockup,
+  emailBrandSignature,
+  emailButton,
+  escapeEmailText,
+} from "@/lib/email-brand";
+
+const WINE = EMAIL_COLORS.wine;
+const BERRY = EMAIL_COLORS.berry;
+const BLUSH = EMAIL_COLORS.blush;
 
 export type InquiryEmailData = {
   inquiryNumber: string;
@@ -27,25 +38,22 @@ export type InquiryEmailData = {
   images: string[];
 };
 
-function esc(s: string): string {
-  return String(s ?? "").replace(/[&<>"]/g, (c) =>
-    c === "&" ? "&amp;" : c === "<" ? "&lt;" : c === ">" ? "&gt;" : "&quot;",
-  );
-}
+const esc = escapeEmailText;
 
 function row(label: string, value: string): string {
   if (!value.trim()) return "";
   return `<tr>
-    <td style="padding:7px 14px;color:${WINE};font-weight:600;white-space:nowrap;vertical-align:top;border-bottom:1px solid #F0DCD5">${esc(label)}</td>
+    <td class="lbl" style="padding:7px 14px;color:${WINE};font-weight:600;white-space:nowrap;vertical-align:top;border-bottom:1px solid #F0DCD5">${esc(label)}</td>
     <td style="padding:7px 14px;color:${BERRY};border-bottom:1px solid #F0DCD5">${esc(value)}</td>
   </tr>`;
 }
 
+/** The shared CTA helper, left-aligned like the rest of this email. */
 function button(href: string, label: string, filled: boolean): string {
-  const style = filled
-    ? `background:${WINE};color:#ffffff;border:1px solid ${WINE}`
-    : `background:#ffffff;color:${WINE};border:1px solid ${WINE}`;
-  return `<a href="${esc(href)}" style="display:inline-block;padding:11px 22px;border-radius:999px;font-weight:700;text-decoration:none;font-size:14px;${style}">${esc(label)}</a>`;
+  return emailButton(href, label, {
+    variant: filled ? "primary" : "ghost",
+    align: "left",
+  });
 }
 
 /**
@@ -85,15 +93,30 @@ export function buildInquiryOwnerEmail(
     : "";
 
   const html = `<!doctype html>
-<html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+  /* Progressive enhancement only — the inline styles already render correctly
+     without this block. On a phone the two action buttons stack instead of
+     sitting side by side, and the detail labels are allowed to wrap: their
+     nowrap gives the table a min-content width wider than a 320px screen,
+     which made the whole email scroll sideways. */
+  @media only screen and (max-width:420px) {
+    .btn-stack { display:block !important; width:100% !important; padding:0 0 10px !important; }
+    .lbl { white-space:normal !important; }
+  }
+</style>
+</head>
 <body style="margin:0;padding:0;background:${BLUSH};font-family:Segoe UI,system-ui,-apple-system,sans-serif">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${BLUSH};padding:24px 0">
     <tr><td align="center">
       <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 8px 30px rgba(135,56,83,0.10)">
         <tr>
           <td style="background:${WINE};padding:22px 28px">
-            <div style="color:#ffffff;font-size:12px;letter-spacing:2px;text-transform:uppercase;opacity:0.85">Le Rasa Bakery</div>
-            <div style="color:#ffffff;font-size:22px;font-weight:800;margin-top:4px">New Custom Cake Inquiry</div>
+            ${emailBrandLockup({ size: "sm", align: "left" })}
+            <div style="color:#ffffff;font-size:22px;font-weight:800;margin-top:12px">New Custom Cake Inquiry</div>
           </td>
         </tr>
         <tr>
@@ -112,13 +135,16 @@ export function buildInquiryOwnerEmail(
         </tr>
         <tr>
           <td style="padding:24px 28px 28px">
-            ${button(links.viewUrl, "View Inquiry", true)}
-            &nbsp;
-            ${button(links.adminUrl, "Open Admin", false)}
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td class="btn-stack" valign="top" style="padding:0 10px 0 0">${button(links.viewUrl, "View Inquiry", true)}</td>
+                <td class="btn-stack" valign="top">${button(links.adminUrl, "Open Admin", false)}</td>
+              </tr>
+            </table>
           </td>
         </tr>
       </table>
-      <div style="color:#9C616D;font-size:12px;margin-top:14px">Le Rasa Bakery — 100% Eggless</div>
+      <div style="color:#9C616D;font-size:12px;margin-top:14px">${esc(emailBrandSignature())}</div>
     </td></tr>
   </table>
 </body>

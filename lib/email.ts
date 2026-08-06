@@ -1,5 +1,5 @@
 // ============================================================
-// Le Rasa Bakery — reusable transactional email service (Resend).
+// Le Rasa — reusable transactional email service (Resend).
 // ------------------------------------------------------------
 // A tiny, dependency-free wrapper around the Resend HTTP API, driven by
 // environment variables so it works without any admin configuration:
@@ -17,6 +17,7 @@
 // ============================================================
 
 import "server-only";
+import { emailFrom } from "@/lib/email-brand";
 
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
 
@@ -35,9 +36,13 @@ export function ownerWhatsApp(): string {
   return (process.env.OWNER_WHATSAPP ?? "").replace(/[^\d]/g, "");
 }
 
-/** The verified "From" address. EMAIL_FROM overrides the default. */
+/**
+ * The verified "From" address. EMAIL_FROM overrides the default; the default
+ * carries the shared brand name, because the sender line is the first piece of
+ * branding a customer reads.
+ */
 function fromAddress(): string {
-  return (process.env.EMAIL_FROM ?? "").trim() || "Le Rasa Bakery <onboarding@resend.dev>";
+  return (process.env.EMAIL_FROM ?? "").trim() || emailFrom("onboarding@resend.dev");
 }
 
 export type SendEmailInput = {

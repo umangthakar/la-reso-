@@ -41,7 +41,8 @@ import { round2 } from "@/lib/pricing";
 import { lineText, type CustomizationLine } from "@/lib/customization";
 import { getPublicSettings } from "@/lib/site-settings-server";
 import { instagramUrl } from "@/lib/site-settings";
-import { absoluteUrl, siteUrl } from "@/lib/site-url";
+import { absoluteUrl } from "@/lib/site-url";
+import { emailUrl, resolveEmailBrand } from "@/lib/email-brand";
 import { sendConfiguredEmail } from "@/lib/notifications";
 import { sendEmail } from "@/lib/email";
 import {
@@ -258,22 +259,41 @@ function absolutise(url: string): string {
   return absoluteUrl(v.startsWith("/") ? v : `/${v}`);
 }
 
+/**
+ * The brand these emails are sent under.
+ *
+ * The admin's live settings are still the source (site_settings.branding), but
+ * every brand-shaped value passes through lib/email-brand:
+ *   • the WORDMARK is the short name ("Le Rasa"), never the long form, and the
+ *     TAGLINE sits under it — one header, every email;
+ *   • emailBrandText() rewrites the retired "Le Rasa Bakery" wording, so an
+ *     un-migrated settings row cannot put it back in someone's inbox;
+ *   • links use emailUrl(), which is absolute even when no site URL is set —
+ *     a localhost or relative link is unusable in an email client.
+ */
 async function loadBrand(): Promise<OrderEmailBrand> {
   const settings = await getPublicSettings();
-  const base = siteUrl();
-  return {
-    brandName: settings.branding.name,
+  const brand = resolveEmailBrand({
+    name: settings.branding.name,
     shortName: settings.branding.short_name,
     tagline: settings.branding.tagline,
-    logoUrl: absolutise(settings.logo),
-    siteUrl: base,
-    ordersUrl: absoluteUrl("/account/orders"),
-    contactUrl: absoluteUrl("/contact"),
+    copyright: settings.branding.copyright,
     supportEmail: settings.contact.email,
     phone: settings.contact.phone,
+  });
+  return {
+    brandName: brand.name,
+    shortName: brand.name,
+    tagline: brand.tagline,
+    logoUrl: absolutise(settings.logo),
+    siteUrl: brand.website,
+    ordersUrl: emailUrl("/account/orders"),
+    contactUrl: emailUrl("/contact"),
+    supportEmail: brand.supportEmail,
+    phone: brand.phone,
     instagramUrl: instagramUrl(settings.instagram_url),
     address: settings.contact.address,
-    copyright: settings.branding.copyright,
+    copyright: brand.copyright,
   };
 }
 
