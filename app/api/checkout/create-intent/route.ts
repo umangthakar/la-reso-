@@ -28,6 +28,7 @@ import {
 } from "@/lib/pricing";
 import {
   cleanString,
+  cleanText,
   normaliseEmail,
   normaliseName,
   normalisePhone,
@@ -35,6 +36,7 @@ import {
   validateName,
   validatePhone,
 } from "@/lib/input-validation";
+import { saveCheckoutDraft } from "@/lib/checkout-draft";
 import { priceBasket, type IncomingItem } from "@/lib/basket-pricing";
 import {
   offerFromRow,
@@ -60,6 +62,11 @@ export async function POST(req: Request) {
     email?: string;
     name?: string;
     phone?: string;
+    // Delivery address and note. Not used for pricing — pricing keys off
+    // `postcode` exactly as before — but carried so the order can be recovered
+    // in full if the customer's browser never reaches /api/orders/create.
+    address?: { line?: string; city?: string; postcode?: string };
+    specialInstructions?: string;
   };
   try {
     body = await req.json();
@@ -298,7 +305,36 @@ export async function POST(req: Request) {
         coupon_code: appliedCouponCode ?? "",
         offer_id: appliedOfferId ?? "",
         accessories_total: accessoriesTotal.toFixed(2),
+        // ---- RECOVERY METADATA ------------------------------------------
+        // Written by this server, never by the client, and read back only by
+        // /api/stripe/webhook when the browser fails to save the order. These
+        // are what let a recovered order name a real customer and a real
+        // address even if the checkout_drafts migration has not been run.
+        // Kept well inside Stripe's 500-character-per-value limit by the
+        // same caps the order route applies.
+        customer_name: contact.name.slice(0, 200),
+        customer_email: contact.email.slice(0, 200),
+        customer_phone: contact.phone.slice(0, 60),
+        address_line: cleanString(body.address?.line, 200),
+        address_city: cleanString(body.address?.city, 100),
       },
+    });
+
+    // Persist the full basket + details against this intent, so the webhook can
+    // rebuild the exact order the browser would have written. Best-effort by
+    // design (see lib/checkout-draft): a failure here must never stop a payment
+    // that is otherwise ready to take.
+    await saveCheckoutDraft(supabase, intent.id, {
+      customer: { name: contact.name, email: contact.email, phone: contact.phone },
+      address: {
+        line: cleanString(body.address?.line, 200),
+        city: cleanString(body.address?.city, 100),
+        // The postcode the charge was priced for, not a second unvalidated one.
+        postcode: cleanString(body.postcode, 20),
+      },
+      deliveryDate: body.deliveryDate ?? "",
+      specialInstructions: cleanText(body.specialInstructions, 2000),
+      items,
     });
 
     return NextResponse.json({

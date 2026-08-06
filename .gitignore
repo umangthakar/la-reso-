@@ -10,6 +10,12 @@
 next-env.d.ts
 .vercel
 
+# Test + tooling output, regenerated on every run.
+/test-results/
+/playwright-report/
+/.playwright-mcp/
+/product.yml
+
 # Oversized, unused 3D asset — exceeds GitHub's 100 MB file limit.
 # Kept locally; not referenced anywhere in the app.
 /public/models/cake.glb

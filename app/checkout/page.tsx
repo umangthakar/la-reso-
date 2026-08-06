@@ -374,6 +374,18 @@ export default function CheckoutPage() {
           name: normaliseName(form.name),
           phone: form.phone.trim(),
           couponCode: appliedCoupon || undefined,
+          // Delivery details, sent so the SERVER can keep a draft of this
+          // order against the PaymentIntent. If this tab never gets to call
+          // /api/orders/create — closed, crashed, offline — the Stripe webhook
+          // rebuilds the order from that draft. Pricing is unaffected: it still
+          // keys off `postcode` above, and these fields are re-validated and
+          // re-derived server-side exactly as before.
+          address: {
+            line: normaliseLine(form.address),
+            city: normaliseLine(form.city, 100),
+            postcode: normaliseLine(form.postcode, 20),
+          },
+          specialInstructions: normaliseText(form.instructions),
         }),
       });
       const data = await res.json();
