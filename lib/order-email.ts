@@ -38,6 +38,9 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { round2 } from "@/lib/pricing";
+// The baker-only annotation filter now lives with the rest of the shared order
+// vocabulary, because /api/account/orders needs the identical rule.
+import { customerNotesOnly } from "@/lib/order-status";
 import { lineText, type CustomizationLine } from "@/lib/customization";
 import { getPublicSettings } from "@/lib/site-settings-server";
 import { instagramUrl } from "@/lib/site-settings";
@@ -382,21 +385,6 @@ function paymentMethodLabel(value: unknown): string {
   const key = str(value).toLowerCase().trim();
   if (!key || key === "stripe" || key === "card") return "Card (Stripe)";
   return key.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
-}
-
-/**
- * Strip the INTERNAL annotations lib/order-create appends to
- * special_instructions ("⚠️ ITEMS COULD NOT BE VERIFIED…", "ℹ️ RECOVERED
- * AUTOMATICALLY…"). Those are notes to the baker about our own systems; a
- * customer must never read them in a confirmation email. The customer's own
- * text is always the first block, so this only ever removes ours.
- */
-function customerNotesOnly(value: unknown): string {
-  return str(value)
-    .split(/\n\s*\n/)
-    .filter((block) => !/^\s*(⚠️|ℹ️|⚠|ℹ)/.test(block))
-    .join("\n\n")
-    .trim();
 }
 
 /**

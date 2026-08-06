@@ -112,3 +112,26 @@ export function sumRevenue(
   }
   return Math.round(sum * 100) / 100;
 }
+
+/**
+ * Strip the INTERNAL annotations lib/order-create appends to an order's
+ * instructions ("⚠️ ITEMS COULD NOT BE VERIFIED…", "ℹ️ RECOVERED
+ * AUTOMATICALLY…", "⚠️ CONTACT DETAILS INCOMPLETE…").
+ *
+ * Those blocks are notes to the BAKER about our own systems. They belong in
+ * the admin panel and nowhere else: a customer reading "ITEMS COULD NOT BE
+ * VERIFIED" on their own order has been told their order is broken, in wording
+ * written for someone else entirely. The confirmation emails have always
+ * filtered them (lib/order-email used a private copy of this function, which
+ * now lives here); /api/account/orders did not, so My Orders showed them.
+ *
+ * The customer's own text is always written FIRST, so this only ever removes
+ * blocks we added. Returns "" when nothing of the customer's remains.
+ */
+export function customerNotesOnly(value: unknown): string {
+  return String(value ?? "")
+    .split(/\n\s*\n/)
+    .filter((block) => !/^\s*(⚠️|ℹ️|⚠|ℹ)/.test(block))
+    .join("\n\n")
+    .trim();
+}

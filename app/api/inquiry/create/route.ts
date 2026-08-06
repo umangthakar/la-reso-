@@ -16,6 +16,7 @@ import { createClient } from "@/utils/supabase/server";
 import { createAdminClient } from "@/lib/supabase/server";
 import { sendEmail, ownerEmail } from "@/lib/email";
 import { buildInquiryOwnerEmail } from "@/lib/inquiry-email";
+import { siteUrl } from "@/lib/site-url";
 import {
   cleanString,
   cleanText,
@@ -131,8 +132,10 @@ export async function POST(req: Request) {
     }
 
     if (recipient) {
-      const origin = new URL(req.url).origin;
-      const base = (process.env.NEXT_PUBLIC_SITE_URL ?? process.env.SITE_URL ?? origin).replace(/\/$/, "");
+      // The shared resolver, for the same reason as the auth emails: `??` let a
+      // defined-but-blank NEXT_PUBLIC_SITE_URL win and emit a relative link,
+      // and the request origin is the caller's Host header.
+      const base = siteUrl();
       const { subject, html } = buildInquiryOwnerEmail(
         {
           inquiryNumber,

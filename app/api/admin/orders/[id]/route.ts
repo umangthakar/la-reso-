@@ -120,12 +120,47 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   const patch: Record<string, unknown> = { status, updated_at: new Date().toISOString() };
   if (isAccept && !order.accepted_at) patch.accepted_at = new Date().toISOString();
 
-  let { error } = await supabase.from("orders").update(patch).eq("id", params.id);
+  // ACCEPT IS THE OTHER HALF OF THE CANCEL RACE. The customer's cancel claims
+  // the order with a conditional `WHERE status = 'pending'` update (see
+  // lib/order-lifecycle CancelOptions.onlyIfStatus), so exactly one of the two
+  // can win — but only if THIS side is conditional too. Unguarded, an accept
+  // that read 'pending' a moment before the cancel landed would overwrite a
+  // cancelled, already-refunded order back to 'received' and email the customer
+  // that it was accepted. Advancing an accepted order is left unguarded: those
+  // transitions are the owner's alone and race with nothing.
+  const applyStatus = (values: Record<string, unknown>) => {
+    const q = supabase.from("orders").update(values).eq("id", params.id);
+    return (isAccept ? q.eq("status", "pending") : q).select("id");
+  };
+
+  let { data: changed, error } = await applyStatus(patch);
   // Degrade gracefully if updated_at / accepted_at don't exist (pre-27 DB).
   if (error && isMissingColumn(error)) {
-    ({ error } = await supabase.from("orders").update({ status }).eq("id", params.id));
+    ({ data: changed, error } = await applyStatus({ status }));
   }
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Lost the claim — the order left 'pending' between the read above and this
+  // update. Two very different reasons, and they must not be reported the same
+  // way: a DOUBLE-CLICKED Accept loses it to its own twin (harmless, and the
+  // owner's intent was carried out), whereas a CANCELLATION landing first means
+  // the order is refunded and accepting it would be wrong. So re-read the row
+  // and answer for what actually happened.
+  if (isAccept && (!changed || changed.length === 0)) {
+    const { data: now } = await supabase
+      .from("orders")
+      .select("status")
+      .eq("id", params.id)
+      .maybeSingle();
+    if (String(now?.status ?? "").toLowerCase() !== status) {
+      return NextResponse.json(
+        { error: "This order was cancelled before it could be accepted." },
+        { status: 409 },
+      );
+    }
+    // Already accepted by the request we raced. Fall through: the answer is the
+    // same one that request gives, and the email ledger makes the send a no-op.
+  }
 
   // On acceptance, email the customer that their order is accepted
   // (best-effort — never blocks the status change).

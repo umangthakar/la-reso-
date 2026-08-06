@@ -26,6 +26,7 @@ import { randomBytes } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/server";
 import { sendVerificationEmail } from "@/lib/auth-email";
+import { siteUrl } from "@/lib/site-url";
 import { isValidEmail, normaliseEmail } from "@/lib/input-validation";
 
 export const dynamic = "force-dynamic";
@@ -143,14 +144,16 @@ export async function POST(req: Request) {
     }
 
     // 6. Send the Resend verification email.
-    const origin = new URL(req.url).origin;
-    const base = (process.env.NEXT_PUBLIC_SITE_URL ?? process.env.SITE_URL ?? origin).replace(/\/$/, "");
+    //    siteUrl() — the shared resolver — rather than the old
+    //    `NEXT_PUBLIC_SITE_URL ?? SITE_URL ?? request origin` chain, which took
+    //    its host from the request (attacker-controlled) and let a
+    //    defined-but-blank env var win outright, emitting a relative link.
+    const base = siteUrl();
     const verifyUrl = `${base}/auth/verify?token=${token}`;
     const name = (userRes?.user?.user_metadata?.full_name as string) || undefined;
     const result = await sendVerificationEmail({ to: email, name, verifyUrl });
     if (!result.ok) {
       console.error("[api/auth/resend-verification] email failed", { error: result.error });
-    } else {
     }
   } catch (e) {
     console.error("[api/auth/resend-verification] unexpected exception", e);

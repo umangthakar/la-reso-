@@ -12,6 +12,7 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/utils/supabase/server";
 import { createAdminClient } from "@/lib/supabase/server";
+import { customerNotesOnly } from "@/lib/order-status";
 
 export const dynamic = "force-dynamic";
 
@@ -140,7 +141,14 @@ export async function GET() {
       phone: str(o.phone),
       delivery_address: str(o.delivery_address),
       postcode: str(o.postcode),
-      special_instructions: str(o.special_instructions) ?? str(o.message),
+      // The CUSTOMER'S own note only. lib/order-create appends internal
+      // annotations to this column for the baker ("⚠️ ITEMS COULD NOT BE
+      // VERIFIED…", "ℹ️ RECOVERED AUTOMATICALLY…"), and this endpoint was
+      // returning them verbatim — so My Orders showed a customer alarming
+      // wording written for the bakery. customerNotesOnly is the same filter
+      // the confirmation emails have always applied.
+      special_instructions:
+        customerNotesOnly(o.special_instructions ?? o.message) || null,
       payment_method: str(o.payment_method),
       items,
     };

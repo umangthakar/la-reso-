@@ -13,6 +13,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/server";
 import { isAuthedRequest } from "@/lib/admin-auth";
 import { getStripe } from "@/lib/stripe";
+import { refundIdempotencyKey } from "@/lib/order-lifecycle";
 import { sendOrderRefundedEmail } from "@/lib/order-email";
 
 export const dynamic = "force-dynamic";
@@ -57,9 +58,15 @@ export async function POST(req: Request) {
   let refundId: string;
   try {
     const { stripe } = await getStripe(supabase);
-    const refund = await stripe.refunds.create({
-      payment_intent: order.stripe_payment_intent,
-    });
+    // The SAME idempotency key the lifecycle refund uses (lib/order-lifecycle).
+    // This tool was the one refund path without it: a double-clicked button, a
+    // retried request, or this tool racing the cancel-and-refund flow each sent
+    // an unkeyed create. Sharing the key means Stripe collapses them into ONE
+    // refund and hands it back to every caller.
+    const refund = await stripe.refunds.create(
+      { payment_intent: order.stripe_payment_intent },
+      { idempotencyKey: refundIdempotencyKey(orderId) },
+    );
     refundId = refund.id;
   } catch (e) {
     const msg =

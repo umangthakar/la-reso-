@@ -20,12 +20,18 @@ import { randomBytes } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/server";
 import { sendForgotPasswordEmail } from "@/lib/auth-email";
+import { siteUrl } from "@/lib/site-url";
+import { clientKey, consumeQuota } from "@/lib/rate-limit";
 import { isValidEmail, normaliseEmail } from "@/lib/input-validation";
 
 export const dynamic = "force-dynamic";
 
 /** Reset tokens are short-lived: 1 hour. */
 const TOKEN_TTL_MS = 60 * 60 * 1000;
+
+/** Reset emails one IP may trigger per window. A real person needs one or two. */
+const RESET_MAX = 5;
+const RESET_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 
 
 // The same response whether or not the address exists — prevents enumeration.
@@ -35,6 +41,16 @@ const GENERIC_OK = {
 };
 
 export async function POST(req: Request) {
+  // 0. Rate limit. Unauthenticated, and every accepted call sends an email to
+  //    an address the caller chose — the classic mail-bomb primitive. Over
+  //    quota still answers GENERIC_OK, so the limiter cannot be used to probe
+  //    which addresses exist. Same per-instance caveat as lib/rate-limit.
+  const quota = consumeQuota(`forgot:${clientKey(req)}`, {
+    max: RESET_MAX,
+    windowMs: RESET_WINDOW_MS,
+  });
+  if (!quota.allowed) return NextResponse.json(GENERIC_OK);
+
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
   const email = normaliseEmail(body.email);
 
@@ -83,13 +99,16 @@ export async function POST(req: Request) {
     }
 
     // 5. Send the Resend reset email.
-    const origin = new URL(req.url).origin;
-    const base = (process.env.NEXT_PUBLIC_SITE_URL ?? process.env.SITE_URL ?? origin).replace(/\/$/, "");
+    //    siteUrl() is the shared resolver, and it MATTERS most here: the old
+    //    `NEXT_PUBLIC_SITE_URL ?? SITE_URL ?? request origin` chain took its
+    //    host from the request, so a crafted Host header could point a live
+    //    reset token at another site — and a blank-but-defined env var won
+    //    outright under `??`, producing a relative link no inbox can follow.
+    const base = siteUrl();
     const resetUrl = `${base}/auth/reset-password?token=${token}`;
     const result = await sendForgotPasswordEmail({ to: email, resetUrl });
     if (!result.ok) {
       console.error("[api/auth/forgot-password] reset email failed", { error: result.error });
-    } else {
     }
   } catch (e) {
     console.error("[api/auth/forgot-password] unexpected exception", e);

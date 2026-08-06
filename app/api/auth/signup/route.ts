@@ -34,6 +34,8 @@ import { randomBytes } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/server";
 import { sendVerificationEmail } from "@/lib/auth-email";
+import { siteUrl } from "@/lib/site-url";
+import { clientKey, consumeQuota } from "@/lib/rate-limit";
 import {
   cleanString,
   normaliseEmail,
@@ -55,7 +57,29 @@ function fail(status: number, message: string, details?: string) {
   return NextResponse.json({ success: false, message, ...(details ? { details } : {}) }, { status });
 }
 
+/** Accounts one IP may create per window. Generous for a shared connection
+ *  (a household, an office), far below what makes bulk signup worthwhile. */
+const SIGNUP_MAX = 5;
+const SIGNUP_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+
 export async function POST(req: Request) {
+  // ── 0. Rate limit ─────────────────────────────────────────
+  // This endpoint creates a Supabase Auth user AND sends a Resend email on
+  // every accepted call, both of which cost real quota, and it is completely
+  // unauthenticated. Same in-process caveat as everywhere else (lib/rate-limit):
+  // per-instance, not global — it blunts scripted abuse, it is not a WAF.
+  // /api/auth/resend-verification already guards itself the same way.
+  const quota = consumeQuota(`signup:${clientKey(req)}`, {
+    max: SIGNUP_MAX,
+    windowMs: SIGNUP_WINDOW_MS,
+  });
+  if (!quota.allowed) {
+    return NextResponse.json(
+      { success: false, message: "Too many sign-up attempts. Please try again later." },
+      { status: 429, headers: { "Retry-After": String(quota.retryAfterSeconds) } },
+    );
+  }
+
   // ── 1. Validate ───────────────────────────────────────────
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
   const email = normaliseEmail(body.email);
@@ -149,8 +173,14 @@ export async function POST(req: Request) {
   }
 
   // ── 6. Send the Resend verification email ─────────────────
-  const origin = new URL(req.url).origin;
-  const base = (process.env.NEXT_PUBLIC_SITE_URL ?? process.env.SITE_URL ?? origin).replace(/\/$/, "");
+  // siteUrl() is the shared resolver (NEXT_PUBLIC_SITE_URL → SITE_URL → the
+  // Vercel production host → localhost). It replaces a hand-rolled
+  // `NEXT_PUBLIC_SITE_URL ?? SITE_URL ?? request origin` chain that was wrong
+  // twice over: `??` let a DEFINED-BUT-BLANK env var win, which produced a
+  // RELATIVE "/auth/verify?token=…" link no inbox can follow; and the request
+  // origin is attacker-controlled (the Host header), so a crafted request could
+  // aim a verification link at another host.
+  const base = siteUrl();
   const verifyUrl = `${base}/auth/verify?token=${token}`;
 
   const emailResult = await sendVerificationEmail({ to: email, name, verifyUrl });
