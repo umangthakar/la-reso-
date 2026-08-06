@@ -65,17 +65,41 @@ async function collectStats(req: Request) {
   // --- Orders: the single canonical source --------------------
   // Full (post-migration) shape first; fall back to the base enquiry columns
   // with zeroed money if the analytics columns don't exist yet.
-  let orders: Record<string, unknown>[] = [];
-  const full = await supabase
-    .from("orders")
-    .select(
-      // payment_status is needed so revenue can exclude refunds (a delivered
-      // order can still have been refunded afterwards).
-      "id,customer_name,email,phone,message,status,payment_status,created_at,delivery_date,subtotal,delivery_charge,total,amount,zone_id",
-    )
-    .order("created_at", { ascending: false });
+  //
+  // DELIVERY FIELDS. The Orders page renders its detail drawer and its PDF
+  // invoice from THESE rows — this endpoint, not /api/admin/orders — so
+  // `delivery_address`, `postcode` and `special_instructions` have to be named
+  // here or the drawer has nothing to show. lib/order-create writes all three on
+  // every order, under exactly these names; they are only ever read.
+  //
+  // Tried as their own tier, ahead of the analytics shape, so a database
+  // predating those columns falls back to precisely what it returned before
+  // (money and analytics intact, schemaReady still true) instead of collapsing
+  // to the base enquiry columns.
+  const ANALYTICS_COLUMNS =
+    // payment_status is needed so revenue can exclude refunds (a delivered
+    // order can still have been refunded afterwards).
+    "id,customer_name,email,phone,message,status,payment_status,created_at,delivery_date,subtotal,delivery_charge,total,amount,zone_id";
+  const ORDER_SELECTS = [
+    `${ANALYTICS_COLUMNS},delivery_address,postcode,special_instructions`,
+    ANALYTICS_COLUMNS,
+  ];
 
-  if (full.error) {
+  let orders: Record<string, unknown>[] = [];
+  let ordersLoaded = false;
+  for (const select of ORDER_SELECTS) {
+    const res = await supabase
+      .from("orders")
+      .select(select)
+      .order("created_at", { ascending: false });
+    if (!res.error) {
+      orders = (res.data as unknown as Record<string, unknown>[]) || [];
+      ordersLoaded = true;
+      break;
+    }
+  }
+
+  if (!ordersLoaded) {
     schemaReady = false;
     const base = await supabase
       .from("orders")
@@ -93,8 +117,6 @@ async function collectStats(req: Request) {
       amount: null,
       zone_id: null,
     }));
-  } else {
-    orders = full.data || [];
   }
 
   // --- Line items (top products) ------------------------------

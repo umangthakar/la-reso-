@@ -43,7 +43,8 @@ type Order = {
    * `delivery_address` is the street line and town joined ("12 Baker Street,
    * Harrow"), `postcode` is kept separate because delivery zones match on it.
    * Optional because a database predating those columns returns neither (see
-   * the tiered select in /api/admin/orders).
+   * the tiered select in /api/admin/stats — the endpoint `load()` below reads,
+   * and therefore the one that has to name these columns).
    */
   delivery_address?: string | null;
   postcode?: string | null;
