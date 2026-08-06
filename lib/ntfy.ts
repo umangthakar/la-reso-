@@ -164,7 +164,7 @@ export async function sendOrderNotification(order: OrderNotification): Promise<v
   ].join("\n");
 
   await publish("order", {
-    title: "🎂 Le Rasa Bakery",
+    title: "🎂 Le Rasa",
     body: message,
     priority: "max",
     tags: "cake,shopping_cart",
@@ -233,7 +233,7 @@ export async function sendRefundNotification(refund: RefundNotification): Promis
   ].join("\n");
 
   await publish("refund", {
-    title: failed ? "⚠️ Le Rasa — Refund Failed" : "🎂 Le Rasa Bakery",
+    title: failed ? "⚠️ Le Rasa — Refund Failed" : "🎂 Le Rasa",
     body: message,
     priority: "max",
     tags: failed ? "warning,rotating_light" : "leftwards_arrow_with_hook,pound",

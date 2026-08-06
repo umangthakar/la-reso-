@@ -1,5 +1,5 @@
 // ============================================================
-// Le Rasa Bakery — policy index (/policies)
+// Le Rasa — policy index (/policies)
 //
 // One card per enabled policy, in the admin's order. This is where
 // `short_description` and `read_more_text` are actually used — the footer only
@@ -22,9 +22,9 @@ import { policyHref } from "@/lib/policies";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Policies — Le Rasa Bakery",
+  title: "Policies — Le Rasa",
   description:
-    "Our privacy, delivery, refund and terms policies — everything you agree to when ordering from Le Rasa Bakery.",
+    "Our privacy, delivery, refund and terms policies — everything you agree to when ordering from Le Rasa.",
 };
 
 export default async function PoliciesPage() {

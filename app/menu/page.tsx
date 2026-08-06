@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export const metadata: Metadata = {
-  title: "Menu — Le Rasa Bakery",
+  title: "Menu — Le Rasa",
   description:
     "Browse our full menu of 100% eggless cakes, cupcakes, brownies, cookies and gift boxes. Filter by category and order your favourites.",
 };

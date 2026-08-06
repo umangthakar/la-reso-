@@ -1,7 +1,7 @@
 "use client";
 
 // ============================================================
-// Le Rasa Bakery — Content & Settings admin
+// Le Rasa — Content & Settings admin
 // Five independently-saved sections, all persisting to the singleton
 // site_settings row via /api/admin/settings (PUT does a whitelisted
 // partial update, so each section only writes its own fields).
@@ -338,7 +338,7 @@ export default function SettingsAdminPage() {
             style={inputStyle}
             value={s.branding.name}
             onChange={(e) => setBrand("name", e.target.value)}
-            placeholder="Le Rasa Bakery"
+            placeholder="Le Rasa"
           />
         </Field>
         <Field label="Short Name">
@@ -386,7 +386,7 @@ export default function SettingsAdminPage() {
             style={inputStyle}
             value={s.branding.copyright}
             onChange={(e) => setBrand("copyright", e.target.value)}
-            placeholder="Le Rasa Bakery. All rights reserved."
+            placeholder="Le Rasa. All rights reserved."
           />
           <p style={{ ...hint, marginTop: 6 }}>
             Shown as “© {new Date().getFullYear()} {s.branding.copyright || "…"}” in the footer.
@@ -727,7 +727,7 @@ function NotificationsSection({ onError }: { onError: (msg: string) => void }) {
           style={inputStyle}
           value={cfg.from_name}
           onChange={(e) => set("from_name", e.target.value)}
-          placeholder="Le Rasa Bakery"
+          placeholder="Le Rasa"
         />
       </Field>
 

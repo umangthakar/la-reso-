@@ -1,7 +1,7 @@
 "use client";
 
 // ============================================================
-// Le Rasa Bakery — Custom Cake Inquiries (admin)
+// Le Rasa — Custom Cake Inquiries (admin)
 // ------------------------------------------------------------
 // Lists every inquiry with its prominent Inquiry Number, searchable by
 // Inquiry Number / customer name / phone / email / event type, and filterable
@@ -259,10 +259,10 @@ function DetailsModal({
           if (!digits) return null;
           const msg =
             `Hello ${inquiry.name || "there"}\n\n` +
-            `Thank you for contacting Le Rasa Bakery.\n\n` +
+            `Thank you for contacting Le Rasa.\n\n` +
             `Your enquiry ${inquiry.inquiry_number} has been received.\n\n` +
             `Let's discuss your cake.\n\n` +
-            `Regards,\nLe Rasa Bakery`;
+            `Regards,\nLe Rasa`;
           const href = `https://wa.me/${digits}?text=${encodeURIComponent(msg)}`;
           return (
             <a

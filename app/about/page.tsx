@@ -9,9 +9,9 @@ import { getGoogleReviews } from "@/lib/google-reviews";
 import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = {
-  title: "About — Le Rasa Bakery",
+  title: "About — Le Rasa",
   description:
-    "Our story: how Le Rasa Bakery became the house of eggless desserts, baking inclusive, premium treats everyone can share.",
+    "Our story: how Le Rasa became the house of eggless desserts, baking inclusive, premium treats everyone can share.",
 };
 
 /**
@@ -96,7 +96,7 @@ export default async function AboutPage() {
                 So she set out to prove that eggless could be every bit as soft,
                 rich and indulgent as the classics. After hundreds of test
                 bakes, the recipes were undeniable. Word spread, the orders
-                poured in, and Le Rasa Bakery was born.
+                poured in, and Le Rasa was born.
               </p>
               <p>
                 Today our team of pastry artisans bakes thousands of

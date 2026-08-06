@@ -514,7 +514,7 @@ export async function testConnection(): Promise<TestResult> {
 }
 
 const TEST_MESSAGE = [
-  "Le Rasa Bakery",
+  "Le Rasa",
   "",
   "WhatsApp integration is working successfully.",
   "",

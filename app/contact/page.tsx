@@ -11,9 +11,9 @@ import { instagramUrl, instagramHandle } from "@/lib/site-settings";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Order & Contact — Le Rasa Bakery",
+  title: "Order & Contact — Le Rasa",
   description:
-    "Start your custom eggless cake order or get in touch with Le Rasa Bakery. We reply within 24 hours.",
+    "Start your custom eggless cake order or get in touch with Le Rasa. We reply within 24 hours.",
 };
 
 const faqs = [

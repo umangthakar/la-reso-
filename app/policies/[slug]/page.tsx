@@ -1,5 +1,5 @@
 // ============================================================
-// Le Rasa Bakery — a single policy (/policies/[slug])
+// Le Rasa — a single policy (/policies/[slug])
 //
 // A SERVER component, unlike /menu/[slug]: policy pages are the ones search
 // engines and customers link to directly, so the content must be in the HTML
@@ -27,9 +27,9 @@ export async function generateMetadata({
   params: { slug: string };
 }): Promise<Metadata> {
   const policy = await getPolicy(params.slug);
-  if (!policy) return { title: "Policy — Le Rasa Bakery" };
+  if (!policy) return { title: "Policy — Le Rasa" };
   return {
-    title: `${policy.title} — Le Rasa Bakery`,
+    title: `${policy.title} — Le Rasa`,
     description: policy.short_description || undefined,
   };
 }

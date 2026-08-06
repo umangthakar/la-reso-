@@ -174,15 +174,15 @@ export type Branding = {
 };
 
 export const BRANDING_DEFAULT: Branding = {
-  name: "Le Rasa Bakery",
+  name: "Le Rasa",
   short_name: "Le Rasa",
   tagline: "House of Eggless Desserts",
   description:
-    "Le Rasa Bakery crafts stunning, 100% eggless cakes, cupcakes, brownies, cookies and gift boxes. Premium desserts everyone can share.",
+    "Le Rasa crafts stunning, 100% eggless cakes, cupcakes, brownies, cookies and gift boxes. Premium desserts everyone can share.",
   hero_subtitle: "The House of Eggless Desserts",
   footer_description:
     "The house of eggless desserts. Handcrafted cakes & treats baked fresh, so everyone gets a slice of the celebration.",
-  copyright: "Le Rasa Bakery. All rights reserved.",
+  copyright: "Le Rasa. All rights reserved.",
 };
 
 /** Coerce an unknown value into a fully-populated Branding, field-by-field,

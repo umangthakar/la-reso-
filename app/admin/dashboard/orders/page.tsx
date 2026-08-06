@@ -1,7 +1,7 @@
 "use client";
 
 // ============================================================
-// Le Rasa Bakery — Orders
+// Le Rasa — Orders
 // Table (Order #, Date, Customer, Delivery Date, Status, Actions),
 // coloured status pills, a side drawer with full detail + status
 // updater, a filter bar (status / date range / name search),
@@ -342,7 +342,7 @@ export default function OrdersAdminPage() {
     doc.setTextColor(255, 255, 255);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(24);
-    doc.text("Le Rasa Bakery", 40, 50);
+    doc.text("Le Rasa", 40, 50);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(11);
     doc.text("Order Confirmation", 40, 70);
@@ -396,7 +396,7 @@ export default function OrdersAdminPage() {
     // Footer
     doc.setTextColor(156, 97, 109);
     doc.setFontSize(9);
-    doc.text("Thank you for ordering with Le Rasa Bakery 🌹", 40, doc.internal.pageSize.getHeight() - 40);
+    doc.text("Thank you for ordering with Le Rasa 🌹", 40, doc.internal.pageSize.getHeight() - 40);
 
     doc.save(`invoice-${o.id.slice(0, 8)}.pdf`);
   }

@@ -52,7 +52,7 @@ export default function GlobalError({
       >
         <div style={{ maxWidth: 520, textAlign: "center" }}>
           <h1 style={{ margin: 0, fontSize: "1.75rem", fontWeight: 700, letterSpacing: "-0.01em" }}>
-            Le Rasa Bakery
+            Le Rasa
           </h1>
           <p style={{ marginTop: 16, fontSize: "1.05rem", fontWeight: 600 }}>
             The site is having a moment

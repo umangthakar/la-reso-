@@ -19,7 +19,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export const metadata: Metadata = {
-  title: "Le Rasa Bakery — Eggless Cakes & Desserts",
+  title: "Le Rasa — Eggless Cakes & Desserts",
   description:
     "Handcrafted 100% eggless cakes, cupcakes, brownies and gift boxes. Order custom cakes for every occasion.",
 };

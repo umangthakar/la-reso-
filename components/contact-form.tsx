@@ -1,7 +1,7 @@
 "use client";
 
 // ============================================================
-// Le Rasa Bakery — Custom Cake Inquiry form.
+// Le Rasa — Custom Cake Inquiry form.
 // ------------------------------------------------------------
 // Collects the details for a bespoke cake and sends them straight to the
 // bakery owner's WhatsApp. It deliberately does NOT create an order, hit
@@ -233,7 +233,7 @@ export function ContactForm() {
               Inquiry Submitted Successfully
             </h3>
             <p className="mt-3 max-w-sm text-darkberry-light">
-              Thank you for contacting Le Rasa Bakery. Our cake designer will
+              Thank you for contacting Le Rasa. Our cake designer will
               review your enquiry. We will contact you soon on your WhatsApp
               number.
             </p>
