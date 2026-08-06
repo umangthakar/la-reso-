@@ -33,6 +33,7 @@ import {
   PRODUCT_SORT_OPTIONS,
   type ProductSortKey,
 } from "@/lib/product-sort";
+import { displayPriceOf, type SizeLike } from "@/lib/product-pricing";
 import RichIngredientsEditor from "@/components/admin/rich-ingredients-editor";
 import { INGREDIENT_ICONS } from "@/lib/ingredient-icons";
 import {
@@ -82,6 +83,8 @@ type Product = {
   name: string;
   category: string | null;
   description: string | null;
+  /** The base price column — what the edit form's Price field holds. A product
+   *  with size variants does NOT charge this; see productPrice() below. */
   price: number;
   badge: string | null;
   image_url: string | null;
@@ -89,7 +92,18 @@ type Product = {
   visible: boolean;
   allergens: string | null;
   sort_order: number;
+  /** Size variants, embedded by /api/admin/products. */
+  product_sizes?: SizeLike[] | null;
 };
+
+/**
+ * The price the STOREFRONT shows for a product: its default variant's when it
+ * has sizes, its base price when it doesn't. Same helper the cards and the
+ * product page use, so this table can't quote a price no customer ever sees.
+ */
+function productPrice(p: Product): number {
+  return displayPriceOf(p.price, p.product_sizes);
+}
 
 // Gallery image + size variant shapes used by the form (client-side only).
 type ImageItem = { url: string; is_primary: boolean };
@@ -1408,7 +1422,7 @@ function SortableRow({
       </td>
       <td style={{ ...td, fontWeight: 600 }}>{p.name}</td>
       <td style={td}>{p.category || "—"}</td>
-      <td style={td}>£{Number(p.price).toFixed(2)}</td>
+      <td style={td}>£{productPrice(p).toFixed(2)}</td>
       <td style={td}>{p.badge || "—"}</td>
       <td style={td}><Toggle on={p.visible} onClick={() => onToggle("visible")} /></td>
       <td style={td}><Toggle on={p.in_stock} onClick={() => onToggle("in_stock")} /></td>
@@ -1461,7 +1475,7 @@ function SortableCard({
       </div>
 
       <CardField label="Category" value={p.category || "—"} />
-      <CardField label="Price" value={`£${Number(p.price).toFixed(2)}`} />
+      <CardField label="Price" value={`£${productPrice(p).toFixed(2)}`} />
       <CardField label="Badge" value={p.badge || "—"} />
 
       <div style={{ display: "flex", gap: 20, marginTop: 12 }}>

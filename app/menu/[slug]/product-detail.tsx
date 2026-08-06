@@ -28,6 +28,15 @@ import { createClient } from "@/utils/supabase/client";
 import { useCart } from "@/components/cart/cart-context";
 import { slugify } from "@/lib/slug";
 import { money } from "@/lib/pricing";
+import {
+  PRODUCT_SIZES_EMBED,
+  defaultSizeOf,
+  displayPriceOf,
+  orderedSizes,
+  selectedSizeOf,
+  sizedCartLineId,
+  type SizeLike,
+} from "@/lib/product-pricing";
 import { formatSizeLabel } from "@/lib/size-label";
 import { useActiveOffer } from "@/lib/use-active-offer";
 import { usePurchaseGate } from "@/lib/use-purchase-gate";
@@ -56,7 +65,13 @@ type DetailProduct = {
   id: string;
   name: string;
   category: string;
+  /** The BASE product price (products.price). What the page actually shows is
+   *  `displayPrice` below — the default variant's price when there are sizes. */
   price: number;
+  /** What this product costs at a glance: the DEFAULT VARIANT's price when it
+   *  has sizes, else the base price. Identical rule to every product card, so
+   *  the related tiles here and the cards elsewhere quote the same number. */
+  displayPrice: number;
   image: string;
   description: string;
   allergens: string | null;
@@ -77,6 +92,8 @@ type SupaRow = {
   badge: string | null;
   allergens: string | null;
   in_stock: boolean | null;
+  /** Embedded size variants; absent when product_sizes isn't migrated. */
+  product_sizes?: SizeLike[] | null;
 };
 
 function toDetail(r: SupaRow): DetailProduct {
@@ -85,6 +102,7 @@ function toDetail(r: SupaRow): DetailProduct {
     name: r.name,
     category: r.category ?? "",
     price: Number(r.price) || 0,
+    displayPrice: displayPriceOf(r.price, r.product_sizes),
     image: r.image_url || FALLBACK_IMAGE,
     description: r.description ?? "",
     allergens: r.allergens,
@@ -100,6 +118,9 @@ type SizeVariant = {
   label: string;
   serves: number | null;
   price: number;
+  /** Carried so the shared ordering rule (lib/product-pricing) can resolve the
+   *  default variant from this list exactly as the cards resolve it. */
+  sort_order: number;
   /** This size's own nutrition table, loaded with the size itself so switching
    *  size swaps the table with no extra request. Null = inherit the product's. */
   nutrition: NutritionData | null;
@@ -176,12 +197,23 @@ export default function ProductDetailPage() {
     let cancelled = false;
     (async () => {
       const db = createClient() as unknown as SupabaseClient;
-      const { data } = await db
-        .from("products")
-        .select("id,name,description,price,image_url,category,badge,allergens,in_stock")
-        .order("sort_order", { ascending: true });
+      // Sizes are embedded so the "You might also love" tiles can quote each
+      // product's default variant, like every other card on the site. This
+      // product's OWN sizes are still loaded separately below (it needs their
+      // serves + nutrition too). Retry without the embed keeps a database
+      // without product_sizes working unchanged.
+      const base =
+        "id,name,description,price,image_url,category,badge,allergens,in_stock";
+      const read = (cols: string) =>
+        db.from("products").select(cols).order("sort_order", { ascending: true });
+      let res = await read(`${base},${PRODUCT_SIZES_EMBED}`);
+      if (res.error) res = await read(base);
       if (cancelled) return;
-      setProducts((data ?? []).map(toDetail));
+      setProducts(
+        res.error || !Array.isArray(res.data)
+          ? []
+          : (res.data as unknown as SupaRow[]).map(toDetail),
+      );
       setLoading(false);
     })();
     return () => {
@@ -248,21 +280,25 @@ export default function ProductDetailPage() {
         if (res.error) res = await read(base);
         const { data, error } = res;
         if (!cancelled) {
-          const list: SizeVariant[] =
+          // orderedSizes() — not the query's order alone — decides which size is
+          // FIRST, because that first size is the default the page opens on and
+          // the one the cards advertise. Sharing the ordering rule is what stops
+          // the two from ever picking different variants.
+          const list: SizeVariant[] = orderedSizes(
             !error && Array.isArray(data)
-              ? (data as unknown as Record<string, unknown>[]).map((r) => ({
-                  id: String(r.id),
-                  label: String(r.label),
-                  serves:
-                    r.serves === null || r.serves === undefined
-                      ? null
-                      : Number(r.serves),
-                  price: Number(r.price) || 0,
-                  nutrition: normalizeSizeNutrition(r.nutrition),
-                }))
-              : [];
+              ? (data as unknown as (Record<string, unknown> & SizeLike)[])
+              : [],
+          ).map((r) => ({
+            id: String(r.id),
+            label: String(r.label),
+            serves:
+              r.serves === null || r.serves === undefined ? null : Number(r.serves),
+            price: Number(r.price) || 0,
+            sort_order: Number(r.sort_order) || 0,
+            nutrition: normalizeSizeNutrition(r.nutrition),
+          }));
           setSizes(list);
-          setSelectedSizeId(list.length > 0 ? list[0].id : null);
+          setSelectedSizeId(defaultSizeOf(list)?.id ?? null);
         }
       } catch {
         if (!cancelled) {
@@ -409,11 +445,10 @@ export default function ProductDetailPage() {
     const quantity = Math.min(99, Math.max(1, pending!.quantity ?? 1));
     setQty(quantity);
 
-    // Restore the chosen size (stashed as `variant`) if it still exists; its
-    // absolute price becomes the line price, mirroring a fresh Buy Now.
-    const resumeSize =
-      sizes.find((s) => s.id === pending!.variant) ??
-      (sizes.length > 0 ? sizes[0] : null);
+    // Restore the chosen size (stashed as `variant`) if it still exists,
+    // otherwise the default variant; its absolute price becomes the line price,
+    // mirroring a fresh Buy Now.
+    const resumeSize = selectedSizeOf(sizes, pending!.variant);
 
     // Same fork as a fresh Buy Now: only cakes get customized first. Cupcakes
     // and every other product skip the accessories page (category-gated, so a
@@ -427,7 +462,7 @@ export default function ProductDetailPage() {
     }
     addItem(
       {
-        id: resumeSize ? `${product.id}::size:${resumeSize.id}` : product.id,
+        id: sizedCartLineId(product.id, resumeSize?.id),
         productId: product.id,
         name: product.name,
         price: resumeSize ? resumeSize.price : product.price,
@@ -486,8 +521,10 @@ export default function ProductDetailPage() {
 
   // The chosen size (if the product offers any). Its price is ABSOLUTE and
   // replaces the base product price for pricing, display and the cart line.
-  const selectedSize =
-    sizes.find((s) => s.id === selectedSizeId) ?? (sizes.length > 0 ? sizes[0] : null);
+  // selectedSizeOf falls back to the DEFAULT variant — the same one the product
+  // cards advertise — so the price this page opens on always matches the card
+  // the customer clicked.
+  const selectedSize = selectedSizeOf(sizes, selectedSizeId);
   const effectivePrice = selectedSize ? selectedSize.price : product.price;
 
   // Nutrition to render: the SELECTED SIZE's own table when it has one,
@@ -519,7 +556,7 @@ export default function ProductDetailPage() {
   // and Large don't merge), carrying the size identity + its absolute price.
   const productSlug = slugify(product.name);
   const cartLine = {
-    id: selectedSize ? `${product.id}::size:${selectedSize.id}` : product.id,
+    id: sizedCartLineId(product.id, selectedSize?.id),
     productId: product.id,
     name: product.name,
     price: effectivePrice,
@@ -937,7 +974,7 @@ export default function ProductDetailPage() {
                       <Stars value={5} />
                     </span>
                     <span className="mt-2 font-display text-base font-bold text-wine-dark">
-                      {money(r.price)}
+                      {money(r.displayPrice)}
                     </span>
                   </div>
                 </Link>

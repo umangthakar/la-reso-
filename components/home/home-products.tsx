@@ -10,6 +10,12 @@ import { useCart } from "@/components/cart/cart-context";
 import { useActiveOffer } from "@/lib/use-active-offer";
 import { PriceText } from "@/components/product-price";
 import { slugify } from "@/lib/slug";
+import {
+  defaultSizeOf,
+  displayPriceOf,
+  sizedCartLineId,
+  type SizeLike,
+} from "@/lib/product-pricing";
 
 export type HomeProduct = {
   id: string;
@@ -19,21 +25,27 @@ export type HomeProduct = {
   category: string | null;
   badge: string | null;
   description: string | null;
+  /** Embedded size variants (see app/home/page.tsx). Absent on a database
+   *  without product_sizes, where the base price is the only price. */
+  product_sizes?: SizeLike[] | null;
 };
 
 const FALLBACK_IMAGE =
   "https://images.unsplash.com/photo-1486427944299-d1955d23e34d?auto=format&fit=crop&w=900&q=80";
 
 // Map the home fetch shape onto the shared Product type the animated card uses.
+// The price is the DEFAULT VARIANT's when the product has sizes, so the home
+// cards, the menu cards and the product page all quote the same number.
 function toProduct(p: HomeProduct): Product {
   return {
     id: p.id,
     name: p.name,
     category: p.category ?? "",
-    price: Number(p.price) || 0,
+    price: displayPriceOf(p.price, p.product_sizes),
     image: p.image_url || FALLBACK_IMAGE,
     tag: p.badge ?? undefined,
     description: p.description ?? "",
+    defaultSize: defaultSizeOf(p.product_sizes),
   };
 }
 
@@ -84,17 +96,24 @@ function MobileCard({ product }: { product: HomeProduct }) {
   // The desktop card (AnimatedProductCard) already reflects active offers;
   // this mobile card needs the same live offer set to match it.
   const { offers } = useActiveOffer();
+  // Same mapping the desktop card uses, so the two never quote different
+  // prices for the same product: default-variant price + that variant's identity.
+  const card = toProduct(product);
   const slug = slugify(product.name);
   const image = product.image_url || FALLBACK_IMAGE;
 
   const add = () => {
     addItem({
-      id: product.id,
-      name: product.name,
-      price: product.price,
+      id: sizedCartLineId(card.id, card.defaultSize?.id),
+      productId: card.id,
+      name: card.name,
+      price: card.price,
       image,
-      category: product.category ?? "",
+      category: card.category,
       slug,
+      ...(card.defaultSize
+        ? { sizeId: card.defaultSize.id, sizeLabel: card.defaultSize.label }
+        : {}),
     });
     openCart();
   };
@@ -124,11 +143,7 @@ function MobileCard({ product }: { product: HomeProduct }) {
         </Link>
         <span className="mt-1 font-display text-lg font-bold text-[#743249]">
           <PriceText
-            product={{
-              id: product.id,
-              category: product.category ?? "",
-              price: Number(product.price) || 0,
-            }}
+            product={{ id: card.id, category: card.category, price: card.price }}
             offers={offers}
           />
         </span>

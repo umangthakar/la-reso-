@@ -23,6 +23,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { round2 } from "@/lib/pricing";
+import { selectedSizeOf } from "@/lib/product-pricing";
 import {
   buildCustomization,
   categoriesForProduct,
@@ -170,37 +171,54 @@ export async function priceBasket(
 
   // ---- SIZE VARIANT PRICES (re-priced from the DB, migration-tolerant) -----
   // A line that names a size is charged that size's ABSOLUTE price — never the
-  // client's number. Products/lines without a size keep the base product price.
-  // If product_sizes isn't migrated (or a size was deleted after it was added
-  // to the basket) we fall back to the base price, so checkout never fails for
-  // a stale/absent size.
+  // client's number.
+  //
+  // A line that names NO size (or a size that has since been deleted) for a
+  // product that HAS sizes is charged its DEFAULT VARIANT, resolved by the same
+  // selectedSizeOf() the storefront uses. That is the fix for the old
+  // fall-back-to-base-price behaviour: the cards advertise the default variant,
+  // so charging products.price for a sizeless line would have billed a number no
+  // page ever showed (and still would for any basket saved before this change).
+  //
+  // Products with no size variants at all — and any database where
+  // product_sizes isn't migrated — keep the base product price exactly as
+  // before, so checkout never fails over a missing table.
   const basePrice = new Map(productRows.map((r) => [r.id, Number(r.price) || 0]));
-  const sizeById = new Map<string, { productId: string; price: number; label: string | null }>();
-  if (raw.some((l) => l.sizeId)) {
-    try {
-      const { data: sizeRows, error: sizeErr } = await supabase
-        .from("product_sizes")
-        .select("id,product_id,price,label")
-        .in("product_id", Array.from(wanted.keys()));
-      if (!sizeErr && Array.isArray(sizeRows)) {
-        for (const s of sizeRows) {
-          sizeById.set(String(s.id), {
-            productId: String(s.product_id),
-            price: Number(s.price) || 0,
-            label: (s as { label?: string | null }).label ?? null,
-          });
-        }
+  type SizeRecord = { id: string; productId: string; price: number; label: string | null; sort_order: number };
+  const sizesByProduct = new Map<string, SizeRecord[]>();
+  try {
+    const { data: sizeRows, error: sizeErr } = await supabase
+      .from("product_sizes")
+      .select("id,product_id,price,label,sort_order")
+      .in("product_id", Array.from(wanted.keys()));
+    if (!sizeErr && Array.isArray(sizeRows)) {
+      for (const s of sizeRows) {
+        const productId = String(s.product_id);
+        const record: SizeRecord = {
+          id: String(s.id),
+          productId,
+          price: Number(s.price) || 0,
+          label: (s as { label?: string | null }).label ?? null,
+          sort_order: Number((s as { sort_order?: number | null }).sort_order) || 0,
+        };
+        const list = sizesByProduct.get(productId);
+        if (list) list.push(record);
+        else sizesByProduct.set(productId, [record]);
       }
-    } catch {
-      /* table not migrated → base prices used (unchanged behaviour) */
     }
+  } catch {
+    /* table not migrated → base prices used (unchanged behaviour) */
   }
 
-  /** The size record for a line, only when it validly belongs to that product. */
-  function sizeForLine(line: RawLine) {
-    if (!line.sizeId) return null;
-    const s = sizeById.get(line.sizeId);
-    return s && s.productId === line.productId ? s : null;
+  /**
+   * The size a line is charged at: the one it names when that size really
+   * belongs to the product, otherwise the product's default variant. Null only
+   * when the product has no sizes.
+   */
+  function sizeForLine(line: RawLine): SizeRecord | null {
+    const sizes = sizesByProduct.get(line.productId);
+    if (!sizes || sizes.length === 0) return null;
+    return selectedSizeOf(sizes, line.sizeId);
   }
 
   // ---- ACCESSORY EXTRAS (re-priced from the live wizard config) ----------
@@ -252,7 +270,9 @@ export async function priceBasket(
       name: size?.label ? `${product.name} — ${size.label}` : product.name,
       category: product.category ?? null,
       quantity: line.quantity,
-      sizeId: size ? line.sizeId : null,
+      // The size actually charged — which is the resolved default when the
+      // client named none, so the order records the variant it paid for.
+      sizeId: size ? size.id : null,
       sizeLabel: size?.label ?? null,
       unitPrice,
       addons,

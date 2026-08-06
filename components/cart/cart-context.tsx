@@ -13,9 +13,18 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { createClient } from "@/utils/supabase/client";
 import { round2 } from "@/lib/pricing";
+import {
+  PRODUCT_SIZES_EMBED,
+  displayPriceOf,
+  selectedSizeOf,
+  type SizeLike,
+} from "@/lib/product-pricing";
 import { useActiveOffer } from "@/lib/use-active-offer";
 import type { Customization } from "@/lib/customization";
 import {
@@ -117,6 +126,75 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     setItems(readStored());
     setHydrated(true);
   }, []);
+
+  // ---- RE-PRICE A RESTORED BASKET ----------------------------------------
+  // A basket lives in localStorage indefinitely, so its stored prices can be
+  // older than the catalogue: a price edited in the admin panel since, or — the
+  // reason this exists — a line added before product cards priced from the
+  // DEFAULT VARIANT, which would show the base price here while the server
+  // charged the variant's. Either way the drawer would quote a number checkout
+  // then contradicts.
+  //
+  // So once, after hydration, every restored line's unit price is re-read from
+  // the database through the SAME helpers the cards and the product page use
+  // (lib/product-pricing): the named size's price, else the product's default
+  // variant, else the base price. Nothing else about the line is touched —
+  // never the quantity, the name or the accessory `addons` — and a failed or
+  // empty read leaves the basket exactly as it was found. Lines whose product
+  // has vanished are left alone too; checkout refuses those with a clear
+  // message, which is better than silently re-pricing them here.
+  const repriced = useRef(false);
+  useEffect(() => {
+    // Once, on the first render after hydration. An empty basket has nothing to
+    // reconcile, and anything added later already came from a live, corrected
+    // surface — so this never runs again for the rest of the session.
+    if (!hydrated || repriced.current) return;
+    repriced.current = true;
+
+    const productIds = Array.from(new Set(items.map(productIdOf))).filter(Boolean);
+    if (productIds.length === 0) return;
+
+    let cancelled = false;
+    (async () => {
+      const db = createClient() as unknown as SupabaseClient;
+      const base = "id,price";
+      const read = (cols: string) => db.from("products").select(cols).in("id", productIds);
+      let res = await read(`${base},${PRODUCT_SIZES_EMBED}`);
+      if (res.error) res = await read(base);
+      if (cancelled || res.error || !Array.isArray(res.data)) return;
+
+      type Row = { id: string; price: number | string | null; product_sizes?: SizeLike[] | null };
+      const rows = new Map(
+        (res.data as unknown as Row[]).map((row) => [String(row.id), row]),
+      );
+      if (rows.size === 0) return;
+
+      setItems((prev) =>
+        prev.map((item) => {
+          const row = rows.get(productIdOf(item));
+          if (!row) return item;
+          const size = selectedSizeOf(row.product_sizes ?? [], item.sizeId);
+          const price = size ? round2(Number(size.price) || 0) : displayPriceOf(row.price, null);
+          if (price === item.price) return item;
+          return {
+            ...item,
+            price,
+            // Keep the line's size identity truthful when the fallback resolved
+            // one for it, so checkout re-prices to this very number.
+            ...(size
+              ? { sizeId: String(size.id ?? ""), sizeLabel: String(size.label ?? "") }
+              : {}),
+          };
+        }),
+      );
+    })().catch(() => {
+      /* offline / unreadable → keep the stored basket exactly as it was */
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hydrated, items]);
 
   // Persist on every change, but only after the initial load.
   useEffect(() => {

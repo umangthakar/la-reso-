@@ -13,6 +13,7 @@ import { isAuthedRequest } from "@/lib/admin-auth";
 import { revalidateTag } from "next/cache";
 import { TAGS } from "@/lib/cache-tags";
 import { persistExtras } from "@/lib/product-variants";
+import { PRODUCT_SIZES_EMBED } from "@/lib/product-pricing";
 import { PRODUCT_SORTS, parseProductSort } from "@/lib/product-sort";
 
 export const dynamic = "force-dynamic";
@@ -21,9 +22,14 @@ function adminDb(): SupabaseClient {
   return createAdminClient() as unknown as SupabaseClient;
 }
 
-// Only the columns the admin Products table actually renders.
+// Only the columns the admin Products table actually renders. The size
+// variants ride along so the table can show the price CUSTOMERS see (the
+// default variant's, see lib/product-pricing) rather than the raw base price a
+// sized product never charges. `product_sizes` is dropped from the select if
+// the table isn't migrated — see the retry in GET.
 const PRODUCT_COLS =
   "id,name,category,description,price,badge,image_url,in_stock,visible,allergens,sort_order";
+const PRODUCT_COLS_WITH_SIZES = `${PRODUCT_COLS},${PRODUCT_SIZES_EMBED}`;
 
 export async function GET(req: Request) {
   if (!isAuthedRequest(req)) {
@@ -54,21 +60,30 @@ export async function GET(req: Request) {
   try {
     const supabase = adminDb();
 
-    let query = supabase
-      .from("products")
-      .select(PRODUCT_COLS, { count: "exact" })
-      .order(sort.column, { ascending: sort.ascending });
+    const run = (cols: string) => {
+      let query = supabase
+        .from("products")
+        .select(cols, { count: "exact" })
+        .order(sort.column, { ascending: sort.ascending });
 
-    // Break ties by name so the order is TOTAL. Without this, two products at
-    // £24.00 could swap places between requests, and since the table is
-    // paginated a row that swapped across the boundary would appear on both
-    // page 1 and page 2 — or on neither. Name is unique enough in a bakery
-    // catalogue and exists on every deployment of this table.
-    if (sort.column !== "name") query = query.order("name", { ascending: true });
+      // Break ties by name so the order is TOTAL. Without this, two products at
+      // £24.00 could swap places between requests, and since the table is
+      // paginated a row that swapped across the boundary would appear on both
+      // page 1 and page 2 — or on neither. Name is unique enough in a bakery
+      // catalogue and exists on every deployment of this table.
+      if (sort.column !== "name") query = query.order("name", { ascending: true });
 
-    if (category) query = query.eq("category", category);
+      if (category) query = query.eq("category", category);
 
-    const { data, error, count } = await query.range(from, to);
+      return query.range(from, to);
+    };
+
+    // With sizes when the table exists; without it on a database where
+    // 26_product_variants.sql hasn't been run (the list then shows base prices,
+    // exactly as it did before).
+    let res = await run(PRODUCT_COLS_WITH_SIZES);
+    if (res.error) res = await run(PRODUCT_COLS);
+    const { data, error, count } = res;
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ products: data, total: count ?? 0 });

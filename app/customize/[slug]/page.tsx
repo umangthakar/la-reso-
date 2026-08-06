@@ -29,6 +29,7 @@ import { loginHrefFor } from "@/lib/purchase-intent";
 import { isCakeCategory } from "@/lib/custom-cake";
 import { slugify } from "@/lib/slug";
 import { money } from "@/lib/pricing";
+import { selectedSizeOf, sizedCartLineId, type SizeLike } from "@/lib/product-pricing";
 import {
   buildCustomization,
   cartLineId,
@@ -181,10 +182,14 @@ export default function CustomizePage() {
     };
   }, [slug]);
 
-  // Resolve ?size=<id> against this product's variants. Own try/catch so a
-  // database without `product_sizes` simply leaves the base price in place.
+  // Resolve ?size=<id> against this product's variants. All of them are read,
+  // not just the requested one, so a wizard reached WITHOUT a size (or with one
+  // that has since been deleted) falls back to the product's DEFAULT VARIANT —
+  // the same variant its card advertised and the same one the server charges
+  // (lib/basket-pricing) — instead of silently dropping to the base price.
+  // Own try/catch so a database without `product_sizes` leaves the base price.
   useEffect(() => {
-    if (!product || !sizeParam) {
+    if (!product) {
       setSize(null);
       return;
     }
@@ -194,15 +199,18 @@ export default function CustomizePage() {
         const db = createClient() as unknown as SupabaseClient;
         const { data, error } = await db
           .from("product_sizes")
-          .select("id,label,price")
-          .eq("product_id", product.id)
-          .eq("id", sizeParam)
-          .maybeSingle();
+          .select("id,label,price,sort_order")
+          .eq("product_id", product.id);
         if (cancelled) return;
-        const row = error ? null : (data as { id: string; label: string; price: number } | null);
+        const rows = error || !Array.isArray(data) ? [] : (data as SizeLike[]);
+        const chosen = selectedSizeOf(rows, sizeParam);
         setSize(
-          row
-            ? { id: String(row.id), label: String(row.label), price: Number(row.price) || 0 }
+          chosen
+            ? {
+                id: String(chosen.id),
+                label: String(chosen.label),
+                price: Number(chosen.price) || 0,
+              }
             : null,
         );
       } catch {
@@ -365,7 +373,7 @@ export default function CustomizePage() {
     // The chosen size (when the product page sent one) keeps each size its own
     // cart line and carries the identity the server re-prices from.
     const sizeLine = size ? { sizeId: size.id, sizeLabel: size.label } : {};
-    const sizedId = size ? `${product.id}::size:${size.id}` : product.id;
+    const sizedId = sizedCartLineId(product.id, size?.id);
 
     // Non-cake (or a cake with nothing to customize): add the plain product and
     // go — no accessories, no message, no validation. Identical line shape to

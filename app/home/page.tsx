@@ -11,6 +11,7 @@ import { getPolicies } from "@/lib/policies-server";
 import { getGoogleReviews } from "@/lib/google-reviews";
 import { getHeroSliderImages } from "@/lib/hero-slider-server";
 import { heroSlidesFrom } from "@/lib/hero-slider";
+import { PRODUCT_SIZES_EMBED } from "@/lib/product-pricing";
 
 // Fetch settings + products fresh on every request so admin edits show
 // immediately with no redeploy.
@@ -29,21 +30,30 @@ const SUPABASE_ANON_KEY =
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 // First 6 visible products, freshest ordering (sort_order), no caching.
+//
+// The size variants come back embedded on the same request so each card can
+// price itself from its DEFAULT VARIANT (lib/product-pricing) instead of the
+// base price — which is what kept the home cards and the product page in
+// agreement. A database without product_sizes rejects the embed, so that case
+// retries the plain select and shows base prices exactly as it used to.
 async function fetchHomeProducts(): Promise<HomeProduct[]> {
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return [];
-  try {
+  const read = async (select: string) => {
     const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/products?select=id,name,price,image_url,category,badge,description&visible=eq.true&order=sort_order.asc&limit=6`,
+      `${SUPABASE_URL}/rest/v1/products?select=${select}&visible=eq.true&order=sort_order.asc&limit=6`,
       {
         headers: {
-          apikey: SUPABASE_ANON_KEY,
+          apikey: SUPABASE_ANON_KEY!,
           Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
         },
         cache: "no-store",
       },
     );
-    if (!res.ok) return [];
-    return (await res.json()) as HomeProduct[];
+    return res.ok ? ((await res.json()) as HomeProduct[]) : null;
+  };
+  const base = "id,name,price,image_url,category,badge,description";
+  try {
+    return (await read(`${base},${PRODUCT_SIZES_EMBED}`)) ?? (await read(base)) ?? [];
   } catch {
     return [];
   }

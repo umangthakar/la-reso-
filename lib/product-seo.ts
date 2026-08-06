@@ -107,16 +107,24 @@ export async function findSeoProductBySlug(slug: string): Promise<SeoProduct | n
 }
 
 /**
- * The size variants for a product, cheapest first — used for the JSON-LD
- * `offers` range so search engines can show "from £55". Returns [] when the
- * table isn't present, so a database without size variants is unaffected.
+ * The size variants for a product — used for the JSON-LD `offers` range so
+ * search engines can show "from £55", and for the single-offer price, which
+ * must be the DEFAULT VARIANT's (what the page itself displays). `sort_order`
+ * and `id` come back so the shared ordering rule in lib/product-pricing can
+ * pick that default rather than this query's ordering deciding it.
+ *
+ * Returns [] when the table isn't present, so a database without size variants
+ * is unaffected.
  */
-export async function fetchSeoSizes(productId: string): Promise<{ label: string; price: number }[]> {
+export async function fetchSeoSizes(
+  productId: string,
+): Promise<{ id: string; label: string; price: number; sort_order: number }[]> {
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return [];
   try {
     const res = await fetch(
       `${SUPABASE_URL}/rest/v1/${PRODUCT_SIZES_TABLE}` +
-        `?select=label,price&product_id=eq.${encodeURIComponent(productId)}&order=price.asc`,
+        `?select=id,label,price,sort_order&product_id=eq.${encodeURIComponent(productId)}` +
+        `&order=sort_order.asc`,
       {
         headers: {
           apikey: SUPABASE_ANON_KEY,
@@ -126,10 +134,17 @@ export async function fetchSeoSizes(productId: string): Promise<{ label: string;
       },
     );
     if (!res.ok) return [];
-    const rows = (await res.json()) as { label: string | null; price: number | string | null }[];
+    const rows = (await res.json()) as {
+      id: string | null;
+      label: string | null;
+      price: number | string | null;
+      sort_order: number | string | null;
+    }[];
     return (rows ?? []).map((r) => ({
+      id: String(r.id ?? ""),
       label: String(r.label ?? "").trim(),
       price: Number(r.price) || 0,
+      sort_order: Number(r.sort_order) || 0,
     }));
   } catch {
     return [];

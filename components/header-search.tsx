@@ -29,6 +29,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/utils/supabase/client";
 import { slugify } from "@/lib/slug";
 import { money } from "@/lib/pricing";
+import { PRODUCT_SIZES_EMBED, displayPriceOf, type SizeLike } from "@/lib/product-pricing";
 import { cn } from "@/lib/utils";
 
 // Matches the menu grid's fallback so a product with no image never renders a
@@ -55,6 +56,8 @@ type SupaProduct = {
   price: number;
   image_url: string | null;
   category: string | null;
+  /** Embedded size variants; absent when product_sizes isn't migrated. */
+  product_sizes?: SizeLike[] | null;
 };
 
 // Module-scope cache: the catalogue is small and rarely changes within a
@@ -67,18 +70,25 @@ async function loadProducts(): Promise<SearchProduct[]> {
   if (inflight) return inflight;
   inflight = (async () => {
     const db = createClient() as unknown as SupabaseClient;
-    const { data } = await db
-      .from("products")
-      .select("id,name,description,price,image_url,category,in_stock")
-      .eq("in_stock", true)
-      .order("created_at", { ascending: false });
-    const rows = (data ?? []) as SupaProduct[];
+    // Sizes ride along so a hit quotes its DEFAULT VARIANT's price — the same
+    // number the menu card and the product page show. The retry keeps a
+    // database without product_sizes working exactly as before.
+    const base = "id,name,description,price,image_url,category,in_stock";
+    const read = (cols: string) =>
+      db
+        .from("products")
+        .select(cols)
+        .eq("in_stock", true)
+        .order("created_at", { ascending: false });
+    let res = await read(`${base},${PRODUCT_SIZES_EMBED}`);
+    if (res.error) res = await read(base);
+    const rows = (res.error ? [] : res.data ?? []) as unknown as SupaProduct[];
     cache = rows.map((p) => ({
       id: p.id,
       name: p.name,
       category: p.category ?? "",
       description: p.description ?? "",
-      price: Number(p.price) || 0,
+      price: displayPriceOf(p.price, p.product_sizes),
       image: p.image_url || FALLBACK_IMAGE,
     }));
     inflight = null;

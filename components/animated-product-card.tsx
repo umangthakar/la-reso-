@@ -11,6 +11,7 @@ import { slugify } from "@/lib/slug";
 import { useActiveOffer, type ActiveOffers } from "@/lib/use-active-offer";
 import { useSiteSettings } from "@/lib/use-site-settings";
 import { isCustomCakeCategory, customCakeWhatsappHref } from "@/lib/custom-cake";
+import { sizedCartLineId } from "@/lib/product-pricing";
 import { PriceText } from "@/components/product-price";
 
 /* ------------------------------------------------------------------ *
@@ -138,14 +139,23 @@ export function AnimatedProductCard({ product }: { product: Product }) {
   const slug = slugify(product.name);
   const detailHref = `/menu/${slug}`;
 
-  // Snapshot passed to the cart when adding this product.
+  // Snapshot passed to the cart when adding this product. `product.price` is
+  // already the DEFAULT VARIANT's price (see lib/product-pricing), so the line
+  // carries that variant's identity too — otherwise the basket would hold the
+  // advertised price with no size, and the server would re-price it to the base
+  // price. The line id matches the one /menu/[slug] builds, so adding the same
+  // product+size from a card and from the product page merges into one line.
   const cartLine = {
-    id: product.id,
+    id: sizedCartLineId(product.id, product.defaultSize?.id),
+    productId: product.id,
     name: product.name,
     price: product.price,
     image: product.image,
     category: product.category,
     slug,
+    ...(product.defaultSize
+      ? { sizeId: product.defaultSize.id, sizeLabel: product.defaultSize.label }
+      : {}),
   };
 
   const handleAdd = (e: React.MouseEvent) => {

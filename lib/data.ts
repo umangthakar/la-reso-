@@ -1,3 +1,5 @@
+import type { DefaultSize } from "@/lib/product-pricing";
+
 export type Category = {
   name: string;
   slug: string;
@@ -9,10 +11,21 @@ export type Product = {
   id: string;
   name: string;
   category: string;
+  /**
+   * What the card shows. For a product with size variants this is the DEFAULT
+   * VARIANT's price, not products.price — resolved by displayPriceOf() in
+   * lib/product-pricing, the single source of truth the detail page uses too.
+   */
   price: number;
   image: string;
   tag?: string;
   description: string;
+  /**
+   * The default size variant, when the product has any. Carried so a card's
+   * "Add to Cart" puts the SAME size (and therefore the same price) in the
+   * basket that the price above advertises. Absent = single-price product.
+   */
+  defaultSize?: DefaultSize | null;
 };
 
 const u = (id: string) =>

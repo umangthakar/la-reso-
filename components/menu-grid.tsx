@@ -8,6 +8,12 @@ import type { Product } from "@/lib/data";
 import { createClient } from "@/utils/supabase/client";
 import { AnimatedProductCard } from "@/components/animated-product-card";
 import { RotatingBanners } from "@/components/rotating-banners";
+import {
+  PRODUCT_SIZES_EMBED,
+  defaultSizeOf,
+  displayPriceOf,
+  type SizeLike,
+} from "@/lib/product-pricing";
 import { useSiteSettings } from "@/lib/use-site-settings";
 import { slugify } from "@/lib/slug";
 import {
@@ -34,6 +40,9 @@ type SupaProduct = {
   image_url: string | null;
   category: string | null;
   badge: string | null;
+  /** Embedded size variants (RLS allows public read). Absent on a database
+   *  where 26_product_variants.sql hasn't been run — see the fallback query. */
+  product_sizes?: SizeLike[] | null;
 };
 
 function toCard(p: SupaProduct): Product {
@@ -41,10 +50,14 @@ function toCard(p: SupaProduct): Product {
     id: p.id,
     name: p.name,
     category: p.category ?? "",
-    price: Number(p.price) || 0,
+    // The DEFAULT VARIANT's price when this product has sizes, so the card
+    // advertises exactly what /menu/[slug] opens on. Single-price products are
+    // unchanged (displayPriceOf falls back to products.price).
+    price: displayPriceOf(p.price, p.product_sizes),
     image: p.image_url || FALLBACK_IMAGE,
     tag: p.badge ?? undefined,
     description: p.description ?? "",
+    defaultSize: defaultSizeOf(p.product_sizes),
   };
 }
 
@@ -126,13 +139,26 @@ export function MenuGrid() {
     let cancelled = false;
     (async () => {
       const db = createClient() as unknown as SupabaseClient;
-      const { data } = await db
-        .from("products")
-        .select("id,name,description,price,image_url,category,badge,in_stock")
-        .eq("in_stock", true)
-        .order("created_at", { ascending: false });
+      // Size variants ride along on the SAME request (one round trip, no
+      // waterfall) so each card can price itself from its default variant.
+      // If product_sizes isn't migrated the embed errors, and we retry the
+      // plain query — the menu then shows base prices exactly as it used to.
+      const base = "id,name,description,price,image_url,category,badge,in_stock";
+      const read = (cols: string) =>
+        db
+          .from("products")
+          .select(cols)
+          .eq("in_stock", true)
+          .order("created_at", { ascending: false });
+      let res = await read(`${base},${PRODUCT_SIZES_EMBED}`);
+      if (res.error) res = await read(base);
       if (cancelled) return;
-      setProducts((data ?? []).map(toCard));
+      const { data, error } = res;
+      setProducts(
+        !error && Array.isArray(data)
+          ? (data as unknown as SupaProduct[]).map(toCard)
+          : [],
+      );
       setLoading(false);
     })();
     return () => {

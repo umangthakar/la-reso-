@@ -24,6 +24,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { absoluteUrl } from "@/lib/site-url";
 import { fetchSeoProducts, fetchSeoSizes, findSeoProductBySlug } from "@/lib/product-seo";
+import { displayPriceOf } from "@/lib/product-pricing";
 import { getPublicSettings } from "@/lib/site-settings-server";
 import ProductDetailPage from "./product-detail";
 
@@ -102,10 +103,12 @@ export default async function Page({ params }: Params) {
 
   // Structured data is emitted only for a product that exists. Prices come
   // from the size variants when there are any, so the offer range matches what
-  // the page actually charges.
+  // the page actually charges. A single Offer quotes the DEFAULT VARIANT — the
+  // price the page opens on and the cards advertise — not the cheapest one.
   const prices = sizes.length > 0 ? sizes.map((s) => s.price).filter((p) => p > 0) : [];
   const low = prices.length ? Math.min(...prices) : product?.price ?? 0;
   const high = prices.length ? Math.max(...prices) : product?.price ?? 0;
+  const displayPrice = displayPriceOf(product.price, sizes);
 
   const productLd = product && {
     "@context": "https://schema.org",
@@ -133,7 +136,7 @@ export default async function Page({ params }: Params) {
         : {
             "@type": "Offer",
             priceCurrency: "GBP",
-            price: (low || product.price).toFixed(2),
+            price: displayPrice.toFixed(2),
             availability: product.inStock
               ? "https://schema.org/InStock"
               : "https://schema.org/OutOfStock",
