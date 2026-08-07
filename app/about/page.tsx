@@ -83,10 +83,30 @@ export default async function AboutPage() {
               {/* `src` is guaranteed renderable by normaliseAboutContent — an
                   admin-set URL next/image can't resolve is swapped for the
                   built-in photo there, so this can never throw. */}
+              {/* UNOPTIMIZED ON PURPOSE, and only here.
+
+                  Routed through the optimizer this became
+                  /_next/image?url=…, which the host answered with HTTP 402
+                  once the plan's image-transformation allowance was used up.
+                  A 402 is not a broken URL or a broken upload — the object in
+                  the bucket is fine and the admin preview, which does not go
+                  through the optimizer, kept rendering it. It is the
+                  optimizer itself refusing to do any more work, so the one
+                  visible photo on this page silently disappeared.
+
+                  `unoptimized` makes the browser fetch the Supabase public URL
+                  directly, so the page no longer depends on that allowance.
+                  Layout is untouched: `fill` positions off the wrapper's
+                  aspect-[4/5] box via CSS, not via the optimizer, so the space
+                  is still reserved before the image lands and there is no CLS.
+
+                  Deliberately scoped to this ONE image. Hero slider, product,
+                  offer and every other image stay optimized. */}
               <Image
                 src={about.image_url}
                 alt={about.image_alt}
                 fill
+                unoptimized
                 sizes="(max-width: 1024px) 90vw, 40vw"
                 className="object-cover"
               />
