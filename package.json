@@ -35,7 +35,6 @@
     "react-markdown": "^10.1.0",
     "recharts": "^3.9.0",
     "server-only": "^0.0.1",
-    "sharp": "^0.35.1",
     "stripe": "^22.3.0",
     "swiper": "^12.2.0",
     "tailwind-merge": "^2.5.4",

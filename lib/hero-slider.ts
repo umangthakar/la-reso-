@@ -145,12 +145,25 @@ export const HERO_SLIDER_MAX_BYTES = 10 * 1024 * 1024; // 10 MB
  *  a blur on any real screen. */
 export const HERO_SLIDER_MIN_DIMENSION = 400;
 
+/**
+ * Upper bound on the PIXEL count, which is a different limit from the 10 MB
+ * one above and not implied by it: PNG compresses flat artwork extremely well,
+ * so a small file can still declare an enormous canvas.
+ *
+ * It matters because the server verifies an upload by decompressing its pixel
+ * data (lib/png-integrity.ts), and that work scales with pixels, not with file
+ * size. 40 MP is 8000×5000 — far beyond anything a hero slide needs, and well
+ * past what a browser would happily render.
+ */
+export const HERO_SLIDER_MAX_PIXELS = 40_000_000;
+
 /** Every rejection message, in the admin's words rather than the machine's. */
 export const HERO_SLIDER_ERRORS = {
   notPng: "Only PNG images are allowed for the Hero Slider.",
   tooLarge: `That image is too large. The maximum size is ${HERO_SLIDER_MAX_BYTES / (1024 * 1024)} MB.`,
   unreadable: "That file could not be read as a PNG image — it may be corrupted.",
   tooSmall: `That image is too small. Hero images must be at least ${HERO_SLIDER_MIN_DIMENSION}×${HERO_SLIDER_MIN_DIMENSION} pixels.`,
+  tooManyPixels: `That image has too many pixels. Please export it at ${HERO_SLIDER_MAX_PIXELS / 1_000_000} megapixels or fewer.`,
   empty: "That file is empty.",
 } as const;
 
@@ -215,6 +228,9 @@ export function validateHeroSliderBytes(bytes: Uint8Array): string | null {
   if (!size) return HERO_SLIDER_ERRORS.unreadable;
   if (size.width < HERO_SLIDER_MIN_DIMENSION || size.height < HERO_SLIDER_MIN_DIMENSION) {
     return HERO_SLIDER_ERRORS.tooSmall;
+  }
+  if (size.width * size.height > HERO_SLIDER_MAX_PIXELS) {
+    return HERO_SLIDER_ERRORS.tooManyPixels;
   }
   return null;
 }

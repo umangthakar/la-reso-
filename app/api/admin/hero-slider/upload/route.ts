@@ -28,13 +28,14 @@
 
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import sharp from "sharp";
 import { createAdminClient } from "@/lib/supabase/server";
 import { isAuthedRequest } from "@/lib/admin-auth";
+import { checkPngIntegrity } from "@/lib/png-integrity";
 import {
   HERO_SLIDER_ADMIN_SELECT,
   HERO_SLIDER_BUCKET,
   HERO_SLIDER_ERRORS,
+  HERO_SLIDER_MAX_PIXELS,
   heroSliderPath,
   newHeroSliderFilename,
   normaliseHeroSliderImage,
@@ -42,9 +43,9 @@ import {
 } from "@/lib/hero-slider";
 
 export const dynamic = "force-dynamic";
-// sharp is a native module — it cannot run on the edge runtime. Route handlers
-// already default to nodejs; this is stated so a later edge migration fails
-// here at build time rather than at the first upload.
+// The integrity check below uses node:zlib, which the edge runtime does not
+// provide. Route handlers already default to nodejs; this is stated so a later
+// edge migration fails here at build time rather than at the first upload.
 export const runtime = "nodejs";
 
 function adminDb(): SupabaseClient {
@@ -106,20 +107,23 @@ export async function POST(req: Request) {
   if (failure) return bad(failure);
 
   // The header said PNG and gave usable dimensions. Now prove the whole file
-  // decodes: everything above reads the first 24 bytes, so a PNG truncated
-  // mid-stream, or one with a corrupt IDAT, still passes it. sharp is the only
-  // check here that touches the pixel data.
-  try {
-    const meta = await sharp(bytes).metadata();
-    // Belt and braces: sharp agreeing it is a PNG guards against a file that
-    // opens with a PNG signature but is actually another format underneath.
-    if (meta.format !== "png") return bad(HERO_SLIDER_ERRORS.notPng);
-    // Force a full decode. metadata() only parses headers, so a truncated
-    // image resolves fine there and fails here — which is the point.
-    await sharp(bytes).png().toBuffer();
-  } catch {
-    return bad(HERO_SLIDER_ERRORS.unreadable);
-  }
+  // holds together: everything above reads the first 24 bytes, so a PNG
+  // truncated mid-stream, or one with a corrupt IDAT, still passes it. This is
+  // the only check here that touches the pixel data.
+  //
+  // It used to be sharp. sharp is a native addon that dlopen()s libvips, and on
+  // Vercel's linux-x64 runtime that load failed (ERR_DLOPEN_FAILED:
+  // libvips-cpp.so.8.18.3), 500ing every upload. lib/png-integrity.ts walks the
+  // chunk stream, verifies each chunk's CRC and inflates the image data with
+  // node:zlib instead — pure JavaScript over a core module, so there is no
+  // binary to be missing from a deployment.
+  const integrity = await checkPngIntegrity(bytes, { maxPixels: HERO_SLIDER_MAX_PIXELS });
+  if (integrity === "notPng") return bad(HERO_SLIDER_ERRORS.notPng);
+  // Unreachable in practice — validateHeroSliderBytes applies the same ceiling
+  // from the header above — but this endpoint owns its own answer rather than
+  // trusting the call before it.
+  if (integrity === "tooManyPixels") return bad(HERO_SLIDER_ERRORS.tooManyPixels);
+  if (integrity) return bad(HERO_SLIDER_ERRORS.unreadable);
 
   const supabase = adminDb();
 
