@@ -17,6 +17,7 @@ import { createAdminClient } from "@/lib/supabase/server";
 import { sendEmail, ownerEmail } from "@/lib/email";
 import { buildInquiryOwnerEmail } from "@/lib/inquiry-email";
 import { siteUrl } from "@/lib/site-url";
+import { clientKey, consumeQuota } from "@/lib/rate-limit";
 import {
   cleanString,
   cleanText,
@@ -37,7 +38,31 @@ function s(v: unknown, max = 2000): string {
   return cleanString(v, max);
 }
 
+/**
+ * Accepted inquiries per IP per window. This endpoint is public by necessity
+ * (guests can inquire), unauthenticated, and every accepted call BOTH writes a
+ * row and emails the owner — so without a quota it is an open relay into the
+ * owner's inbox and an unbounded writer into custom_inquiries.
+ *
+ * The sibling /api/inquiry/upload has had a quota for exactly this reason; this
+ * route is the one that actually costs the owner attention, so it gets the same
+ * treatment. A real person sends one inquiry and occasionally a corrected
+ * second, so 6 per 10 minutes is generous for genuine use and useless for
+ * flooding. Same in-process caveat as every other limiter here (see
+ * lib/rate-limit): per-instance on serverless, but it removes the trivial
+ * single-connection flood.
+ */
+const QUOTA = { max: 6, windowMs: 10 * 60 * 1000 };
+
 export async function POST(req: Request) {
+  const quota = consumeQuota(`inquiry-create:${clientKey(req)}`, QUOTA);
+  if (!quota.allowed) {
+    return NextResponse.json(
+      { error: "Too many inquiries. Please wait a few minutes and try again." },
+      { status: 429, headers: { "Retry-After": String(quota.retryAfterSeconds) } },
+    );
+  }
+
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
 
   // Who is submitting? (optional — guests can inquire too.)

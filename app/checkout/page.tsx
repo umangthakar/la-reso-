@@ -182,10 +182,47 @@ export default function CheckoutPage() {
     setFieldErrors((prev) => ({ ...prev, [field]: CONTACT_VALIDATORS[field](value) }));
   };
 
+  // ---- RETURN FROM A FULL-PAGE STRIPE REDIRECT ---------------------------
+  // confirmPayment() below runs with redirect: "if_required", so the ordinary
+  // card flow (3DS included) completes in Stripe's iframe and never leaves the
+  // page. It is not guaranteed to, though: some issuers authenticate by
+  // navigating away, and Stripe then sends the customer back to `return_url`
+  // — this page — with its own query params appended.
+  //
+  // Without this, that customer lands on a fresh /checkout at step 1 with the
+  // basket still full and NOTHING saying they already paid. The obvious thing
+  // to do from there is pay again, so the gap is a genuine double charge.
+  //
+  // On a successful return we therefore treat the payment as done: empty the
+  // basket and go to the confirmation page. The ORDER itself is deliberately
+  // left to /api/stripe/webhook — this is exactly the "the browser never came
+  // back" case it exists for, and it rebuilds the order from the server-written
+  // checkout draft with full line items. Posting to /api/orders/create here
+  // would be worse: the form state died with the redirect, so it would save an
+  // order with no items and flag it for the owner.
+  //
+  // Read off window.location rather than useSearchParams() so the page's
+  // rendering behaviour is untouched. Any other redirect_status (failed,
+  // requires_payment_method) is left alone — the customer stays on checkout
+  // with their basket and can retry, which is the correct outcome.
+  const redirectHandled = useRef(false);
+  useEffect(() => {
+    if (redirectHandled.current) return;
+    const params = new URLSearchParams(window.location.search);
+    const paymentIntentId = params.get("payment_intent");
+    if (!paymentIntentId || params.get("redirect_status") !== "succeeded") return;
+    redirectHandled.current = true;
+    clearCart();
+    router.replace(`/order-confirmation/${paymentIntentId}`);
+  }, [clearCart, router]);
+
   // Guest checkout is disabled — purchasing requires a signed-in (Google)
   // customer. Anyone who reaches /checkout without a session is sent to the
   // login page and returned here afterwards, basket intact.
   useEffect(() => {
+    // A customer coming back from a completed redirect payment is on their way
+    // to the confirmation page; don't bounce them to login on the way past.
+    if (redirectHandled.current) return;
     if (!ready || user) return;
     savePurchaseIntent({ action: "checkout", href: "/checkout" });
     router.replace(loginHrefFor("/checkout"));
