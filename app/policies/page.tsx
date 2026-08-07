@@ -25,6 +25,8 @@ export const metadata: Metadata = {
   title: "Policies — Le Rasa",
   description:
     "Our privacy, delivery, refund and terms policies — everything you agree to when ordering from Le Rasa.",
+  // Its own canonical — see the note in app/about/page.tsx.
+  alternates: { canonical: "/policies" },
 };
 
 export default async function PoliciesPage() {

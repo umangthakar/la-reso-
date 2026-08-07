@@ -17,6 +17,7 @@ import { PageHero } from "@/components/page-hero";
 import { Reveal } from "@/components/motion";
 import { PolicyContent } from "@/components/policy-content";
 import { getPolicy } from "@/lib/policies-server";
+import { policyHref } from "@/lib/policies";
 
 // The content is read no-store so an admin edit is live on the next request.
 export const dynamic = "force-dynamic";
@@ -31,6 +32,10 @@ export async function generateMetadata({
   return {
     title: `${policy.title} — Le Rasa`,
     description: policy.short_description || undefined,
+    // Its own canonical — see the note in app/about/page.tsx. policyHref() is
+    // reused so this cannot disagree with the footer links or the sitemap
+    // (Privacy Policy lives at /privacy-policy, the rest under /policies/…).
+    alternates: { canonical: policyHref(policy.slug) },
   };
 }
 

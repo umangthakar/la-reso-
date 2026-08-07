@@ -13,6 +13,13 @@ export const metadata: Metadata = {
   title: "About — Le Rasa",
   description:
     "Our story: how Le Rasa became the house of eggless desserts, baking inclusive, premium treats everyone can share.",
+  // Its OWN canonical. The root layout declares `canonical: "/"` as a
+  // site-wide default, and metadata is INHERITED — so without this line the
+  // page told search engines it was a duplicate of the homepage, which asks
+  // them not to index it at all. Relative on purpose: the root layout's
+  // metadataBase resolves it against lib/site-url, so the domain is still
+  // written in exactly one place.
+  alternates: { canonical: "/about" },
 };
 
 /**

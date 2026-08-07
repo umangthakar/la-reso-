@@ -21,6 +21,7 @@ import type { Metadata } from "next";
 import { PageHero } from "@/components/page-hero";
 import { Reveal } from "@/components/motion";
 import { getPublicSettings } from "@/lib/site-settings-server";
+import { siteUrl } from "@/lib/site-url";
 import {
   COOKIE_POLICY_CSS,
   COOKIE_POLICY_HTML,
@@ -40,27 +41,24 @@ export async function generateMetadata(): Promise<Metadata> {
     "How LE RASA LIMITED uses cookies and similar technologies to recognise you " +
     "when you visit our website, and how you can control them.";
 
-  // Read at call time, never at module scope — a top-level throw on a missing
-  // env var breaks the production build.
-  const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? process.env.SITE_URL ?? "").replace(
-    /\/$/,
-    "",
-  );
+  // The SHARED resolver (lib/site-url), not a second copy of the env chain —
+  // see the matching note in app/privacy-policy/page.tsx. Still read at call
+  // time, never at module scope.
+  const base = siteUrl();
   const path = "/policies/cookie-policy";
 
   return {
     title,
     description,
-    ...(siteUrl
-      ? { metadataBase: new URL(siteUrl), alternates: { canonical: path } }
-      : {}),
+    metadataBase: new URL(base),
+    alternates: { canonical: path },
     robots: { index: true, follow: true },
     openGraph: {
       title,
       description,
       type: "article",
       siteName: branding.name,
-      ...(siteUrl ? { url: `${siteUrl}${path}` } : {}),
+      url: `${base}${path}`,
     },
     twitter: { card: "summary", title, description },
   };

@@ -14,6 +14,9 @@ export const metadata: Metadata = {
   title: "Menu — Le Rasa",
   description:
     "Browse our full menu of 100% eggless cakes, cupcakes, brownies, cookies and gift boxes. Filter by category and order your favourites.",
+  // Its own canonical — see the note in app/about/page.tsx. This one matters
+  // most: /menu is the hub every product page links back to.
+  alternates: { canonical: "/menu" },
 };
 
 export default async function MenuPage() {

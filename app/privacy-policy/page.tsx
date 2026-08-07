@@ -23,6 +23,7 @@ import { PolicyContent } from "@/components/policy-content";
 import { LegalPolicyBlocks } from "@/components/legal-policy-blocks";
 import { LegalPolicyToc } from "@/components/legal-policy-toc";
 import { getPublicSettings } from "@/lib/site-settings-server";
+import { siteUrl } from "@/lib/site-url";
 import {
   PRIVACY_POLICY_ENTITY,
   PRIVACY_POLICY_INTRO,
@@ -45,29 +46,27 @@ export async function generateMetadata(): Promise<Metadata> {
     `How ${PRIVACY_POLICY_ENTITY} collects, uses, shares and protects your personal ` +
     `information when you browse or order from ${branding.name}, and the privacy rights you have.`;
 
-  // Read at call time, never at module scope — a top-level throw on a missing
-  // env var breaks the production build. Absolute URLs are only emitted when
-  // the site URL is actually configured, which also keeps Next from warning
-  // about a relative canonical with no metadataBase.
-  const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? process.env.SITE_URL ?? "").replace(
-    /\/$/,
-    "",
-  );
+  // The SHARED resolver (lib/site-url), not a second copy of the env chain.
+  // The old inline version read NEXT_PUBLIC_SITE_URL ?? SITE_URL directly,
+  // which meant it never saw the production domain the resolver knows about —
+  // and `??` let a defined-but-EMPTY env var win outright, resolving to "" and
+  // silently dropping the canonical and the OG url from this page altogether.
+  // Still read at call time, never at module scope.
+  const base = siteUrl();
   const path = "/privacy-policy";
 
   return {
     title,
     description,
-    ...(siteUrl
-      ? { metadataBase: new URL(siteUrl), alternates: { canonical: path } }
-      : {}),
+    metadataBase: new URL(base),
+    alternates: { canonical: path },
     robots: { index: true, follow: true },
     openGraph: {
       title,
       description,
       type: "article",
       siteName: branding.name,
-      ...(siteUrl ? { url: `${siteUrl}${path}` } : {}),
+      url: `${base}${path}`,
     },
     twitter: { card: "summary", title, description },
   };
