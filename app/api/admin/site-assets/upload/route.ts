@@ -10,6 +10,14 @@
 // JPEG/PNG/WebP. Both are clamped inside validateImageUpload(), so a forged
 // request can only ever narrow what is accepted, never widen it. Callers that
 // send neither get exactly the behaviour they always had.
+//
+// A caller may also send `prefix` to file its object under a folder inside this
+// SHARED bucket — the About Us CMS sends "about". That is what makes automatic
+// cleanup safe: a module that owns a prefix can delete inside it without any
+// chance of reaching the logo, the home slider or another module's artwork
+// (see lib/about-content.ts#aboutImageStoragePath). The value is sanitised to a
+// plain slug by safeObjectPath(), so it can carry no traversal and no path of
+// its own, and omitting it stores at the bucket root exactly as before.
 // ============================================================
 
 import { NextResponse } from "next/server";
@@ -56,7 +64,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: created.error.message }, { status: 500 });
   }
 
-  const path = safeObjectPath(ext);
+  const prefix = form.get("prefix");
+  const path = safeObjectPath(ext, typeof prefix === "string" ? prefix : "");
 
   const { error } = await supabase.storage
     .from(BUCKET)

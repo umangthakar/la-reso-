@@ -6,6 +6,7 @@ import { SectionHeading } from "@/components/section-heading";
 import { Reveal, StaggerGroup, StaggerItem } from "@/components/motion";
 import { OrderCTA } from "@/components/order-cta";
 import { getGoogleReviews } from "@/lib/google-reviews";
+import { getPublicSettings } from "@/lib/site-settings-server";
 import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = {
@@ -47,21 +48,31 @@ const values = [
 ];
 
 // The rating below is live, so this page must not be cached at build time —
-// a Google sync has to reflect on the next request, like the menu.
+// a Google sync has to reflect on the next request, like the menu. The CMS
+// content read below rides on the same discipline: an admin save shows up on
+// the very next request, with nothing to purge.
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export default async function AboutPage() {
-  // Single source of truth for the rating; null when the integration is off.
-  const google = await getGoogleReviews();
+  // Two live reads, in parallel — neither depends on the other.
+  //   • the Google rating (null when the integration is off)
+  //   • the About Us CMS content (site_settings.about_page)
+  // getPublicSettings never throws and never returns null: any failure — an
+  // unreachable database, a column that hasn't been migrated yet, a row that
+  // was never written — resolves to the defaults, which ARE the copy this page
+  // used to hardcode. So the page renders identically whether or not the CMS
+  // has ever been touched.
+  const [google, settings] = await Promise.all([getGoogleReviews(), getPublicSettings()]);
   const stats = buildStats(google?.rating ?? 0);
+  const about = settings.about_page;
 
   return (
     <>
       <PageHero
-        eyebrow="Our Story"
-        title="Born from a simple wish — cake for all"
-        description="Le Rasa began in a tiny home kitchen with one stubborn belief: no one should sit out the celebration because of an egg."
+        eyebrow={about.hero_eyebrow}
+        title={about.hero_heading}
+        description={about.hero_description}
       />
 
       {/* Story */}
@@ -69,9 +80,12 @@ export default async function AboutPage() {
         <div className="container grid items-center gap-12 lg:grid-cols-2 lg:gap-16">
           <Reveal>
             <div className="relative aspect-[4/5] w-full max-w-md overflow-hidden rounded-clay shadow-clay">
+              {/* `src` is guaranteed renderable by normaliseAboutContent — an
+                  admin-set URL next/image can't resolve is swapped for the
+                  built-in photo there, so this can never throw. */}
               <Image
-                src="https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?auto=format&fit=crop&w=900&q=80"
-                alt="Baker decorating a cake"
+                src={about.image_url}
+                alt={about.image_alt}
                 fill
                 sizes="(max-width: 1024px) 90vw, 40vw"
                 className="object-cover"
@@ -81,29 +95,17 @@ export default async function AboutPage() {
           <div>
             <SectionHeading
               align="left"
-              eyebrow="Est. with love"
-              title="From one home oven to a house of desserts"
+              eyebrow={about.badge}
+              title={about.heading}
             />
             <div className="mt-6 space-y-4 text-darkberry-light">
-              <p>
-                It started when our founder, Dhruti, kept getting asked the same
-                question at family gatherings: &ldquo;Is there anything I can
-                actually eat?&rdquo; Vegetarian relatives, friends with egg
-                allergies, little ones — too many people were left watching
-                others enjoy dessert.
-              </p>
-              <p>
-                So she set out to prove that eggless could be every bit as soft,
-                rich and indulgent as the classics. After hundreds of test
-                bakes, the recipes were undeniable. Word spread, the orders
-                poured in, and Le Rasa was born.
-              </p>
-              <p>
-                Today our team of pastry artisans bakes thousands of
-                celebrations a year — and every single one is still 100%
-                eggless, still made by hand, still rooted in that first simple
-                wish: cake for all.
-              </p>
+              {about.paragraphs.map((paragraph, i) => (
+                // whitespace-pre-line so a deliberate line break typed in the
+                // admin survives, without any other markup being interpreted.
+                <p key={i} className="whitespace-pre-line">
+                  {paragraph}
+                </p>
+              ))}
             </div>
           </div>
         </div>

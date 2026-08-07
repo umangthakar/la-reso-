@@ -592,12 +592,21 @@ export default function SettingsAdminPage() {
         </Field>
       </SectionForm>
 
-      {/* 5. ABOUT PAGE */}
+      {/* 5. HOMEPAGE ABOUT BLURB — these two fields feed the short story
+             paragraph on the HOME page (app/home/page.tsx), NOT the /about
+             page. The About page has its own module at
+             /admin/dashboard/settings/about; the title says so explicitly
+             because the two were previously easy to confuse. */}
       <SectionForm
-        title="About page"
+        title="Homepage About blurb"
         saved={savedSection === "about"}
         onSave={() => saveSection("about", ["about_story", "about_image_url"])}
       >
+        <p style={{ ...hint, marginBottom: 16 }}>
+          The short paragraph on the <strong>home</strong> page. The full{" "}
+          <strong>About</strong> page is edited in <strong>About Us</strong> in
+          the sidebar.
+        </p>
         <Field label="Our story">
           <textarea
             style={{ ...textareaStyle, minHeight: 140 }}

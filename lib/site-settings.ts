@@ -2,12 +2,19 @@
 // Le Rasa Bakery — public site settings (shared, client + server safe)
 //
 // Types, defaults and normalisation for the site_settings singleton as
-// the storefront consumes it. Pure (no imports / side effects) so it can
-// be used from client components, the server reader, and API routes.
+// the storefront consumes it. Pure (one import — the About page's own shape,
+// which is big enough to deserve its own module — and no side effects) so it
+// can be used from client components, the server reader, and API routes.
 //
 // The actual (server-only) fetch lives in lib/site-settings-server.ts.
 // Public fields only — never stripe_config or other secrets.
 // ============================================================
+
+import {
+  ABOUT_DEFAULT,
+  normaliseAboutContent,
+  type AboutContent,
+} from "@/lib/about-content";
 
 export const ALL_DELIVERY_DAYS = [
   "monday",
@@ -50,6 +57,7 @@ export const BANNER_ICONS: Record<BannerType, string> = {
 };
 // Single source of truth for all contact info across the site.
 export type Contact = { phone: string; whatsapp: string; email: string; address: string };
+/** The HOME page's short story blurb — NOT the /about page. See `about_page`. */
 export type About = { text: string; image_url: string };
 export type DeliveryZone = {
   id: string;
@@ -74,6 +82,9 @@ export type PublicSettings = {
   rotating_banners: RotatingBanner[];
   whatsapp_bar: WhatsappBar;
   about: About;
+  /** The /about page's own content (supabase/sql/47_about_page.sql). Separate
+   *  from `about` above, which is the one-paragraph blurb on the HOME page. */
+  about_page: AboutContent;
   home_slider: string[];
   delivery_zones: DeliveryZone[];
   lead_time_days: number;
@@ -274,6 +285,7 @@ export const DEFAULT_SETTINGS: PublicSettings = {
   rotating_banners: DEFAULT_ROTATING_BANNERS,
   whatsapp_bar: WHATSAPP_BAR_DEFAULT,
   about: { text: DEFAULT_ABOUT_TEXT, image_url: "" },
+  about_page: ABOUT_DEFAULT,
   home_slider: DEFAULT_HOME_SLIDER,
   delivery_zones: [],
   lead_time_days: 3,
@@ -302,7 +314,7 @@ export const DEFAULT_SETTINGS: PublicSettings = {
 export const PUBLIC_SETTINGS_VIEW = "site_settings_public";
 
 export const PUBLIC_SETTINGS_SELECT =
-  "branding,contact,logo,phone,email,address,whatsapp,instagram_url,instagram_reels,facebook_url,tiktok_url,announcement,hero_banner,rotating_banners,whatsapp_bar,about_story,about_image_url,home_slider,delivery_zones,lead_time_days,blocked_dates,delivery_days,stripe_config";
+  "branding,contact,logo,phone,email,address,whatsapp,instagram_url,instagram_reels,facebook_url,tiktok_url,announcement,hero_banner,rotating_banners,whatsapp_bar,about_story,about_image_url,about_page,home_slider,delivery_zones,lead_time_days,blocked_dates,delivery_days,stripe_config";
 
 function str(v: unknown): string {
   return typeof v === "string" ? v : "";
@@ -438,6 +450,10 @@ export function normaliseSettings(
         str((r.about as { image_url?: unknown } | undefined)?.image_url) ||
         str(r.about_image_url),
     },
+    // The /about page's own content. Every field falls back to the copy that
+    // is in the code, so a missing column (before 47_about_page.sql is applied)
+    // and an unsaved CMS both render the page unchanged.
+    about_page: normaliseAboutContent(r.about_page),
     // Landing-page slider images (jsonb string[]); default when empty/missing.
     home_slider:
       Array.isArray(r.home_slider) && (r.home_slider as unknown[]).length > 0

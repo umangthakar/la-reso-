@@ -69,6 +69,17 @@ export type ImageDropzoneProps = {
   accept?: string[];
   /** Size cap in bytes. Forwarded to the server, which clamps it. */
   maxBytes?: number;
+  /** Folder inside the shared site-assets bucket to store under, e.g. "about".
+   *  Omit to store at the bucket root, which is where every caller that
+   *  predates this option still writes. A module that owns a folder can clean
+   *  up inside it safely — see the route's header. */
+  prefix?: string;
+  /** What this image IS, for the preview's alt text and the ratio note, e.g.
+   *  "About page photo". Defaults to the popup background this was built for. */
+  label?: string;
+  /** Called with each uploaded URL, so the parent can clean up an image that
+   *  was uploaded and then replaced or abandoned before Save. */
+  onUploaded?: (url: string) => void;
   /** e.g. "1600×900" — shown in the hint and used for the ratio warning. */
   recommendedWidth?: number;
   recommendedHeight?: number;
@@ -84,6 +95,9 @@ export function ImageDropzone({
   onChange,
   accept = DEFAULT_ACCEPT,
   maxBytes = DEFAULT_MAX_BYTES,
+  prefix,
+  label = "Popup background",
+  onUploaded,
   recommendedWidth = 1600,
   recommendedHeight = 900,
   previewAspect = "16 / 9",
@@ -141,7 +155,13 @@ export function ImageDropzone({
         const { url } = await adminUpload(file, "/api/admin/site-assets/upload", {
           maxBytes: String(maxBytes),
           accept: accept.join(","),
+          ...(prefix ? { prefix } : {}),
         });
+        // The file EXISTS in the bucket from here on, whether or not this
+        // component is still mounted — so the parent is told before the
+        // liveness check, or an unmount mid-upload would strand the object with
+        // nothing tracking it.
+        onUploaded?.(url);
         if (!alive.current) return;
         onChange(url);
 
@@ -150,7 +170,7 @@ export function ImageDropzone({
         const actual = size.width / size.height;
         if (Math.abs(actual - target) / target > 0.12) {
           setNotice(
-            `Uploaded. This image is ${size.width}×${size.height}; ${recommendedWidth}×${recommendedHeight} fills the popup best, so the edges may be cropped.`,
+            `Uploaded. This image is ${size.width}×${size.height}; ${recommendedWidth}×${recommendedHeight} fits best, so the edges may be cropped.`,
           );
         }
       } catch (err) {
@@ -159,7 +179,7 @@ export function ImageDropzone({
         if (alive.current) setBusyBoth(false);
       }
     },
-    [accept, maxBytes, onChange, recommendedWidth, recommendedHeight, setBusyBoth],
+    [accept, maxBytes, prefix, onChange, onUploaded, recommendedWidth, recommendedHeight, setBusyBoth],
   );
 
   function handlePick(e: React.ChangeEvent<HTMLInputElement>) {
@@ -223,7 +243,7 @@ export function ImageDropzone({
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={value}
-                alt="Popup background preview"
+                alt={`${label} preview`}
                 loading="lazy"
                 decoding="async"
                 style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
