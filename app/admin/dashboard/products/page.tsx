@@ -117,6 +117,12 @@ type SizeItem = {
   nutrition: NutritionData;
 };
 
+// More Information block for the product detail page accordion.
+type MoreInfoBlock = {
+  title: string;
+  content: string;
+};
+
 type FormState = {
   id: string | null;
   name: string;
@@ -140,6 +146,8 @@ type FormState = {
   nutrition: NutritionData;
   // Admin-defined extra rows (Vitamin C, Calcium, …), in insertion order.
   nutritionCustom: NutritionCustomRow[];
+  // More Information blocks for the product detail page.
+  moreInfo: MoreInfoBlock[];
 };
 
 const EMPTY_FORM: FormState = {
@@ -160,6 +168,7 @@ const EMPTY_FORM: FormState = {
   sizes: [],
   nutrition: emptyNutrition(),
   nutritionCustom: [],
+  moreInfo: [],
 };
 
 export default function ProductsAdminPage() {
@@ -168,6 +177,7 @@ export default function ProductsAdminPage() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   // "" = All Categories. Applied in the DB (see load()), not in the browser, so
   // it narrows the whole catalogue rather than only the loaded page.
   const [categoryFilter, setCategoryFilter] = useState("");
@@ -178,6 +188,14 @@ export default function ProductsAdminPage() {
   const [sortKey, setSortKey] = useState<ProductSortKey>(DEFAULT_PRODUCT_SORT);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  // Debounce search term (300ms) so typing doesn't fire a request per keystroke.
+  // Stale responses are ignored by only applying the debounced value to the
+  // load() dependency — the request always uses the latest debounced value.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchTerm.trim()), 300);
+    return () => clearTimeout(t);
+  }, [searchTerm]);
 
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [showForm, setShowForm] = useState(false);
@@ -228,33 +246,18 @@ export default function ProductsAdminPage() {
     return Array.from(seen.values()).sort((a, b) => a.localeCompare(b));
   }, [categoryNames, products, categoryFilter]);
 
-  // ---- Instant client-side product search (no DB call, no reload) ----------
-  // Filters the products ALREADY loaded for the current page as the admin
-  // types. Case-insensitive; matches name, the product's short reference (the
-  // nearest thing this catalogue has to a SKU — the products table has no sku
-  // column, so the same first-block-of-the-id the hero picker shows is used
-  // here), and the category and badge the box has always searched.
-  //
-  // Memoised so it only recomputes when the list or the term changes, and it
-  // preserves the order it is given — the database has already sorted, so
-  // filtering an array cannot disturb it. Runs ON TOP of the category filter,
-  // since the loaded page is already narrowed to it.
-  const searching = searchTerm.trim().length > 0;
+  // Search is now performed server-side (debouncedSearch), so the products
+  // array already contains the filtered results. We only need to track whether
+  // a search is active for UI purposes (e.g. disabling drag-reorder).
+  const searching = debouncedSearch.length > 0;
   // Either control being active means the table is showing a subset.
   const filtering = searching || categoryFilter !== "";
   // Dragging persists sort_order from the row positions on screen, so it is
   // only honest when those positions ARE sort_order and the page holds the
   // whole slice — never over a sorted list or a filtered subset.
   const canReorder = sortKey === "manual" && !filtering;
-  const filteredProducts = useMemo(() => {
-    const q = searchTerm.trim().toLowerCase();
-    if (!q) return products;
-    return products.filter((p) =>
-      [p.name, shortRef(p.id), p.category, p.badge].some((field) =>
-        (field ?? "").toLowerCase().includes(q),
-      ),
-    );
-  }, [products, searchTerm]);
+  // Products are already filtered by the API; no client-side filter needed.
+  const filteredProducts = products;
 
   // Switching category restarts at page 1 — page 3 of "all products" is rarely
   // a page that exists once the list is narrowed to one category.
@@ -270,16 +273,23 @@ export default function ProductsAdminPage() {
     setPage(1);
   }
 
+  // Changing search also restarts at page 1 since the result set changes.
+  function changeSearch(next: string) {
+    setSearchTerm(next);
+    setPage(1);
+  }
+
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      // ONE request per page/category/sort combination — adminGet caches by
+      // ONE request per page/category/sort/search combination — adminGet caches by
       // URL, so returning to a combination already viewed is served from
       // memory without touching the network.
       const data = await adminGet<{ products: Product[]; total: number }>(
         `/api/admin/products?page=${page}&pageSize=${PAGE_SIZE}&sort=${sortKey}` +
-          (categoryFilter ? `&category=${encodeURIComponent(categoryFilter)}` : ""),
+          (categoryFilter ? `&category=${encodeURIComponent(categoryFilter)}` : "") +
+          (debouncedSearch ? `&search=${encodeURIComponent(debouncedSearch)}` : ""),
       );
       setProducts(data.products || []);
       setTotal(data.total || 0);
@@ -290,7 +300,7 @@ export default function ProductsAdminPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, categoryFilter, sortKey]);
+  }, [page, categoryFilter, sortKey, debouncedSearch]);
 
   // Live category names for the product form dropdown. Kept in sync with the
   // Categories panel below via the onChanged callback.
@@ -344,6 +354,7 @@ export default function ProductsAdminPage() {
       sizes: [],
       nutrition: emptyNutrition(),
       nutritionCustom: [],
+      moreInfo: [],
     });
     setIngredientInput("");
     setOpenSizeNutrition(null);
@@ -368,6 +379,7 @@ export default function ProductsAdminPage() {
             price: number;
             nutrition?: NutritionData | null;
           }[];
+          moreInfo: MoreInfoBlock[];
         }>(`/api/admin/products/${p.id}/details`, { force: true });
         setForm((f) => {
           if (f.id !== p.id) return f; // a different product was opened meanwhile
@@ -383,6 +395,7 @@ export default function ProductsAdminPage() {
             // Fill blanks for any missing keys so every cell renders.
             nutrition: normalizeNutrition(d.nutrition) ?? emptyNutrition(),
             nutritionCustom: normalizeCustomNutrition(d.nutritionCustom),
+            moreInfo: Array.isArray(d.moreInfo) ? d.moreInfo : [],
             images,
             sizes: (d.sizes || []).map((s) => ({
               id: s.id,
@@ -468,6 +481,32 @@ export default function ProductsAdminPage() {
       const rows = [...f.nutritionCustom];
       [rows[i], rows[j]] = [rows[j], rows[i]];
       return { ...f, nutritionCustom: rows };
+    });
+  }
+
+  // ---- More Information block helpers ----
+  function addMoreInfoBlock() {
+    setForm((f) => ({
+      ...f,
+      moreInfo: [...f.moreInfo, { title: "", content: "" }],
+    }));
+  }
+  function updateMoreInfoBlock(i: number, patch: Partial<MoreInfoBlock>) {
+    setForm((f) => ({
+      ...f,
+      moreInfo: f.moreInfo.map((b, n) => (n === i ? { ...b, ...patch } : b)),
+    }));
+  }
+  function removeMoreInfoBlock(i: number) {
+    setForm((f) => ({ ...f, moreInfo: f.moreInfo.filter((_, n) => n !== i) }));
+  }
+  function moveMoreInfoBlock(i: number, dir: -1 | 1) {
+    setForm((f) => {
+      const j = i + dir;
+      if (j < 0 || j >= f.moreInfo.length) return f;
+      const blocks = [...f.moreInfo];
+      [blocks[i], blocks[j]] = [blocks[j], blocks[i]];
+      return { ...f, moreInfo: blocks };
     });
   }
 
@@ -617,6 +656,8 @@ export default function ProductsAdminPage() {
       nutrition: form.nutrition,
       // Custom rows in insertion order; server drops blank-label drafts.
       nutrition_custom: form.nutritionCustom,
+      // More Information blocks for the product detail page accordion.
+      more_info: form.moreInfo,
       images: form.images.map((im, i) => ({
         url: im.url,
         sort_order: i,
@@ -714,10 +755,9 @@ export default function ProductsAdminPage() {
 
       {/* THE FILTER ROW — Search + Category + Sort on the left, Add product on
           the right. One row on desktop, wrapping as a group on tablet, each
-          control full-width on its own line on mobile. Search filters the
-          loaded products instantly in the browser; Category and Sort go to the
-          query so they reach the whole catalogue rather than one page. All
-          three combine. */}
+          control full-width on its own line on mobile. Search, Category, and Sort
+          all go to the query so they reach the whole catalogue rather than one
+          page. All three combine. */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12, marginTop: 16 }}>
         <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 12, width: isMobile ? "100%" : "auto" }}>
           <div style={{ position: "relative", width: isMobile ? "100%" : 360, maxWidth: "100%" }}>
@@ -730,7 +770,7 @@ export default function ProductsAdminPage() {
             <input
               type="text"
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={(e) => changeSearch(e.target.value)}
               placeholder="Search products..."
               aria-label="Search products by name, reference, category or badge"
               style={{ ...inputStyle, paddingLeft: 38 }}
@@ -773,13 +813,13 @@ export default function ProductsAdminPage() {
         <p style={{ color: BERRY, opacity: 0.7, marginTop: 24 }}>
           No products yet. Click “Add product” to create your first one.
         </p>
-      ) : filteredProducts.length === 0 ? (
-        /* Nothing matched — which is a filter result, not an empty catalogue,
-           so it says so rather than repeating "no products yet". */
+      ) : products.length === 0 ? (
+        /* Nothing matched — which is a filter result (server-side search/category),
+           not an empty catalogue, so it says so rather than repeating "no products yet". */
         <div style={{ marginTop: 16, padding: "36px 16px", textAlign: "center", color: BERRY, background: "white", borderRadius: 16, boxShadow: "0 10px 30px rgba(135,56,83,0.08)" }}>
           <p style={{ margin: 0, fontWeight: 700 }}>No matching products found.</p>
           <p style={{ margin: "6px 0 0", opacity: 0.7, fontSize: "0.9rem" }}>
-            {categoryFilter
+            {categoryFilter || debouncedSearch
               ? "Try a different search, or switch back to All Categories."
               : "Try a different name, reference, category or badge."}
           </p>
@@ -846,9 +886,8 @@ export default function ProductsAdminPage() {
             </DndContext>
           )}
 
-          {/* Pagination — hidden while searching, since the filter applies to
-              the loaded page and these controls page the full catalogue. */}
-          {!searching && totalPages > 1 && (
+          {/* Pagination — now works with search too since filtering happens in the DB. */}
+          {totalPages > 1 && (
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 16, color: BERRY }}>
               <span style={{ fontSize: "0.9rem", opacity: 0.7 }}>
                 Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} of {total}
@@ -1144,6 +1183,85 @@ export default function ProductsAdminPage() {
               </button>
               <p style={{ color: BERRY, opacity: 0.6, fontSize: "0.78rem", marginTop: 6 }}>
                 Add your own rows (e.g. Vitamin C, Calcium, Iron). Values can include units like “mg”.
+              </p>
+            </div>
+
+            {/* More Information — collapsible blocks for the product detail page. */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={labelStyle}>More Information</label>
+              <p style={{ color: BERRY, opacity: 0.6, fontSize: "0.78rem", marginBottom: 8 }}>
+                Add collapsible info blocks (e.g. Please note, Delivery) that appear on the product page.
+              </p>
+              {form.moreInfo.length > 0 && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {form.moreInfo.map((block, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        border: `1px solid rgba(135,56,83,0.18)`,
+                        borderRadius: 12,
+                        padding: 12,
+                        background: "#fff",
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+                        <span style={{ fontSize: "0.8rem", fontWeight: 600, color: BERRY }}>
+                          Block {i + 1}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => removeMoreInfoBlock(i)}
+                          aria-label={`Remove info block ${i + 1}`}
+                          style={{ ...miniBtn(false), color: "#d9534f", borderColor: "#d9534f" }}
+                        >
+                          🗑
+                        </button>
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        <input
+                          style={inputStyle}
+                          value={block.title}
+                          onChange={(e) => updateMoreInfoBlock(i, { title: e.target.value })}
+                          placeholder="Title (e.g. Please note)"
+                          aria-label={`Info block ${i + 1} title`}
+                        />
+                        <textarea
+                          style={{ ...inputStyle, minHeight: 80, resize: "vertical" }}
+                          value={block.content}
+                          onChange={(e) => updateMoreInfoBlock(i, { content: e.target.value })}
+                          placeholder="Content (e.g. The figurines are attached to food safe acrylic discs...)"
+                          aria-label={`Info block ${i + 1} content`}
+                        />
+                        <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                          <button
+                            type="button"
+                            onClick={() => moveMoreInfoBlock(i, -1)}
+                            disabled={i === 0}
+                            title="Move up"
+                            style={miniBtn(i === 0)}
+                          >
+                            ↑
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => moveMoreInfoBlock(i, 1)}
+                            disabled={i === form.moreInfo.length - 1}
+                            title="Move down"
+                            style={miniBtn(i === form.moreInfo.length - 1)}
+                          >
+                            ↓
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <button type="button" onClick={addMoreInfoBlock} style={{ ...secondaryBtn, padding: "8px 14px", marginTop: 10 }}>
+                + Add Information Block
+              </button>
+              <p style={{ color: BERRY, opacity: 0.6, fontSize: "0.78rem", marginTop: 6 }}>
+                Each block appears as a titled section in the More Information accordion on the product page. Leave empty to hide.
               </p>
             </div>
 

@@ -126,6 +126,12 @@ type SizeVariant = {
   nutrition: NutritionData | null;
 };
 
+// More Information block for the product detail page accordion.
+type MoreInfoBlock = {
+  title: string;
+  content: string;
+};
+
 function Stars({ value }: { value: number }) {
   const full = Math.floor(value);
   const half = value - full >= 0.5;
@@ -178,6 +184,9 @@ export default function ProductDetailPage() {
   const [ingredientsOpen, setIngredientsOpen] = useState(false);
   const [nutrition, setNutrition] = useState<NutritionData | null>(null);
   const [nutritionCustom, setNutritionCustom] = useState<NutritionCustomRow[]>([]);
+  // More Information blocks for the collapsible accordion section.
+  const [moreInfo, setMoreInfo] = useState<MoreInfoBlock[]>([]);
+  const [moreInfoOpen, setMoreInfoOpen] = useState(false);
   // Flips true once the extras (esp. sizes) have loaded for this product, so a
   // resumed "Buy Now" can restore the exact size the customer had chosen.
   const [extrasReady, setExtrasReady] = useState(false);
@@ -403,6 +412,24 @@ export default function ProductDetailPage() {
         }
       } catch {
         if (!cancelled) setNutritionCustom([]);
+      }
+
+      // More Information blocks — own read/try so a missing `more_info` column
+      // (48_product_more_info.sql not run) leaves it empty.
+      try {
+        const { data, error } = await db
+          .from("products")
+          .select("more_info")
+          .eq("id", productId)
+          .maybeSingle();
+        if (!cancelled) {
+          const raw = error
+            ? []
+            : (data as { more_info?: unknown } | null)?.more_info;
+          setMoreInfo(Array.isArray(raw) ? raw : []);
+        }
+      } catch {
+        if (!cancelled) setMoreInfo([]);
       }
 
       if (!cancelled) setExtrasReady(true);
@@ -852,6 +879,59 @@ export default function ProductDetailPage() {
                     </div>
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* More Information — collapsible accordion with admin-defined blocks.
+                Only rendered when the product has at least one block. */}
+            {moreInfo.length > 0 && (
+              <div className="mt-5">
+                <div className="overflow-hidden rounded-2xl bg-[#F9EEEA] shadow-clay-sm transition-shadow duration-200 hover:shadow-clay">
+                  <button
+                    type="button"
+                    onClick={() => setMoreInfoOpen((v) => !v)}
+                    aria-expanded={moreInfoOpen}
+                    aria-controls="more-info-panel"
+                    className="flex w-full cursor-pointer items-center justify-between gap-2 p-4 text-left"
+                  >
+                    <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-wine-dark">
+                      <MessageCircle className="h-4 w-4 shrink-0" />
+                      More Information
+                    </span>
+                    <ChevronDown
+                      className={`h-4 w-4 shrink-0 text-wine-dark transition-transform duration-300 ${
+                        moreInfoOpen ? "rotate-180" : "rotate-0"
+                      }`}
+                      aria-hidden="true"
+                    />
+                  </button>
+
+                  <div
+                    id="more-info-panel"
+                    className={`grid overflow-hidden transition-all duration-300 ease-in-out ${
+                      moreInfoOpen
+                        ? "grid-rows-[1fr] opacity-100"
+                        : "grid-rows-[0fr] opacity-0"
+                      }`}
+                  >
+                    <div className="min-h-0">
+                      <div className="px-4 pb-4 space-y-4">
+                        {moreInfo.map((block, i) => (
+                          <div key={i} className="border-t border-dustyrose/30 pt-4 first:pt-0 first:border-none">
+                            {block.title && (
+                              <h4 className="font-display text-base font-bold text-darkberry mb-1">
+                                {block.title}
+                              </h4>
+                            )}
+                            <p className="text-sm leading-relaxed text-darkberry-light whitespace-pre-line">
+                              {block.content}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
 

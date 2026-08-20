@@ -101,29 +101,29 @@ export function OrderCTA() {
                 <div className="flex max-h-[500px] flex-col items-center gap-3 overflow-y-auto px-2 py-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                   <ProductHighlightCard
                     className="h-[280px] w-[220px] shrink-0"
-                    category="Birthday Cakes"
-                    categoryIcon={<Cake className="h-4 w-4" />}
-                    title="Rose Pistachio"
-                    description="Three layers of rose-scented sponge & pistachio cream"
-                    imageSrc="https://images.unsplash.com/photo-1578985545062-69928b1d9587?auto=format&fit=crop&w=900&q=80"
+                    category="Custom Cakes"
+                    categoryIcon={<Sparkles className="h-4 w-4" />}
+                    title="Rose Pistachio Celebration Cake"
+                    description="Delicate rose sponge with pistachio buttercream and edible flowers."
+                    imageSrc="/images/images1.png"
                     imageAlt="Rose Pistachio Celebration Cake"
                   />
                   <ProductHighlightCard
                     className="h-[280px] w-[220px] shrink-0"
-                    category="Cupcakes"
-                    categoryIcon={<Star className="h-4 w-4" />}
-                    title="Vanilla Buttercream"
-                    description="Madagascar vanilla sponge with silky buttercream swirls"
-                    imageSrc="https://images.unsplash.com/photo-1486427944299-d1955d23e34d?auto=format&fit=crop&w=900&q=80"
+                    category="Custom Cakes"
+                    categoryIcon={<Sparkles className="h-4 w-4" />}
+                    title="Vanilla Bean Buttercream Cupcakes"
+                    description="Light vanilla sponge topped with silky vanilla bean buttercream."
+                    imageSrc="/images/images2.png"
                     imageAlt="Vanilla Bean Buttercream Cupcakes"
                   />
                   <ProductHighlightCard
                     className="h-[280px] w-[220px] shrink-0"
                     category="Custom Cakes"
                     categoryIcon={<Sparkles className="h-4 w-4" />}
-                    title="Dream Cake"
-                    description="Designed around your occasion, flavours & vision"
-                    imageSrc="https://images.unsplash.com/photo-1565958011703-44f9829ba187?auto=format&fit=crop&w=900&q=80"
+                    title="Strawberries & Cream Dream Cake"
+                    description="Fresh strawberries layered with vanilla cream on a light sponge."
+                    imageSrc="/images/images3.png"
                     imageAlt="Strawberries & Cream Dream Cake"
                   />
                 </div>

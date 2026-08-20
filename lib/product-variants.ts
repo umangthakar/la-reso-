@@ -40,6 +40,44 @@ export type ProductSizeInput = {
   nutrition?: unknown;
 };
 
+/** A single More Information block. */
+export type MoreInfoBlock = {
+  title: string;
+  content: string;
+};
+
+/** Normalize an incoming more_info value into a validated array of blocks.
+ *  Limits: max 10 blocks, title max 80 chars, content max 2000 chars. */
+export function normalizeMoreInfo(raw: unknown): MoreInfoBlock[] {
+  if (!Array.isArray(raw)) return [];
+  const out: MoreInfoBlock[] = [];
+  for (const item of raw) {
+    const title = String(item?.title ?? "").trim().slice(0, 80);
+    const content = String(item?.content ?? "").trim().slice(0, 2000);
+    if (!title && !content) continue;
+    out.push({ title, content });
+    if (out.length >= 10) break;
+  }
+  return out;
+}
+
+/** Persist the More Information blocks onto products.more_info (jsonb).
+ *  An empty array clears it (stored as null → no section shown). No-op if
+ *  the column doesn't exist yet (48_product_more_info.sql not run). */
+export async function saveMoreInfo(
+  supabase: SupabaseClient,
+  productId: string,
+  blocks: MoreInfoBlock[],
+): Promise<void> {
+  const { error } = await supabase
+    .from("products")
+    .update({ more_info: blocks.length > 0 ? blocks : null })
+    .eq("id", productId);
+  if (error && !isMissingObject(error)) {
+    console.error("[product-variants] saveMoreInfo:", error.message);
+  }
+}
+
 /** True when an error is "table/column/relation does not exist" — i.e. the
  *  migration hasn't been run yet. We swallow these so the core product save
  *  still succeeds. */
@@ -288,6 +326,7 @@ export async function persistExtras(
     sizes?: ProductSizeInput[];
     nutrition?: unknown;
     nutrition_custom?: unknown;
+    more_info?: unknown;
   },
 ): Promise<void> {
   if (body.ingredients !== undefined) {
@@ -322,6 +361,9 @@ export async function persistExtras(
   if (body.sizes !== undefined) {
     await saveSizes(supabase, productId, body.sizes ?? []);
   }
+  if (body.more_info !== undefined) {
+    await saveMoreInfo(supabase, productId, normalizeMoreInfo(body.more_info));
+  }
 }
 
 /** Read a product's ingredients / images / sizes for the admin edit form.
@@ -344,6 +386,7 @@ export async function readProductExtras(
     sort_order: number;
     nutrition: NutritionData | null;
   }[];
+  moreInfo: MoreInfoBlock[];
 }> {
   let ingredients: string[] = [];
   try {
@@ -430,6 +473,22 @@ export async function readProductExtras(
     nutritionCustom = [];
   }
 
+  // More Information blocks — own try/catch so a missing `more_info` column
+  // (48_product_more_info.sql not run) leaves it empty.
+  let moreInfo: MoreInfoBlock[] = [];
+  try {
+    const { data, error } = await supabase
+      .from("products")
+      .select("more_info")
+      .eq("id", productId)
+      .maybeSingle();
+    if (!error) {
+      moreInfo = normalizeMoreInfo((data as { more_info?: unknown } | null)?.more_info);
+    }
+  } catch {
+    moreInfo = [];
+  }
+
   let images: { id: string; url: string; sort_order: number; is_primary: boolean }[] = [];
   try {
     const { data, error } = await supabase
@@ -485,5 +544,5 @@ export async function readProductExtras(
     sizes = [];
   }
 
-  return { ingredients, ingredientsRich, ingredientIcons, nutrition, nutritionCustom, images, sizes };
+  return { ingredients, ingredientsRich, ingredientIcons, nutrition, nutritionCustom, images, sizes, moreInfo };
 }

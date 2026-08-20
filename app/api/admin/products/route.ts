@@ -49,6 +49,10 @@ export async function GET(req: Request) {
   // the filtered total. Absent/blank = every category, exactly as before.
   const category = (url.searchParams.get("category") ?? "").trim();
 
+  // Optional search term — matches name, category, badge, description, allergens.
+  // Applied in the DB so it searches the entire catalogue before pagination, not just the loaded page.
+  const search = (url.searchParams.get("search") ?? "").trim();
+
   // Which order to return them in — see lib/product-sort for the options and
   // why the database rather than the browser does this. Unrecognised or absent
   // (every caller that predates the Sort dropdown) falls back to A→Z.
@@ -74,6 +78,16 @@ export async function GET(req: Request) {
       if (sort.column !== "name") query = query.order("name", { ascending: true });
 
       if (category) query = query.eq("category", category);
+
+      // Search across multiple text fields: name, category, badge, description,
+      // allergens. Uses ilike for case-insensitive partial matching.
+      // (products.id is UUID — no ILIKE; no dedicated SKU/reference column exists.)
+      if (search) {
+        const pattern = `%${search}%`;
+        query = query.or(
+          `name.ilike.${pattern},category.ilike.${pattern},badge.ilike.${pattern},description.ilike.${pattern},allergens.ilike.${pattern}`,
+        );
+      }
 
       return query.range(from, to);
     };

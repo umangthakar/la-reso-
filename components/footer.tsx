@@ -247,7 +247,7 @@ export function Footer() {
               </li>
             </ul>
             <p className="mt-4 text-xs text-blush-100/60">
-              Open Tue–Sun · 9am – 7pm
+              Open Mon–Sat · 9am – 7pm
             </p>
           </div>
         </div>
