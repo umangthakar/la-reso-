@@ -53,7 +53,7 @@ export default async function ContactPage() {
     ...(address ? [{ icon: MapPin, label: "Visit us", value: address }] : []),
     ...(phone ? [{ icon: Phone, label: "Call us", value: phone }] : []),
     ...(email ? [{ icon: Mail, label: "Email", value: email }] : []),
-    { icon: Clock, label: "Hours", value: "Tue–Sun · 9am – 7pm" },
+    { icon: Clock, label: "Hours", value: "Mon–Sat · 9am – 7pm" },
   ];
 
   return (
